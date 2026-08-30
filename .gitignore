@@ -14,10 +14,6 @@ venv/
 .venv/
 ENV/
 
-# Database
-*.db
-*.sqlite
-*.sqlite3
 
 # macOS
 .DS_Store
