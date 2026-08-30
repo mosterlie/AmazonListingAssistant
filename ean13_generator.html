@@ -1,0 +1,1455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EAN-13 智能条码生成器 (本地留存排重版)</title>
+  <style>
+    :root {
+      --bg-primary: #0b0f19;
+      --bg-secondary: #111827;
+      --bg-card: rgba(17, 24, 39, 0.85);
+      --bg-card-hover: rgba(31, 41, 55, 0.7);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-focus: #3b82f6;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --accent-blue: #3b82f6;
+      --accent-cyan: #06b6d4;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-purple: #8b5cf6;
+      --accent-red: #ef4444;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --shadow-card: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+      --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    body {
+      background: radial-gradient(circle at 10% 20%, #172554 0%, #0b0f19 50%, #030712 100%);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding: 22px 20px 60px;
+    }
+
+    .container {
+      max-width: 1260px;
+      margin: 0 auto;
+    }
+
+    /* 顶部标题区 */
+    header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .badge-header {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 9999px;
+      font-size: 13px;
+      color: #34d399;
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #ffffff 0%, #a7f3d0 40%, #38bdf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 6px;
+      letter-spacing: -0.5px;
+    }
+
+    .sub-title {
+      font-size: 13px;
+      color: var(--text-muted);
+      max-width: 720px;
+      line-height: 1.5;
+    }
+
+    /* 顶部状态横幅：本地留存与排重 */
+    .storage-banner {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .storage-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .storage-card-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .storage-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+    }
+
+    .storage-info h4 {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 2px;
+    }
+
+    .storage-info p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .storage-count {
+      font-size: 18px;
+      font-weight: 800;
+      font-family: monospace;
+      color: #34d399;
+    }
+
+    /* 主网格布局 */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    @media (max-width: 980px) {
+      .main-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* 卡片容器 */
+    .card {
+      background: var(--bg-card);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      box-shadow: var(--shadow-card);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* 随机参数触发栏 */
+    .param-random-bar {
+      background: rgba(59, 130, 246, 0.08);
+      border: 1px dashed rgba(59, 130, 246, 0.3);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .btn-dice {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 7px 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: var(--transition);
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+    }
+
+    .btn-dice:hover {
+      background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+      transform: scale(1.02);
+    }
+
+    /* 表单控件 */
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-group label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 6px;
+    }
+
+    .form-group .label-tag {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: normal;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .form-input {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 9px 12px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+      letter-spacing: 1px;
+      outline: none;
+      transition: var(--transition);
+    }
+
+    .form-input:focus {
+      border-color: var(--border-focus);
+      background: rgba(0, 0, 0, 0.45);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+    }
+
+    .form-input.highlight {
+      animation: inputGlow 0.8s ease-out;
+    }
+
+    @keyframes inputGlow {
+      0% { border-color: #38bdf8; box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.15); }
+      100% { border-color: var(--border-color); box-shadow: none; background: rgba(0, 0, 0, 0.3); }
+    }
+
+    .btn-input-mini {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      padding: 8px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .btn-input-mini:hover {
+      background: rgba(59, 130, 246, 0.2);
+      border-color: rgba(59, 130, 246, 0.4);
+      color: #93c5fd;
+    }
+
+    .rule-status {
+      font-size: 11px;
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: #94a3b8;
+    }
+
+    .rule-status.valid { color: var(--accent-emerald); }
+    .rule-status.invalid { color: var(--accent-amber); }
+
+    /* 快捷数量按钮 */
+    .quick-counts {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .btn-quick {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      font-size: 12px;
+      padding: 5px 0;
+      cursor: pointer;
+      transition: var(--transition);
+      text-align: center;
+    }
+
+    .btn-quick:hover, .btn-quick.active {
+      background: rgba(59, 130, 246, 0.2);
+      border-color: rgba(59, 130, 246, 0.4);
+      color: #93c5fd;
+    }
+
+    /* 按钮组 */
+    .actions-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      font-weight: 600;
+      padding: 11px 16px;
+      cursor: pointer;
+      border: none;
+      transition: var(--transition);
+      user-select: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #fff;
+      box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.35);
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
+      transform: translateY(-1px);
+    }
+
+    .btn-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-outline-danger {
+      background: transparent;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #f87171;
+    }
+
+    .btn-outline-danger:hover {
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.5);
+    }
+
+    /* 结果展示区 */
+    .result-stats-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-color);
+      margin-bottom: 14px;
+    }
+
+    .stats-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .stats-val {
+      font-weight: 700;
+      color: #fff;
+      font-family: monospace;
+    }
+
+    .stats-val.green { color: var(--accent-emerald); }
+    .stats-val.blue { color: var(--accent-cyan); }
+
+    /* 表格容器 */
+    .table-container {
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      overflow-x: auto;
+      max-height: 500px;
+      overflow-y: auto;
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+
+    thead {
+      position: sticky;
+      top: 0;
+      background: #1e293b;
+      z-index: 2;
+    }
+
+    th {
+      padding: 10px 12px;
+      font-weight: 600;
+      color: #94a3b8;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 9px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: var(--text-main);
+      vertical-align: middle;
+    }
+
+    tbody tr:hover {
+      background: var(--bg-card-hover);
+    }
+
+    .code-pill {
+      font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+      font-size: 14px;
+      font-weight: 700;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.1);
+      padding: 3px 8px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .code-pill:hover {
+      background: rgba(56, 189, 248, 0.22);
+      color: #7dd3fc;
+    }
+
+    .tag {
+      font-family: monospace;
+      font-size: 12px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .tag.tag-country { color: #60a5fa; border: 1px solid rgba(96, 165, 250, 0.2); }
+    .tag.tag-mfg { color: #34d399; border: 1px solid rgba(52, 211, 153, 0.2); }
+    .tag.tag-prod { color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.2); }
+    .tag.tag-check { color: #f472b6; font-weight: bold; border: 1px solid rgba(244, 114, 182, 0.3); }
+
+    .barcode-svg-cell {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 110px;
+    }
+
+    .barcode-svg-cell svg {
+      height: 28px;
+      background: #ffffff;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+
+    .btn-action-sm {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-color);
+      color: #cbd5e1;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .btn-action-sm:hover {
+      background: rgba(59, 130, 246, 0.2);
+      border-color: rgba(59, 130, 246, 0.4);
+      color: #93c5fd;
+    }
+
+    /* 空状态 */
+    .empty-state {
+      padding: 60px 20px;
+      text-align: center;
+      color: var(--text-muted);
+    }
+
+    .empty-icon {
+      font-size: 40px;
+      margin-bottom: 12px;
+      opacity: 0.5;
+    }
+
+    /* 校验详情模态框 */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .modal-backdrop.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal {
+      background: #1e293b;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      max-width: 580px;
+      width: 90%;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
+      transform: scale(0.95);
+      transition: transform 0.2s ease;
+    }
+
+    .modal-backdrop.show .modal {
+      transform: scale(1);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .btn-close {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 20px;
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .calc-box {
+      background: #0f172a;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+      font-family: monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      color: #cbd5e1;
+      margin-bottom: 16px;
+    }
+
+    .calc-highlight { color: #38bdf8; font-weight: bold; }
+    .calc-even { color: #34d399; font-weight: bold; }
+    .calc-odd { color: #fbbf24; font-weight: bold; }
+    .calc-res { color: #f472b6; font-weight: bold; font-size: 14px; }
+
+    /* 历史库文本展示 */
+    .history-textarea {
+      width: 100%;
+      height: 240px;
+      background: #0f172a;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: #38bdf8;
+      font-family: monospace;
+      font-size: 13px;
+      padding: 10px;
+      outline: none;
+      resize: vertical;
+      margin-bottom: 14px;
+    }
+
+    /* Toast 通知 */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: rgba(16, 185, 129, 0.95);
+      backdrop-filter: blur(8px);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 18px;
+      border-radius: 8px;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 1000;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- 顶部标题 -->
+    <header>
+      <div class="badge-header">
+        <span>💾</span> 最轻量级本地持久化 • 全局防重复排重
+      </div>
+      <h1>EAN-13 智能条码生成器 (本地排重留存版)</h1>
+      <p class="sub-title">第 1 步先随机生成 3 项参数填入输入框，第 2 步比对本地已存历史库，仅生成并留存不存在的全新条码。</p>
+    </header>
+
+    <!-- 本地留存状态总览卡片 -->
+    <div class="storage-banner">
+      <div class="storage-card">
+        <div class="storage-card-left">
+          <div class="storage-icon">💾</div>
+          <div class="storage-info">
+            <h4>本地历史已留存库</h4>
+            <p>基于原生 localStorage 永久留存</p>
+          </div>
+        </div>
+        <div class="storage-count" id="headerHistoryCount">0</div>
+      </div>
+
+      <div class="storage-card">
+        <div class="storage-card-left">
+          <div class="storage-icon" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">✨</div>
+          <div class="storage-info">
+            <h4>本次新生成条码</h4>
+            <p>100% 过滤历史库已有记录</p>
+          </div>
+        </div>
+        <div class="storage-count" style="color: #38bdf8;" id="headerCurrentCount">0</div>
+      </div>
+
+      <div class="storage-card" style="justify-content: flex-end; gap: 8px;">
+        <button type="button" class="btn btn-secondary" style="padding: 8px 12px; font-size: 12px;" onclick="openHistoryModal()">
+          <span>📂</span> 管理本地历史库
+        </button>
+      </div>
+    </div>
+
+    <!-- 主操作区 -->
+    <div class="main-grid">
+      <!-- 左侧：参数配置面板 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span>⚙️</span> 输入框参数设定
+          </div>
+          <span style="font-size: 12px; color: var(--accent-emerald);">● 查重排重开启</span>
+        </div>
+
+        <!-- 步骤 1 一键随机刷新按钮 -->
+        <div class="param-random-bar">
+          <span style="font-size: 12px; color: #93c5fd; font-weight: 500;">
+            🎲 步骤 1：一键随机三项参数
+          </span>
+          <button type="button" class="btn-dice" id="btnRandomParams" onclick="randomizeAllParams(true)">
+            <span>🎲</span> 随机刷新输入框
+          </button>
+        </div>
+
+        <!-- 国家代码 -->
+        <div class="form-group">
+          <label for="countryInput">
+            <span>1. 国家代码 (3位)</span>
+            <span class="label-tag">3位随机数字</span>
+          </label>
+          <div class="input-wrapper">
+            <input type="text" id="countryInput" class="form-input" maxlength="3" value="485" placeholder="例如: 485" oninput="validateInputState()">
+            <button type="button" class="btn-input-mini" onclick="randomizeSingle('country')" title="单独随机刷新国家代码">🎲</button>
+          </div>
+          <div class="rule-status valid" id="countryStatus">✓ 格式正确 (3位)</div>
+        </div>
+
+        <!-- 厂商代码 -->
+        <div class="form-group">
+          <label for="mfgInput">
+            <span>2. 厂商代码 (4位)</span>
+            <span class="label-tag">相邻非同号、非连号</span>
+          </label>
+          <div class="input-wrapper">
+            <input type="text" id="mfgInput" class="form-input" maxlength="4" value="3719" placeholder="例如: 3719" oninput="validateInputState()">
+            <button type="button" class="btn-input-mini" onclick="randomizeSingle('mfg')" title="单独随机刷新厂商代码">🎲</button>
+          </div>
+          <div class="rule-status valid" id="mfgStatus">✓ 相邻非同号、非连号校验通过</div>
+        </div>
+
+        <!-- 商品代码 -->
+        <div class="form-group">
+          <label for="prodInput">
+            <span>3. 商品代码 (5位起始)</span>
+            <span class="label-tag">相邻非同号、非连号</span>
+          </label>
+          <div class="input-wrapper">
+            <input type="text" id="prodInput" class="form-input" maxlength="5" value="82064" placeholder="例如: 82064" oninput="validateInputState()">
+            <button type="button" class="btn-input-mini" onclick="randomizeSingle('prod')" title="单独随机刷新商品代码">🎲</button>
+          </div>
+          <div class="rule-status valid" id="prodStatus">✓ 相邻非同号、非连号校验通过</div>
+        </div>
+
+        <!-- 生成数量 -->
+        <div class="form-group">
+          <label for="countInput">
+            <span>4. 生成新条码数量</span>
+            <span class="label-tag">自动排重并追加留存</span>
+          </label>
+          <input type="number" id="countInput" class="form-input" min="1" max="5000" value="10">
+          <div class="quick-counts">
+            <button type="button" class="btn-quick" onclick="setCount(1)">1条</button>
+            <button type="button" class="btn-quick active" onclick="setCount(10)">10条</button>
+            <button type="button" class="btn-quick" onclick="setCount(20)">20条</button>
+            <button type="button" class="btn-quick" onclick="setCount(50)">50条</button>
+            <button type="button" class="btn-quick" onclick="setCount(100)">100条</button>
+          </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="actions-stack">
+          <!-- 步骤 2 按钮 -->
+          <button type="button" class="btn btn-primary" id="btnGenerate" onclick="generateFromInputs()">
+            <span>🚀</span> 步骤 2：生成并留存全新条码
+          </button>
+          <div class="btn-row">
+            <button type="button" class="btn btn-secondary" onclick="copyCurrent()">
+              <span>📋</span> 复制本次条码
+            </button>
+            <button type="button" class="btn btn-secondary" onclick="exportCurrentCSV()">
+              <span>📊</span> 导出本次 CSV
+            </button>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="btn btn-secondary" onclick="exportCurrentTXT()">
+              <span>📄</span> 导出本次 TXT
+            </button>
+            <button type="button" class="btn btn-outline-danger" onclick="clearCurrentView()">
+              <span>🧹</span> 清空当前视图
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧：生成结果与预览区 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span>📋</span> 本次全新生成清单
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="searchInput" class="form-input" placeholder="🔍 搜索条码..." style="width: 150px; padding: 4px 8px; font-size: 12px;" oninput="filterResults()">
+          </div>
+        </div>
+
+        <!-- 统计栏 -->
+        <div class="result-stats-bar">
+          <div class="stats-item">
+            <span>本次全新条码:</span>
+            <span class="stats-val blue" id="statTotal">0</span>
+          </div>
+          <div class="stats-item">
+            <span>跳过历史重复:</span>
+            <span class="stats-val" style="color: #fbbf24;" id="statSkipped">0 条</span>
+          </div>
+          <div class="stats-item">
+            <span>全局排重率:</span>
+            <span class="stats-val green" id="statRule">100% 唯一</span>
+          </div>
+        </div>
+
+        <!-- 表格清单 -->
+        <div class="table-container">
+          <table id="resultTable">
+            <thead>
+              <tr>
+                <th style="width: 45px;">#</th>
+                <th>13位全新 EAN-13 (点击复制)</th>
+                <th>国家 (3位)</th>
+                <th>厂商 (4位)</th>
+                <th>商品 (5位)</th>
+                <th>校验 (1位)</th>
+                <th style="text-align: center;">条形码预览</th>
+                <th style="text-align: right; width: 65px;">公式</th>
+              </tr>
+            </thead>
+            <tbody id="tableBody">
+              <tr>
+                <td colspan="8">
+                  <div class="empty-state">
+                    <div class="empty-icon">🏷️</div>
+                    <p>请点击【🎲 随机刷新输入框】或点击【🚀 步骤 2：生成并留存全新条码】</p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 历史库管理模态框 -->
+  <div class="modal-backdrop" id="historyModal" onclick="closeHistoryModal(event)">
+    <div class="modal" style="max-width: 620px;" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title">💾 本地历史条码留存库 (<span id="modalHistoryCount">0</span> 条)</div>
+        <button class="btn-close" onclick="closeHistoryModal()">&times;</button>
+      </div>
+      <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
+        所有在此浏览器中生成过的条码均已在本地留存，生成新条码时会自动 100% 排重。
+      </p>
+      <textarea id="historyTextarea" class="history-textarea" readonly placeholder="暂无历史条码..."></textarea>
+      
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="btn btn-secondary" style="flex: 1;" onclick="copyAllHistory()">📋 复制全部历史</button>
+        <button class="btn btn-secondary" style="flex: 1;" onclick="exportAllHistoryTXT()">📄 导出历史 TXT</button>
+        <button class="btn btn-outline-danger" style="flex: 1;" onclick="clearAllHistory()">🗑️ 清空历史库</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 校验详情模态框 -->
+  <div class="modal-backdrop" id="calcModal" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title">🔍 EAN-13 校验码计算过程解析</div>
+        <button class="btn-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="calc-box" id="calcDetails">
+        <!-- 动态注入计算详情 -->
+      </div>
+      <button class="btn btn-secondary" style="width: 100%;" onclick="closeModal()">关闭</button>
+    </div>
+  </div>
+
+  <!-- Toast 提示 -->
+  <div class="toast" id="toastBox">
+    <span>✅</span> <span id="toastMsg">已复制到剪贴板！</span>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'EAN13_LOCAL_HISTORY_V1';
+    let currentBatchList = [];
+
+    // ==========================================
+    // 本地留存 (localStorage) 最轻量级核心模块
+    // ==========================================
+    function getLocalHistorySet() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return new Set();
+        const arr = JSON.parse(raw);
+        return new Set(Array.isArray(arr) ? arr : []);
+      } catch (e) {
+        return new Set();
+      }
+    }
+
+    function saveLocalHistorySet(setObj) {
+      try {
+        const arr = Array.from(setObj);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+        updateHeaderHistoryCount(arr.length);
+      } catch (e) {
+        console.error("保存本地历史失败", e);
+      }
+    }
+
+    function updateHeaderHistoryCount(count) {
+      document.getElementById('headerHistoryCount').innerText = count;
+    }
+
+    function setCount(n) {
+      document.getElementById('countInput').value = n;
+      document.querySelectorAll('.btn-quick').forEach(b => {
+        b.classList.toggle('active', parseInt(b.innerText) === n);
+      });
+    }
+
+    /**
+     * 核心算法：生成指定长度的数字串 (相邻非同号、非连号)
+     */
+    function generateNonAdjacentDigits(length) {
+      if (length <= 0) return "";
+      const digits = [];
+      for (let i = 0; i < length; i++) {
+        let candidates = [];
+        if (i === 0) {
+          candidates = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        } else {
+          const prev = digits[i - 1];
+          const excluded = new Set([prev, prev - 1, prev + 1]);
+          for (let d = 0; d <= 9; d++) {
+            if (!excluded.has(d)) {
+              candidates.push(d);
+            }
+          }
+        }
+        const picked = candidates[Math.floor(Math.random() * candidates.length)];
+        digits.push(picked);
+      }
+      return digits.join('');
+    }
+
+    function validateNonAdjacent(str) {
+      if (!str || typeof str !== 'string') return false;
+      for (let i = 0; i < str.length - 1; i++) {
+        const d1 = parseInt(str[i], 10);
+        const d2 = parseInt(str[i + 1], 10);
+        if (d1 === d2 || Math.abs(d1 - d2) === 1) return false;
+      }
+      return true;
+    }
+
+    /**
+     * 步骤 1：随机生成三项参数填入输入框
+     */
+    function randomizeAllParams(triggerAnimation = true) {
+      const country = String(Math.floor(100 + Math.random() * 900));
+      const mfg = generateNonAdjacentDigits(4);
+      const prod = generateNonAdjacentDigits(5);
+
+      const countryEl = document.getElementById('countryInput');
+      const mfgEl = document.getElementById('mfgInput');
+      const prodEl = document.getElementById('prodInput');
+
+      countryEl.value = country;
+      mfgEl.value = mfg;
+      prodEl.value = prod;
+
+      if (triggerAnimation) {
+        [countryEl, mfgEl, prodEl].forEach(el => {
+          el.classList.remove('highlight');
+          void el.offsetWidth;
+          el.classList.add('highlight');
+        });
+        showToast("🎲 步骤 1: 已随机生成 3 项参数并填入输入框！");
+      }
+
+      validateInputState();
+    }
+
+    function randomizeSingle(type) {
+      if (type === 'country') {
+        const el = document.getElementById('countryInput');
+        el.value = String(Math.floor(100 + Math.random() * 900));
+        flashInput(el);
+      } else if (type === 'mfg') {
+        const el = document.getElementById('mfgInput');
+        el.value = generateNonAdjacentDigits(4);
+        flashInput(el);
+      } else if (type === 'prod') {
+        const el = document.getElementById('prodInput');
+        el.value = generateNonAdjacentDigits(5);
+        flashInput(el);
+      }
+      validateInputState();
+    }
+
+    function flashInput(el) {
+      el.classList.remove('highlight');
+      void el.offsetWidth;
+      el.classList.add('highlight');
+    }
+
+    function validateInputState() {
+      const cVal = document.getElementById('countryInput').value.trim();
+      const mVal = document.getElementById('mfgInput').value.trim();
+      const pVal = document.getElementById('prodInput').value.trim();
+
+      const cStatus = document.getElementById('countryStatus');
+      const mStatus = document.getElementById('mfgStatus');
+      const pStatus = document.getElementById('prodStatus');
+
+      if (/^\d{3}$/.test(cVal)) {
+        cStatus.className = 'rule-status valid';
+        cStatus.innerText = '✓ 格式正确 (3位数字)';
+      } else {
+        cStatus.className = 'rule-status invalid';
+        cStatus.innerText = '⚠️ 请输入 3 位数字';
+      }
+
+      if (/^\d{4}$/.test(mVal)) {
+        if (validateNonAdjacent(mVal)) {
+          mStatus.className = 'rule-status valid';
+          mStatus.innerText = '✓ 相邻非同号、非连号校验通过';
+        } else {
+          mStatus.className = 'rule-status invalid';
+          mStatus.innerText = '⚠️ 存在相邻同号或连号';
+        }
+      } else {
+        mStatus.className = 'rule-status invalid';
+        mStatus.innerText = '⚠️ 请输入 4 位数字';
+      }
+
+      if (/^\d{5}$/.test(pVal)) {
+        if (validateNonAdjacent(pVal)) {
+          pStatus.className = 'rule-status valid';
+          pStatus.innerText = '✓ 相邻非同号、非连号校验通过';
+        } else {
+          pStatus.className = 'rule-status invalid';
+          pStatus.innerText = '⚠️ 存在相邻同号或连号';
+        }
+      } else {
+        pStatus.className = 'rule-status invalid';
+        pStatus.innerText = '⚠️ 请输入 5 位数字';
+      }
+    }
+
+    function calculateChecksum(s12) {
+      const digits = s12.split('').map(Number);
+      let evenSum = 0;
+      let oddSum = 0;
+      for (let i = 0; i < 12; i++) {
+        if (i % 2 === 1) {
+          evenSum += digits[i];
+        } else {
+          oddSum += digits[i];
+        }
+      }
+      const total = (evenSum * 3) + oddSum;
+      const checkDigit = (10 - (total % 10)) % 10;
+      return { evenSum: evenSum * 3, oddSum, total, checkDigit, digits };
+    }
+
+    function renderEAN13SVG(ean13) {
+      if (!ean13 || ean13.length !== 13) return '';
+      const L_CODE = ["0001101","0011001","0010011","0111101","0100011","0110001","0101111","0111011","0110111","0001011"];
+      const G_CODE = ["0100111","0110011","0011011","0100001","0011101","0111001","0000101","0010001","0001001","0010111"];
+      const R_CODE = ["1110010","1100110","1101100","1000010","1011100","1001110","1010000","1000100","1001000","1110100"];
+      const FIRST_PARITY = [
+        "LLLLLL", "LLGLGG", "LLGGLG", "LLGGGL", "LGLLGG",
+        "LGGLLG", "LGGGLL", "LGLGLG", "LGLGGL", "LGGLGL"
+      ];
+
+      const firstDigit = parseInt(ean13[0], 10);
+      const parity = FIRST_PARITY[firstDigit];
+
+      let binary = "101";
+      for (let i = 1; i <= 6; i++) {
+        const d = parseInt(ean13[i], 10);
+        binary += (parity[i - 1] === 'L') ? L_CODE[d] : G_CODE[d];
+      }
+      binary += "01010";
+      for (let i = 7; i <= 12; i++) {
+        const d = parseInt(ean13[i], 10);
+        binary += R_CODE[d];
+      }
+      binary += "101";
+
+      let rects = '';
+      const barWidth = 1.2;
+      const height = 26;
+      for (let i = 0; i < binary.length; i++) {
+        if (binary[i] === '1') {
+          const x = i * barWidth;
+          rects += `<rect x="${x}" y="0" width="${barWidth}" height="${height}" fill="#0f172a" />`;
+        }
+      }
+      const totalWidth = binary.length * barWidth;
+      return `<svg width="${totalWidth}" height="${height}" viewBox="0 0 ${totalWidth} ${height}" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;
+    }
+
+    /**
+     * 步骤 2：基于输入参数生成条码，自动对比本地历史库，仅生成并留存不存在的全新条码
+     */
+    function generateFromInputs() {
+      let country = document.getElementById('countryInput').value.trim() || "485";
+      let mfg = document.getElementById('mfgInput').value.trim() || "3719";
+      let prod = document.getElementById('prodInput').value.trim() || "82064";
+      const targetCount = Math.min(5000, Math.max(1, parseInt(document.getElementById('countInput').value, 10) || 10));
+
+      const cStr = country.padStart(3, '0').slice(-3);
+      const mStr = mfg.padStart(4, '0').slice(-4);
+      let pBase = parseInt(prod, 10) || 0;
+
+      // 1. 获取本地历史已留存库
+      const historySet = getLocalHistorySet();
+      const newItems = [];
+      let skippedCount = 0;
+      let offset = 0;
+      let maxAttempts = targetCount * 500; // 防死循环上限
+
+      while (newItems.length < targetCount && offset < maxAttempts) {
+        const curPInt = (pBase + offset) % 100000;
+        const curPStr = String(curPInt).padStart(5, '0');
+        offset++;
+
+        const base12 = cStr + mStr + curPStr;
+        const calc = calculateChecksum(base12);
+        const ean13 = base12 + calc.checkDigit;
+
+        // 核心查重：如果本地历史库已存在，则跳过
+        if (historySet.has(ean13)) {
+          skippedCount++;
+          continue;
+        }
+
+        // 记录新条码并加入本地留存集合
+        historySet.add(ean13);
+        newItems.push({
+          ean13,
+          country: cStr,
+          mfg: mStr,
+          prod: curPStr,
+          checkDigit: calc.checkDigit,
+          calcDetails: calc,
+          mfgValid: validateNonAdjacent(mStr),
+          prodValid: validateNonAdjacent(curPStr)
+        });
+      }
+
+      // 2. 将包含新条码的集合保存回本地 localStorage
+      saveLocalHistorySet(historySet);
+
+      currentBatchList = newItems;
+      renderTable(currentBatchList);
+      document.getElementById('headerCurrentCount').innerText = newItems.length;
+      document.getElementById('statSkipped').innerText = `${skippedCount} 条`;
+
+      if (skippedCount > 0) {
+        showToast(`🎉 成功生成 ${newItems.length} 条全新条码！(已自动跳过 ${skippedCount} 条本地已存条码)`);
+      } else {
+        showToast(`🎉 成功生成并留存 ${newItems.length} 条全新条码！`);
+      }
+    }
+
+    /**
+     * 渲染结果表格
+     */
+    function renderTable(list) {
+      const tbody = document.getElementById('tableBody');
+      if (!list || list.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8">
+              <div class="empty-state">
+                <div class="empty-icon">🏷️</div>
+                <p>暂无生成记录，请在左侧设置参数后点击【🚀 步骤 2：生成并留存全新条码】</p>
+              </div>
+            </td>
+          </tr>`;
+        document.getElementById('statTotal').innerText = 0;
+        return;
+      }
+
+      let html = '';
+      list.forEach((item, idx) => {
+        html += `
+          <tr>
+            <td style="color: var(--text-muted);">${idx + 1}</td>
+            <td>
+              <span class="code-pill" onclick="copyText('${item.ean13}')" title="点击复制单个条码">
+                <span>📋</span> ${item.ean13}
+              </span>
+            </td>
+            <td><span class="tag tag-country">${item.country}</span></td>
+            <td>
+              <span class="tag tag-mfg" title="${item.mfgValid ? '相邻非同号、非连号校验通过' : '提示'}">
+                ${item.mfg} ${item.mfgValid ? '✓' : ''}
+              </span>
+            </td>
+            <td>
+              <span class="tag tag-prod" title="${item.prodValid ? '相邻非同号、非连号校验通过' : '提示'}">
+                ${item.prod} ${item.prodValid ? '✓' : ''}
+              </span>
+            </td>
+            <td><span class="tag tag-check">${item.checkDigit}</span></td>
+            <td class="barcode-svg-cell">${renderEAN13SVG(item.ean13)}</td>
+            <td style="text-align: right;">
+              <button class="btn-action-sm" onclick="showCalcDetail(${idx})" title="查看校验码公式计算过程">公式</button>
+            </td>
+          </tr>
+        `;
+      });
+
+      tbody.innerHTML = html;
+      document.getElementById('statTotal').innerText = list.length;
+    }
+
+    /**
+     * 搜索过滤
+     */
+    function filterResults() {
+      const q = document.getElementById('searchInput').value.trim();
+      if (!q) {
+        renderTable(currentBatchList);
+        return;
+      }
+      const filtered = currentBatchList.filter(item => 
+        item.ean13.includes(q) || item.country.includes(q) || item.mfg.includes(q) || item.prod.includes(q)
+      );
+      renderTable(filtered);
+    }
+
+    /**
+     * 校验详情弹窗
+     */
+    function showCalcDetail(index) {
+      const item = currentBatchList[index];
+      if (!item) return;
+
+      const calc = item.calcDetails;
+      const s12 = item.country + item.mfg + item.prod;
+      const d = calc.digits;
+
+      const oddFormula = `${d[0]}+${d[2]}+${d[4]}+${d[6]}+${d[8]}+${d[10]} = ${calc.oddSum}`;
+      const evenFormula = `(${d[1]}+${d[3]}+${d[5]}+${d[7]}+${d[9]}+${d[11]}) × 3 = ${calc.evenSum}`;
+
+      const content = `
+        <div style="margin-bottom: 8px;">
+          <strong>条码名称：</strong> <span class="calc-highlight">${item.ean13}</span>
+        </div>
+        <div style="margin-bottom: 8px;">
+          <strong>12位基数：</strong> 国家[${item.country}] + 厂商[${item.mfg}] + 商品[${item.prod}] = <code>${s12}</code>
+        </div>
+        <hr style="border: 0; border-top: 1px dashed rgba(255,255,255,0.1); margin: 10px 0;">
+        <div style="margin-bottom: 6px;">
+          <span>1. 奇数位之和 (索引 1,3,5,7,9,11)：</span><br>
+          <span class="calc-odd">${oddFormula}</span>
+        </div>
+        <div style="margin-bottom: 6px;">
+          <span>2. 偶数位之和 × 3 (索引 2,4,6,8,10,12)：</span><br>
+          <span class="calc-even">${evenFormula}</span>
+        </div>
+        <div style="margin-bottom: 6px;">
+          <span>3. 加权总和 Total：</span> 
+          <span>${calc.oddSum} + ${calc.evenSum} = <strong>${calc.total}</strong></span>
+        </div>
+        <div style="margin-bottom: 6px;">
+          <span>4. 校验码算法：</span> (10 - (${calc.total} % 10)) % 10 = <span class="calc-res">${calc.checkDigit}</span>
+        </div>
+        <hr style="border: 0; border-top: 1px dashed rgba(255,255,255,0.1); margin: 10px 0;">
+        <div style="color: var(--accent-emerald);">
+          ✨ 状态: <strong>已留存至本地历史库 (全局唯一)</strong>
+        </div>
+      `;
+
+      document.getElementById('calcDetails').innerHTML = content;
+      document.getElementById('calcModal').classList.add('show');
+    }
+
+    function closeModal() {
+      document.getElementById('calcModal').classList.remove('show');
+    }
+
+    // ==========================================
+    // 历史库管理模态框
+    // ==========================================
+    function openHistoryModal() {
+      const historySet = getLocalHistorySet();
+      const arr = Array.from(historySet);
+      document.getElementById('modalHistoryCount').innerText = arr.length;
+      document.getElementById('historyTextarea').value = arr.join('\n');
+      document.getElementById('historyModal').classList.add('show');
+    }
+
+    function closeHistoryModal() {
+      document.getElementById('historyModal').classList.remove('show');
+    }
+
+    function copyAllHistory() {
+      const historySet = getLocalHistorySet();
+      if (historySet.size === 0) {
+        showToast("⚠️ 本地历史库暂无条码！");
+        return;
+      }
+      copyText(Array.from(historySet).join('\n'));
+      showToast(`📋 已复制本地历史库全部 ${historySet.size} 条条码！`);
+    }
+
+    function exportAllHistoryTXT() {
+      const historySet = getLocalHistorySet();
+      if (historySet.size === 0) {
+        showToast("⚠️ 本地历史库暂无条码！");
+        return;
+      }
+      downloadFile(Array.from(historySet).join('\n'), `EAN13_All_History_${Date.now()}.txt`, 'text/plain;charset=utf-8;');
+      showToast("📄 历史总库 TXT 已开始下载！");
+    }
+
+    function clearAllHistory() {
+      if (!confirm("⚠️ 确定要清空本地留存的历史条码库吗？清空后后续生成将不再自动比对旧条码。")) {
+        return;
+      }
+      localStorage.removeItem(STORAGE_KEY);
+      updateHeaderHistoryCount(0);
+      document.getElementById('historyTextarea').value = "";
+      document.getElementById('modalHistoryCount').innerText = "0";
+      showToast("🗑️ 已成功清空本地历史留存库！");
+    }
+
+    // ==========================================
+    // 复制与导出当前批次
+    // ==========================================
+    function copyText(text) {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast(`已复制: ${text}`);
+      }).catch(() => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast(`已复制: ${text}`);
+      });
+    }
+
+    function copyCurrent() {
+      if (currentBatchList.length === 0) {
+        showToast("⚠️ 当前视图没有生成的条码可复制！");
+        return;
+      }
+      const text = currentBatchList.map(x => x.ean13).join('\n');
+      copyText(text);
+      showToast(`📋 已复制本次 ${currentBatchList.length} 条全新条码！`);
+    }
+
+    function exportCurrentCSV() {
+      if (currentBatchList.length === 0) {
+        showToast("⚠️ 当前视图没有条码可导出！");
+        return;
+      }
+      let csv = "\uFEFF序号,EAN-13条码,国家代码(3位),厂商代码(4位),商品代码(5位),校验码(1位)\n";
+      currentBatchList.forEach((item, idx) => {
+        csv += `${idx + 1},'${item.ean13},'${item.country},'${item.mfg},'${item.prod},${item.checkDigit}\n`;
+      });
+      downloadFile(csv, `EAN13_NewBatch_${Date.now()}.csv`, 'text/csv;charset=utf-8;');
+      showToast("📊 CSV 文件已开始下载！");
+    }
+
+    function exportCurrentTXT() {
+      if (currentBatchList.length === 0) {
+        showToast("⚠️ 当前视图没有条码可导出！");
+        return;
+      }
+      const txt = currentBatchList.map(x => x.ean13).join('\n');
+      downloadFile(txt, `EAN13_NewBatch_${Date.now()}.txt`, 'text/plain;charset=utf-8;');
+      showToast("📄 TXT 文件已开始下载！");
+    }
+
+    function downloadFile(content, fileName, mimeType) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function clearCurrentView() {
+      currentBatchList = [];
+      renderTable([]);
+      document.getElementById('headerCurrentCount').innerText = "0";
+      showToast("已清空当前视图（本地历史库数据依然安全保留）");
+    }
+
+    function showToast(msg) {
+      const box = document.getElementById('toastBox');
+      document.getElementById('toastMsg').innerText = msg;
+      box.classList.add('show');
+      setTimeout(() => {
+        box.classList.remove('show');
+      }, 2500);
+    }
+
+    // 页面初次加载：
+    window.addEventListener('DOMContentLoaded', () => {
+      // 1. 初始化本地历史库计数
+      const historySet = getLocalHistorySet();
+      updateHeaderHistoryCount(historySet.size);
+
+      // 2. 随机刷新输入框并自动生成第一批
+      randomizeAllParams(false);
+      generateFromInputs();
+    });
+  </script>
+</body>
+</html>

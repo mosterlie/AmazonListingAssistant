@@ -1,0 +1,292 @@
+{% extends "base.html" %}
+
+{% block title %}任务管理与成果登记看板{% endblock %}
+
+{% block content %}
+<div class="form-card" style="margin-bottom:20px;">
+  <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <div>
+      <div class="card-title" style="margin:0;">
+        <div class="card-title-icon">📌</div>
+        <span>任务管理与成果登记看板</span>
+      </div>
+      <div style="font-size:0.83rem; color:var(--text-muted); margin-top:3px;">
+        {% if current_user.role == 'admin' %}
+          👑 管理员视角：可查看全部成员任务、向成员派发新任务，并监控成果提交与商品关联状态。
+        {% else %}
+          👤 成员视角：展示分配给您的待办任务，请在完成制作后登记成品链接并关联系统中已录入的商品。
+        {% endif %}
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <button class="btn btn-outline btn-sm" onclick="loadTasksList()" style="display:inline-flex; align-items:center; gap:4px;">
+        <span>🔄</span> 刷新
+      </button>
+      {% if current_user.role == 'admin' %}
+      <button class="btn btn-primary btn-sm" onclick="openDispatchModal()" style="display:inline-flex; align-items:center; gap:4px;">
+        <span>➕</span> 派发新任务
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- 统计看板与筛选栏 -->
+  <div style="padding:16px 20px; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+    <!-- 统计徽章 -->
+    <div style="display:flex; gap:10px; align-items:center;">
+      <div class="stat-pill" onclick="filterByStatus('all')" id="statPillAll" style="background:#fff; border:1px solid #cbd5e1; padding:6px 14px; border-radius:20px; font-size:0.84rem; cursor:pointer; font-weight:600; color:#334155; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+        全部: <span id="statCountAll" style="color:var(--primary); font-weight:700;">0</span>
+      </div>
+      <div class="stat-pill" onclick="filterByStatus('pending')" id="statPillPending" style="background:#fff; border:1px solid #cbd5e1; padding:6px 14px; border-radius:20px; font-size:0.84rem; cursor:pointer; font-weight:600; color:#d97706; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+        ⏳ 待处理: <span id="statCountPending" style="font-weight:700;">0</span>
+      </div>
+      <div class="stat-pill" onclick="filterByStatus('completed')" id="statPillCompleted" style="background:#fff; border:1px solid #cbd5e1; padding:6px 14px; border-radius:20px; font-size:0.84rem; cursor:pointer; font-weight:600; color:#059669; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+        ✅ 已完成: <span id="statCountCompleted" style="font-weight:700;">0</span>
+      </div>
+    </div>
+
+    <!-- 过滤器与搜索框 -->
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      {% if current_user.role == 'admin' %}
+      <select class="form-select" id="taskAssigneeFilter" onchange="loadTasksList()" style="width:140px; padding:6px 10px; font-size:0.82rem;">
+        <option value="">👤 全部执行人</option>
+      </select>
+      {% endif %}
+
+      <div style="position:relative;">
+        <input type="text" class="form-input" id="taskSearchInput" placeholder="搜索标题 / 说明 / 链接 / 关联品..." style="width:240px; padding:6px 12px; font-size:0.82rem;" onkeyup="handleSearchKeyup(event)">
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="loadTasksList()">🔍 搜索</button>
+    </div>
+  </div>
+
+  <!-- 任务列表表格 -->
+  <div class="card-body" style="padding:0;">
+    <div class="table-wrapper" style="overflow-x:auto;">
+      <table class="matrix-table" style="min-width: 1180px; width:100%;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="width:50px; text-align:center;">ID</th>
+            <th style="min-width:180px;">派发信息 (参考链接)</th>
+            <th style="min-width:220px;">任务说明 (具体要求)</th>
+            <th style="width:105px; text-align:center;">执行人</th>
+            <th style="width:125px;">派发人 & 时间</th>
+            <th style="width:95px; text-align:center;">任务状态</th>
+            <th style="min-width:170px;">成果信息 (成品链接 / 登记时间)</th>
+            <th style="min-width:210px;">关联的品 (录入商品)</th>
+            <th style="width:130px; text-align:center;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="taskTableBody">
+          <tr>
+            <td colspan="9" style="text-align:center; padding:40px; color:var(--text-muted);">
+              ⏳ 正在加载任务数据...
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- 弹窗 1：管理员派发新任务模态弹窗 (Dispatch Task Modal) -->
+<!-- ========================================================================= -->
+<div id="dispatchTaskModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeDispatchModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:560px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">📋</span>
+        <h3 style="margin:0; font-size:1.1rem; color:#0f172a; font-weight:700;">管理员派发新任务</h3>
+      </div>
+      <button class="custom-modal-close" onclick="closeDispatchModal()">✕</button>
+    </div>
+    <form id="dispatchTaskForm" onsubmit="handleDispatchSubmit(event)">
+      <div class="custom-modal-body" style="padding:20px 24px;">
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">指派给谁 (执行人) <span style="color:#ef4444;">*</span></label>
+          <select class="form-select" id="dispatchAssigneeSelect" required style="width:100%;">
+            <option value="">-- 请选择成员 --</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">任务标题 / 简述</label>
+          <input type="text" class="form-input" id="dispatchTitleInput" placeholder="如: 犬用トイレ 竞品分析与商品图文制作" style="width:100%;">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">1. 参考链接 (Reference URL) <span style="color:#ef4444;">*</span></label>
+          <input type="url" class="form-input" id="dispatchRefUrlInput" placeholder="https://www.amazon.co.jp/dp/... 或其他来源链接" required style="width:100%;">
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-weight:700;">2. 任务说明与具体要求 (Instructions)</label>
+          <textarea class="form-input" id="dispatchInstructionsInput" rows="4" placeholder="请在此输入任务要求、卖点重点、图片规格或注意事项..." style="width:100%; resize:vertical; font-family:inherit;"></textarea>
+        </div>
+      </div>
+      <div class="custom-modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeDispatchModal()">取消</button>
+        <button type="submit" class="btn btn-primary" id="dispatchSubmitBtn">🚀 确认派发任务</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- 弹窗 2：登记成果信息与关联商品模态弹窗 (Submit Deliverable Modal) -->
+<!-- ========================================================================= -->
+<div id="submitDeliverableModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeSubmitDeliverableModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:620px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">📝</span>
+        <div>
+          <h3 style="margin:0; font-size:1.1rem; color:#0f172a; font-weight:700;">登记任务成果与关联商品</h3>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">任务 ID: #<span id="submitTaskIdSpan">-</span></div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeSubmitDeliverableModal()">✕</button>
+    </div>
+    <form id="submitDeliverableForm" onsubmit="handleSubmitDeliverable(event)">
+      <input type="hidden" id="submitTargetTaskId" value="">
+      <div class="custom-modal-body" style="padding:20px 24px;">
+        <!-- 派发原信息参考卡片 -->
+        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px 16px; margin-bottom:18px;">
+          <div style="font-size:0.82rem; font-weight:700; color:#334155; margin-bottom:6px;">📌 派发任务信息概览</div>
+          <div style="font-size:0.82rem; color:#475569; margin-bottom:4px;">
+            <strong>参考链接:</strong> <a id="submitRefUrlLink" href="#" target="_blank" style="color:#2563eb; text-decoration:none; word-break:break-all;">-</a>
+          </div>
+          <div style="font-size:0.82rem; color:#475569;">
+            <strong>任务说明:</strong> <span id="submitInstructionsText" style="color:#64748b;">-</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">1. 成品链接 (Result URL) <span style="color:#ef4444;">*</span></label>
+          <input type="url" class="form-input" id="deliverableResultUrlInput" placeholder="请输入完成后的设计稿 / 盘点表 / 网盘 / 成品链接" required style="width:100%;">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">2. 关联的品 (选择系统中已录入的商品) <span style="color:#ef4444;">*</span></label>
+          <select class="form-select" id="deliverableProductSelect" required style="width:100%; padding:8px 10px; font-size:0.86rem;" onchange="handleProductSelectChange(this)">
+            <option value="">-- 请选择关联的已录入商品 (必选) --</option>
+          </select>
+        </div>
+
+        <!-- 关联商品详情预览小卡片 -->
+        <div id="selectedProductPreviewCard" style="display:none; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:10px 14px; margin-bottom:14px; align-items:center; gap:12px;">
+          <div id="previewProductImgBox" style="width:48px; height:48px; border-radius:6px; border:1px solid #86efac; overflow:hidden; display:flex; align-items:center; justify-content:center; background:#fff; flex-shrink:0;">
+            <img id="previewProductImg" src="" style="width:100%; height:100%; object-fit:cover;">
+          </div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:0.85rem; font-weight:700; color:#166534;" id="previewProductTitle">-</div>
+            <div style="font-size:0.78rem; color:#15803d; font-family:monospace; margin-top:2px;">
+              Parent SKU: <span id="previewProductSku">-</span> | 店铺: <span id="previewProductStore">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 状态流转规则提示 -->
+        <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; padding:10px 12px; font-size:0.8rem; color:#1e40af; line-height:1.5;">
+          💡 <strong>登记规则：</strong><br>
+          • 登记成果时「<strong>成品链接</strong>」与「<strong>关联的品</strong>」均为必填项；<br>
+          • 登记成功后，该任务状态将自动流转为 <span style="background:#dcfce7; color:#15803d; padding:1px 6px; border-radius:4px; font-weight:700;">✅ 已完成</span>。
+        </div>
+      </div>
+      <div class="custom-modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeSubmitDeliverableModal()">取消</button>
+        <button type="submit" class="btn btn-success" id="submitDeliverableBtn">💾 确认登记并保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- 弹窗 3：管理员编辑任务派发信息模态窗 (Edit Task Modal) -->
+<!-- ========================================================================= -->
+<div id="editTaskModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeEditTaskModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:560px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">✏️</span>
+        <h3 style="margin:0; font-size:1.1rem; color:#0f172a; font-weight:700;">修改任务派发信息</h3>
+      </div>
+      <button class="custom-modal-close" onclick="closeEditTaskModal()">✕</button>
+    </div>
+    <form id="editTaskForm" onsubmit="handleEditTaskSubmit(event)">
+      <input type="hidden" id="editTaskId" value="">
+      <div class="custom-modal-body" style="padding:20px 24px;">
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">指派给谁 (执行人) <span style="color:#ef4444;">*</span></label>
+          <select class="form-select" id="editAssigneeSelect" required style="width:100%;">
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">任务标题 / 简述</label>
+          <input type="text" class="form-input" id="editTitleInput" style="width:100%;">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">1. 参考链接 <span style="color:#ef4444;">*</span></label>
+          <input type="url" class="form-input" id="editRefUrlInput" required style="width:100%;">
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-weight:700;">2. 任务说明与具体要求</label>
+          <textarea class="form-input" id="editInstructionsInput" rows="4" style="width:100%; resize:vertical; font-family:inherit;"></textarea>
+        </div>
+      </div>
+      <div class="custom-modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeEditTaskModal()">取消</button>
+        <button type="submit" class="btn btn-primary" id="editSubmitBtn">💾 保存修改</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ========================================================================= -->
+<!-- 弹窗 4：查看已关联商品完整详情模态弹窗 (Product Detail Modal) -->
+<!-- ========================================================================= -->
+<div id="productDetailModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeProductDetailModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:1100px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-size:1.4rem;">📦</span>
+        <div>
+          <h3 id="modalProductTitle" style="margin:0; font-size:1.15rem; color:#0f172a; font-weight:700;">商品详情</h3>
+          <div style="font-size:0.82rem; color:#64748b; margin-top:2px;">
+            Parent SKU: <code id="modalParentSku" style="background:#f1f5f9; padding:2px 6px; border-radius:4px; font-weight:600; color:#2563eb;">-</code>
+            <span style="margin:0 6px;">|</span>
+            店铺: <span id="modalStoreAccount" style="font-weight:600; color:#334155;">-</span>
+            <span style="margin:0 6px;">|</span>
+            维护人: <span id="modalCreatedBy" style="font-weight:600; color:#7e22ce;">-</span>
+          </div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeProductDetailModal()">✕</button>
+    </div>
+
+    <div class="custom-modal-body" id="modalContentBody">
+      <!-- 动态填充详情内容 -->
+    </div>
+
+    <div class="custom-modal-footer">
+      <button class="btn btn-outline" onclick="closeProductDetailModal()">关闭</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  window.currentUserRole = "{{ current_user.role }}";
+  window.currentUsername = "{{ current_user.username }}";
+</script>
+<script src="/static/js/tasks.js?v=20260830_5"></script>
+{% endblock %}

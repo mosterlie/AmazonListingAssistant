@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用户登录 - ERP 跨境电商商品维护中台</title>
+  <link rel="stylesheet" href="/static/css/app.css?v=20260830_5">
+  <style>
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 20%, #1e293b 0%, #0f172a 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .login-container {
+      width: 100%;
+      max-width: 440px;
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 40px 36px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      color: #f8fafc;
+      animation: fadeIn 0.4s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .login-logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    .login-badge {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      color: #ffffff;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-weight: 800;
+      font-size: 0.85rem;
+      letter-spacing: 0.5px;
+    }
+    .login-brand-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #f8fafc;
+      letter-spacing: -0.3px;
+    }
+    .login-subtitle {
+      text-align: center;
+      font-size: 0.85rem;
+      color: #94a3b8;
+      margin-bottom: 28px;
+    }
+    .form-group-login {
+      margin-bottom: 20px;
+    }
+    .form-label-login {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 8px;
+    }
+    .form-input-login {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid #334155;
+      color: #f8fafc;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 0.95rem;
+      box-sizing: border-box;
+      outline: none;
+      transition: all 0.2s;
+    }
+    .form-input-login:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+    }
+    .btn-login {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      border: none;
+      border-radius: 8px;
+      color: #ffffff;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+      transition: all 0.2s;
+      margin-top: 8px;
+    }
+    .btn-login:hover {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.45);
+    }
+    .btn-login:active {
+      transform: translateY(0);
+    }
+    .login-error {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .login-tip {
+      margin-top: 24px;
+      background: rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 0.8rem;
+      color: #93c5fd;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-logo">
+      <span class="login-badge">ERP HUB</span>
+      <span class="login-brand-title">跨境电商商品中台</span>
+    </div>
+    <div class="login-subtitle">请使用您的系统账号与密码登录工作台</div>
+
+    <div class="login-error" id="loginErrorMsg"></div>
+
+    <form id="loginForm" onsubmit="handleLoginSubmit(event)">
+      <div class="form-group-login">
+        <label class="form-label-login" for="usernameInput">👤 用户名 (Username)</label>
+        <input type="text" id="usernameInput" class="form-input-login" placeholder="请输入用户名" required autofocus autocomplete="username">
+      </div>
+
+      <div class="form-group-login">
+        <label class="form-label-login" for="passwordInput">🔒 登录密码 (Password)</label>
+        <input type="password" id="passwordInput" class="form-input-login" placeholder="请输入密码" required autocomplete="current-password">
+      </div>
+
+      <button type="submit" class="btn-login" id="loginSubmitBtn">
+        🚀 立即安全登录
+      </button>
+    </form>
+
+    <div class="login-tip">
+      💡 <b>预置超级管理员账号：</b><br>
+      • 用户名：<code>admin</code><br>
+      • 初始密码：<code>admin</code><br>
+      <span style="color:#bfdbfe; font-size:0.75rem;">(登录后可在【用户管理】页面维护其他用户账号)</span>
+    </div>
+  </div>
+
+  <script>
+    async function handleLoginSubmit(e) {
+      e.preventDefault();
+      const username = document.getElementById("usernameInput").value.trim();
+      const password = document.getElementById("passwordInput").value;
+      const errorDiv = document.getElementById("loginErrorMsg");
+      const btn = document.getElementById("loginSubmitBtn");
+
+      errorDiv.style.display = "none";
+      errorDiv.textContent = "";
+
+      if (!username || !password) {
+        errorDiv.textContent = "请完整输入用户名和密码！";
+        errorDiv.style.display = "block";
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "⏳ 正在验证并登录...";
+
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+        const result = await res.json();
+
+        if (result.code === 0) {
+          btn.textContent = "✅ 登录成功，跳转中...";
+          const urlParams = new URLSearchParams(window.location.search);
+          const nextUrl = urlParams.get("next");
+          window.location.href = (nextUrl && nextUrl !== "/") ? nextUrl : "/list";
+        } else {
+          errorDiv.textContent = result.msg || "用户名或密码错误，请核对！";
+          errorDiv.style.display = "block";
+          btn.disabled = false;
+          btn.textContent = "🚀 立即安全登录";
+        }
+      } catch (err) {
+        errorDiv.textContent = "连接服务异常: " + err.message;
+        errorDiv.style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "🚀 立即安全登录";
+      }
+    }
+  </script>
+</body>
+</html>

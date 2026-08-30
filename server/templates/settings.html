@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block title %}系统管理与全局配置{% endblock %}
+
+{% block content %}
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+  <div>
+    <h1 style="font-size:1.4rem; font-weight:700; color:var(--text-main); margin:0;">⚙️ 系统管理与全局参数配置</h1>
+    <p style="color:var(--text-muted); font-size:0.88rem; margin:4px 0 0 0;">
+      集中维护店铺账号列表、Calcfee 物流税率、日元汇率及售价推导系数，修改后全局实时联动生效。
+    </p>
+  </div>
+  <div style="display:flex; gap:10px;">
+    <button class="btn btn-outline" id="resetDefaultsBtn" type="button">🔄 恢复默认值</button>
+    <button class="btn btn-primary" id="saveSettingsBtn" type="button">💾 保存系统配置</button>
+  </div>
+</div>
+
+<!-- 1. 店铺与品牌绑定维护卡片 (1对1必填) -->
+<div class="form-card">
+  <div class="card-header">
+    <div class="card-title">
+      <div class="card-title-icon">1</div>
+      <span>店铺账号与对应品牌维护 (1对1必填)</span>
+    </div>
+    <span class="tag-badge" id="storeCountBadge" style="background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">0 个店铺</span>
+  </div>
+  <div class="card-body">
+    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;">
+      每个店铺必须 1 对 1 绑定一个品牌。商品录入时选择店铺后将自动带出对应品牌，并联动生成型号与型号名称。
+    </p>
+
+    <!-- 当前店铺与品牌表格 -->
+    <div class="table-wrapper" style="margin-bottom:20px; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden;">
+      <table class="matrix-table" style="width:100%; font-size:0.86rem; margin-bottom:0;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="width:50px; text-align:center;">#</th>
+            <th>🏬 店铺账号名称 (Store Account)</th>
+            <th>🏷️ 绑定品牌 (Brand 1对1必填)</th>
+            <th style="width:90px; text-align:center;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="storeTableBody">
+          <!-- 动态渲染店铺表格行 -->
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 新增店铺与品牌输入组 -->
+    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:var(--radius-sm); padding:14px;">
+      <div style="font-size:0.82rem; font-weight:700; color:#334155; margin-bottom:10px;">➕ 新增店铺与品牌绑定</div>
+      <div style="display:grid; grid-template-columns: 1fr 1fr auto; gap:10px; align-items:center;">
+        <div>
+          <input type="text" class="form-input" id="newStoreInput" placeholder="输入店铺名称 (如: 金梧汇辰)" style="width:100%;">
+        </div>
+        <div>
+          <input type="text" class="form-input" id="newBrandInput" placeholder="输入对应品牌 (如: JINWU 必填)" style="width:100%;">
+        </div>
+        <div>
+          <button class="btn btn-outline" id="addStoreBtn" type="button" style="white-space:nowrap;">➕ 添加店铺与品牌</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 2. Calcfee 物流与售价核心计价参数卡片 -->
+<div class="form-card">
+  <div class="card-header">
+    <div class="card-title">
+      <div class="card-title-icon">2</div>
+      <span>Calcfee 物流运费与日元售价核心参数</span>
+    </div>
+    <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">多渠道比价引擎联动</span>
+  </div>
+  <div class="card-body">
+    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;">
+      用于 10 大国际物流渠道的运费比价、计费重精算与日元最终销售价格推导。修改后录入新商品或一键核算将按最新参数执行。
+    </p>
+
+    <div class="grid-2" style="margin-bottom:20px;">
+      <div class="form-group">
+        <label class="form-label required">
+          日本消费税 / 平台综合税率 (Tax Rate)
+          <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(通常为 17% 即 0.17)</span>
+        </label>
+        <input type="text" inputmode="decimal" class="form-input" id="taxRateInput" value="0.17" placeholder="例如: 0.17">
+        <small style="color:var(--text-muted); font-size:0.78rem;">用于核算日本站商业件税费与税后净利指标。</small>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label required">
+          日元兑人民币汇率 (Exchange Rate JPY/RMB)
+          <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(1 RMB ≈ 多少 JPY)</span>
+        </label>
+        <input type="text" inputmode="decimal" class="form-input" id="exchangeRateInput" value="23.0" placeholder="例如: 23.0">
+        <small style="color:var(--text-muted); font-size:0.78rem;">用于日元销售额折算人民币成本与利润对比。</small>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label required">
+          日元售价推导系数 (Price Coefficient)
+          <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(默认 26.0)</span>
+        </label>
+        <input type="text" inputmode="decimal" class="form-input" id="priceCoeffInput" value="26.0" placeholder="例如: 26.0">
+        <small style="color:var(--text-muted); font-size:0.78rem;">核心公式乘数：日元售价 = (总成本 + 计划利润) × 售价系数。</small>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label required">
+          默认目标利润系数 (Default Profit Coefficient)
+          <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(默认 1.0 即 100% 利润)</span>
+        </label>
+        <input type="text" inputmode="decimal" class="form-input" id="defaultProfitCoeffInput" value="1.0" placeholder="例如: 1.0">
+        <small style="color:var(--text-muted); font-size:0.78rem;">变体生成时默认赋给每行 SKU 的目标利润比例。</small>
+      </div>
+    </div>
+
+    <!-- 计价联动公式与原理预览框 -->
+    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:var(--radius-sm); padding:16px;">
+      <div style="font-weight:700; color:#1e293b; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+        <span>📐 实时售价推导公式说明</span>
+      </div>
+      <div style="font-family:monospace; font-size:0.85rem; color:#334155; line-height:1.6;">
+        <div>• <strong>总成本 (AB)</strong> = 采购价 (¥) + 选中物流运费 (Z)</div>
+        <div>• <strong>计划利润 (AC)</strong> = 总成本 (AB) × 利润系数 (AD)</div>
+        <div>• <strong style="color:var(--primary);">日元最终售价 (AE)</strong> = ROUND((总成本 + 计划利润) × <span id="formulaCoeffPreview" style="color:#b45309; font-weight:700;">26.0</span>)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 3. 本地图片与产品数据归档主目录配置 (分 Mac 与 Win + 相对路径配置) -->
+<div class="form-card">
+  <div class="card-header">
+    <div class="card-title">
+      <div class="card-title-icon">3</div>
+      <span>本地图片与产品归档目录配置 (绝对路径 + 相对路径)</span>
+    </div>
+    <span class="tag-badge" style="background:#fef3c7; color:#b45309; border-color:#fde68a;">保存后自动多层级归档</span>
+  </div>
+  <div class="card-body">
+    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;">
+      当在【商品录入工作台】点击【保存商品】后，系统将自动在该绝对主目录下以<b>产品名称</b>创建新文件夹，并将主图 (<code>main.*</code>) 与附图 (<code>pt01.*</code>, <code>pt02.*</code>...) 归档保存在 <b>main 相对文件夹</b>下，将变体 SKU 图片 (<code>颜色-红色.*</code>, <code>尺寸-L.*</code>...) 归档保存在 <b>sku 相对文件夹</b>下，图片类型保持不变。
+    </p>
+
+    <!-- 1. 绝对主路径 (分 macOS 和 Windows) -->
+    <div class="grid-2" style="margin-bottom:16px;">
+      <div class="form-group">
+        <label class="form-label required">
+          🍎 macOS 系统归档主地址
+          <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(绝对路径)</span>
+        </label>
+        <input type="text" class="form-input" id="storagePathMacInput" value="/Users/gx/Desktop/products" placeholder="如: /Users/gx/Desktop/products">
+        <small style="color:var(--text-muted); font-size:0.78rem;">Mac 环境下的商品图片与信息归档根目录。</small>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label required">
+          🪟 Windows 系统归档主地址
+          <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(绝对路径)</span>
+        </label>
+        <input type="text" class="form-input" id="storagePathWinInput" value="D:\products" placeholder="如: D:\products 或 D:\Desktop\products">
+        <small style="color:var(--text-muted); font-size:0.78rem;">Windows 环境下的商品图片与信息归档根目录。</small>
+      </div>
+    </div>
+
+    <!-- 2. 相对文件夹路径配置 (main 文件夹 & sku 文件夹) -->
+    <div class="grid-2" style="margin-bottom:16px;">
+      <div class="form-group">
+        <label class="form-label required">
+          📁 主图与附图存储相对文件夹 (main)
+          <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(相对路径，默认 main)</span>
+        </label>
+        <input type="text" class="form-input" id="storageRelMainInput" value="main" placeholder="如: main">
+        <small style="color:var(--text-muted); font-size:0.78rem;">主图命名为 main.*，附图依次命名为 pt01.*, pt02.*...</small>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label required">
+          📁 变体 SKU 图片存储相对文件夹 (sku)
+          <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(相对路径，默认 sku)</span>
+        </label>
+        <input type="text" class="form-input" id="storageRelSkuInput" value="sku" placeholder="如: sku">
+        <small style="color:var(--text-muted); font-size:0.78rem;">SKU 图片按属性维度与具体项命名，如 颜色-红色.*，尺寸-L.*。</small>
+      </div>
+    </div>
+
+    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:var(--radius-sm); padding:14px; font-size:0.85rem; color:#166534;">
+      <div style="font-weight:700; margin-bottom:4px;">📁 本地归档目录规则结构预览：</div>
+      <div style="font-family:monospace; line-height:1.6; font-size:0.82rem;">
+        📂 <code>&lt;主绝对地址&gt; / &lt;产品名称&gt;/</code><br>
+        &nbsp;&nbsp;├── 📂 <code id="previewRelMain">main/</code> (主图与附图相对文件夹)<br>
+        &nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;&nbsp;├── 🖼️ <code>main.jpg</code> (主图命名为 main)<br>
+        &nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;&nbsp;├── 🖼️ <code>pt01.jpg</code> (附图1)<br>
+        &nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;&nbsp;└── 🖼️ <code>pt02.png...</code> (附图2...)<br>
+        &nbsp;&nbsp;├── 📂 <code id="previewRelSku">sku/</code> (变体SKU图片相对文件夹)<br>
+        &nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;&nbsp;└── 🖼️ <code>颜色-红色.jpg</code> / <code>尺寸-L.jpg...</code> (属性维度+具体项)<br>
+        &nbsp;&nbsp;└── 📄 <code>product_info.json</code> (完整结构化数据备份)
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/settings.js?v=20260830_10"></script>
+{% endblock %}

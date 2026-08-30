@@ -1,0 +1,362 @@
+"""
+SQLite 数据库初始化与访问层
+"""
+import sqlite3
+import json
+from typing import Dict, Any, List, Optional
+from server.config import DB_PATH
+
+
+def get_db_connection() -> sqlite3.Connection:
+    """获取 SQLite 连接并配置行字典解析"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    """初始化数据库表结构"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # 0. 精简版父子 SKU 单表商品结构 (Single-Table Hierarchy)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS product_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        is_parent INTEGER NOT NULL DEFAULT 0,
+        parent_sku TEXT NOT NULL,
+        sku TEXT NOT NULL UNIQUE,
+        store_account TEXT DEFAULT '',
+        brand TEXT DEFAULT '',
+        title TEXT DEFAULT '',
+        sale_type TEXT DEFAULT 'variation',
+        model_number TEXT DEFAULT '',
+        model_name TEXT DEFAULT '',
+        item_length REAL DEFAULT 0,
+        item_width REAL DEFAULT 0,
+        item_height REAL DEFAULT 0,
+        item_dim_unit TEXT DEFAULT 'cm',
+        package_length REAL DEFAULT 0,
+        package_width REAL DEFAULT 0,
+        package_height REAL DEFAULT 0,
+        package_dim_unit TEXT DEFAULT 'cm',
+        package_weight REAL DEFAULT 0,
+        package_weight_unit TEXT DEFAULT 'kg',
+        main_image TEXT DEFAULT '',
+        extra_images_json TEXT DEFAULT '[]',
+        variation_theme TEXT DEFAULT '',
+        color_options_json TEXT DEFAULT '[]',
+        size_options_json TEXT DEFAULT '[]',
+        variant_image_dimension TEXT DEFAULT 'color',
+        variant_dimension_images_json TEXT DEFAULT '{}',
+        variant_image TEXT DEFAULT '',
+        color TEXT DEFAULT '',
+        size TEXT DEFAULT '',
+        length_cm REAL DEFAULT 0,
+        width_cm REAL DEFAULT 0,
+        height_cm REAL DEFAULT 0,
+        weight_kg REAL DEFAULT 0,
+        purchase_price REAL DEFAULT 0,
+        profit_coefficient REAL DEFAULT 1.0,
+        shipping_channel TEXT DEFAULT '',
+        price_jpy REAL DEFAULT 0,
+        quantity INTEGER DEFAULT 0,
+        ean TEXT DEFAULT '',
+        description TEXT DEFAULT '',
+        bullet_points_json TEXT DEFAULT '[]',
+        chinese_translations_json TEXT DEFAULT '[]',
+        fulfillment_channel TEXT DEFAULT 'FBM',
+        search_terms TEXT DEFAULT '',
+        status TEXT DEFAULT 'draft',
+        created_by TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_items_parent_sku ON product_items(parent_sku);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_items_is_parent ON product_items(is_parent);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_items_created_by ON product_items(created_by);")
+    # 动态检查并添加 product_items 新增字段 (brand 字段等向下兼容)
+    cursor.execute("PRAGMA table_info(product_items);")
+    existing_items_cols = [col["name"] for col in cursor.fetchall()]
+    if "brand" not in existing_items_cols:
+        cursor.execute("ALTER TABLE product_items ADD COLUMN brand TEXT DEFAULT '';")
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_items_brand ON product_items(brand);")
+
+    # 0.1 SKU 与 EAN 对应流水映射表 (每新增一个 SKU+EAN 自动新增一条)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sku_ean_mappings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sku VARCHAR(64) NOT NULL UNIQUE,
+        ean VARCHAR(32) NOT NULL,
+        parent_sku VARCHAR(64) DEFAULT '',
+        store_account VARCHAR(64) DEFAULT '',
+        created_by VARCHAR(64) DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_mapping_ean ON sku_ean_mappings(ean);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_mapping_parent_sku ON sku_ean_mappings(parent_sku);")
+
+    # 1. 商品主表 (历史表向下兼容)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        store_account TEXT NOT NULL,
+        site TEXT NOT NULL DEFAULT '日本',
+        product_id_type TEXT DEFAULT 'EAN',
+        product_id_value TEXT DEFAULT '',
+        title TEXT NOT NULL,
+        brand TEXT DEFAULT '',
+        category_name TEXT DEFAULT '',
+        category_type TEXT DEFAULT '',
+        sale_type TEXT DEFAULT 'variation',
+        variation_theme TEXT DEFAULT 'カラー/サイズ(颜色/尺寸)',
+        attributes_json TEXT DEFAULT '{}',
+        bullet_points_json TEXT DEFAULT '[]',
+        description TEXT DEFAULT '',
+        status TEXT DEFAULT 'draft',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
+    # 2. 变体明细表
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS product_variations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        sku TEXT NOT NULL,
+        ean TEXT DEFAULT '',
+        color TEXT DEFAULT '',
+        size TEXT DEFAULT '',
+        condition TEXT DEFAULT '新品',
+        description TEXT DEFAULT '',
+        price_jpy REAL DEFAULT 0,
+        quantity INTEGER DEFAULT 0,
+        sale_price_jpy REAL DEFAULT 0,
+        length_cm REAL DEFAULT 0,
+        width_cm REAL DEFAULT 0,
+        height_cm REAL DEFAULT 0,
+        weight REAL DEFAULT 0,
+        purchase_price REAL DEFAULT 50.0,
+        profit_coefficient REAL DEFAULT 1.0,
+        optimal_channel TEXT DEFAULT '',
+        optimal_freight REAL DEFAULT 0,
+        main_image TEXT DEFAULT '',
+        swatch_image TEXT DEFAULT '',
+        extra_images_json TEXT DEFAULT '[]',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE
+    );
+    """)
+
+    # 动态检查并添加 products 新增字段 (向下兼容)
+    cursor.execute("PRAGMA table_info(products);")
+    existing_product_cols = [col["name"] for col in cursor.fetchall()]
+    new_product_cols = [
+        ("parent_sku", "TEXT DEFAULT ''"),
+        ("manufacturer", "TEXT DEFAULT ''"),
+        ("model_number", "TEXT DEFAULT ''"),
+        ("model_name", "TEXT DEFAULT ''"),
+        ("item_length", "REAL DEFAULT 0"),
+        ("item_width", "REAL DEFAULT 0"),
+        ("item_height", "REAL DEFAULT 0"),
+        ("item_dimension_unit", "TEXT DEFAULT 'cm'"),
+        ("package_length", "REAL DEFAULT 0"),
+        ("package_width", "REAL DEFAULT 0"),
+        ("package_height", "REAL DEFAULT 0"),
+        ("package_dimension_unit", "TEXT DEFAULT 'cm'"),
+        ("package_weight", "REAL DEFAULT 0"),
+        ("package_weight_unit", "TEXT DEFAULT 'kg'"),
+        ("main_image", "TEXT DEFAULT ''"),
+        ("extra_images_json", "TEXT DEFAULT '[]'"),
+        ("search_terms", "TEXT DEFAULT ''"),
+        ("fulfillment_channel", "TEXT DEFAULT 'FBM'")
+    ]
+    for col_name, col_type in new_product_cols:
+        if col_name not in existing_product_cols:
+            cursor.execute(f"ALTER TABLE products ADD COLUMN {col_name} {col_type};")
+
+    # 动态检查并添加 product_variations 新增字段 (向下兼容)
+    cursor.execute("PRAGMA table_info(product_variations);")
+    existing_cols = [col["name"] for col in cursor.fetchall()]
+    new_cols = [
+        ("length_cm", "REAL DEFAULT 0"),
+        ("width_cm", "REAL DEFAULT 0"),
+        ("height_cm", "REAL DEFAULT 0"),
+        ("weight", "REAL DEFAULT 0"),
+        ("purchase_price", "REAL DEFAULT 50.0"),
+        ("profit_coefficient", "REAL DEFAULT 1.0"),
+        ("optimal_channel", "TEXT DEFAULT ''"),
+        ("optimal_freight", "REAL DEFAULT 0")
+    ]
+    for col_name, col_type in new_cols:
+        if col_name not in existing_cols:
+            cursor.execute(f"ALTER TABLE product_variations ADD COLUMN {col_name} {col_type};")
+
+    # 3. 自动化上件任务日志表
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS publish_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        product_id INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        log_content TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE
+    );
+    """)
+
+    # 4. 系统全局配置表 (店铺列表、快递费与计价参数、本地归档存储目录等)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS system_settings (
+        key TEXT PRIMARY KEY,
+        value_json TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
+    # 初始化默认店铺账号配置 (支持店铺-品牌 1对1 必填映射)
+    cursor.execute("SELECT value_json FROM system_settings WHERE key = 'store_accounts';")
+    if not cursor.fetchone():
+        default_stores = [
+            {"store_name": "金梧汇辰", "brand_name": "JINWU"},
+            {"store_name": "店小秘通用测试", "brand_name": "DXM"}
+        ]
+        cursor.execute("INSERT INTO system_settings (key, value_json) VALUES (?, ?);", 
+                       ("store_accounts", json.dumps(default_stores, ensure_ascii=False)))
+
+    # 初始化默认物流计价参数配置
+    cursor.execute("SELECT value_json FROM system_settings WHERE key = 'pricing_config';")
+    if not cursor.fetchone():
+        default_pricing = {
+            "tax_rate": 0.17,
+            "exchange_rate": 23.0,
+            "price_coefficient": 26.0,
+            "default_profit_coeff": 1.0
+        }
+        cursor.execute("INSERT INTO system_settings (key, value_json) VALUES (?, ?);", 
+                       ("pricing_config", json.dumps(default_pricing, ensure_ascii=False)))
+
+    # 初始化默认本地图片与产品归档目录配置 (分 Mac 和 Windows)
+    cursor.execute("SELECT value_json FROM system_settings WHERE key = 'storage_path_mac';")
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO system_settings (key, value_json) VALUES (?, ?);", 
+                       ("storage_path_mac", json.dumps("/Users/gx/Desktop/products", ensure_ascii=False)))
+
+    cursor.execute("SELECT value_json FROM system_settings WHERE key = 'storage_path_win';")
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO system_settings (key, value_json) VALUES (?, ?);", 
+                       ("storage_path_win", json.dumps("D:\\products", ensure_ascii=False)))
+
+    # 初始化默认相对路径 (main 文件夹与 sku 文件夹)
+    cursor.execute("SELECT value_json FROM system_settings WHERE key = 'storage_rel_main';")
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO system_settings (key, value_json) VALUES (?, ?);", 
+                       ("storage_rel_main", json.dumps("main", ensure_ascii=False)))
+
+    cursor.execute("SELECT value_json FROM system_settings WHERE key = 'storage_rel_sku';")
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO system_settings (key, value_json) VALUES (?, ?);", 
+                       ("storage_rel_sku", json.dumps("sku", ensure_ascii=False)))
+
+    # 5. 用户表 (RBAC 角色鉴权: admin / user)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        salt TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'user',
+        display_name TEXT DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
+    # 6. 用户登录 Session 表
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_sessions (
+        token TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+    """)
+
+    # 7. 任务管理表 (tasks)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT DEFAULT '',
+        reference_url TEXT DEFAULT '',
+        instructions TEXT DEFAULT '',
+        assigned_by TEXT NOT NULL,
+        assigned_to TEXT NOT NULL,
+        assigned_to_name TEXT DEFAULT '',
+        assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        result_url TEXT DEFAULT '',
+        submitted_at DATETIME,
+        product_id INTEGER DEFAULT 0,
+        product_title TEXT DEFAULT '',
+        product_parent_sku TEXT DEFAULT '',
+        product_main_image TEXT DEFAULT '',
+        status TEXT DEFAULT 'pending',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
+    # 初始化默认管理员用户 (admin / admin)
+    cursor.execute("SELECT id FROM users WHERE username = 'admin';")
+    if not cursor.fetchone():
+        import hashlib
+        import secrets
+        salt = secrets.token_hex(16)
+        # PBKDF2-HMAC-SHA256 哈希
+        pwd_hash = hashlib.pbkdf2_hmac('sha256', 'admin'.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
+        cursor.execute("""
+        INSERT INTO users (username, password_hash, salt, role, display_name, status)
+        VALUES (?, ?, ?, 'admin', '超级管理员', 'active');
+        """, ('admin', pwd_hash, salt))
+        print("👤 已初始化默认管理员账号: admin / admin (角色: admin)")
+
+    conn.commit()
+    conn.close()
+    print("✅ 数据库表结构初始化/升级成功！")
+
+
+def get_setting(key: str, default: Any = None) -> Any:
+    """从数据库读取指定配置项"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT value_json FROM system_settings WHERE key = ?;", (key,))
+    row = cursor.fetchone()
+    conn.close()
+    if row and row["value_json"]:
+        try:
+            return json.loads(row["value_json"])
+        except Exception:
+            return default
+    return default
+
+
+def set_setting(key: str, value: Any) -> None:
+    """保存或更新配置项"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    val_json = json.dumps(value, ensure_ascii=False)
+    cursor.execute("""
+    INSERT INTO system_settings (key, value_json, updated_at) 
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = CURRENT_TIMESTAMP;
+    """, (key, val_json))
+    conn.commit()
+    conn.close()
+
+
+if __name__ == "__main__":
+    init_db()

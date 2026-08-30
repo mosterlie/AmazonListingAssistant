@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block title %}用户管理与权限维护{% endblock %}
+
+{% block content %}
+<div class="form-card">
+  <div class="card-header">
+    <div class="card-title">
+      <div class="card-title-icon" style="background:#8b5cf6;">👥</div>
+      <span>用户管理与权限维护</span>
+      <span class="tag-badge" id="userTotalCountBadge" style="background:#f1f5f9; color:#475569; border:none; margin-left:8px;">共 0 个用户</span>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <button class="btn btn-primary btn-sm" id="openAddUserModalBtn" type="button" style="background:#7c3aed; border-color:#7c3aed;">
+        ➕ 新增用户
+      </button>
+      <span class="tag-badge" style="background:#fef2f2; color:#b91c1c; border-color:#fecaca;">🔒 仅超级管理员可见</span>
+    </div>
+  </div>
+  <div class="card-body" style="padding:0;">
+    <div class="table-wrapper">
+      <table class="matrix-table" style="font-size:0.88rem;">
+        <thead>
+          <tr>
+            <th style="width:50px; text-align:center;">ID</th>
+            <th style="width:140px;">用户名 (Username)</th>
+            <th style="width:140px;">昵称 / 姓名备注</th>
+            <th style="width:120px; text-align:center;">角色权限</th>
+            <th style="width:100px; text-align:center;">账号状态</th>
+            <th style="width:180px;">创建时间</th>
+            <th style="width:160px; text-align:center;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="userTableBody">
+          <tr>
+            <td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">
+              ⏳ 正在加载用户数据...
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 新增用户模态弹窗 -->
+<div id="addUserModal" class="modal-overlay" style="display:none;">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div style="font-weight:700; font-size:1.1rem; color:#1e293b;">➕ 新增系统用户</div>
+      <span class="modal-close" onclick="closeAddUserModal()">&times;</span>
+    </div>
+    <form id="addUserForm" onsubmit="handleAddUserSubmit(event)">
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label required">用户名 (登录唯一账号)</label>
+          <input type="text" class="form-input" id="newUsernameInput" placeholder="如: zhangsan" required autocomplete="off">
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label required">初始登录密码</label>
+          <input type="password" class="form-input" id="newPasswordInput" placeholder="至少4位字符密码" required minlength="4" autocomplete="new-password">
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label">昵称 / 姓名备注</label>
+          <input type="text" class="form-input" id="newDisplayNameInput" placeholder="如: 张三 (运营一号)">
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label class="form-label required">角色权限</label>
+            <select class="form-select" id="newRoleSelect">
+              <option value="user" selected>普通用户 (仅录入与看板)</option>
+              <option value="admin">系统管理员 (全权管理)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label required">账号状态</label>
+            <select class="form-select" id="newStatusSelect">
+              <option value="active" selected>🟢 正常使用</option>
+              <option value="disabled">🔴 禁用账号</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeAddUserModal()">取消</button>
+        <button type="submit" class="btn btn-primary" id="saveNewUserBtn">保存并创建</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 编辑用户模态弹窗 -->
+<div id="editUserModal" class="modal-overlay" style="display:none;">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div style="font-weight:700; font-size:1.1rem; color:#1e293b;">✏️ 编辑用户信息与权限</div>
+      <span class="modal-close" onclick="closeEditUserModal()">&times;</span>
+    </div>
+    <form id="editUserForm" onsubmit="handleEditUserSubmit(event)">
+      <input type="hidden" id="editUserId">
+      <div class="modal-body">
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label">用户名 (不可更改)</label>
+          <input type="text" class="form-input" id="editUsernameInput" readonly style="background:#f1f5f9; color:#64748b; cursor:not-allowed;">
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label">昵称 / 姓名备注</label>
+          <input type="text" class="form-input" id="editDisplayNameInput" placeholder="如: 张三">
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label">重置密码 <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(留空则保持原密码不变)</span></label>
+          <input type="password" class="form-input" id="editPasswordInput" placeholder="输入新密码以重置密码..." autocomplete="new-password">
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label class="form-label required">角色权限</label>
+            <select class="form-select" id="editRoleSelect">
+              <option value="user">普通用户 (仅录入与看板)</option>
+              <option value="admin">系统管理员 (全权管理)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label required">账号状态</label>
+            <select class="form-select" id="editStatusSelect">
+              <option value="active">🟢 正常使用</option>
+              <option value="disabled">🔴 禁用账号</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeEditUserModal()">取消</button>
+        <button type="submit" class="btn btn-primary" id="saveEditUserBtn">保存修改</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .modal-card {
+    background: #ffffff;
+    border-radius: var(--radius-md);
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    animation: modalScale 0.2s ease-out;
+  }
+  @keyframes modalScale {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  .modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f8fafc;
+  }
+  .modal-close {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    cursor: pointer;
+    line-height: 1;
+  }
+  .modal-close:hover {
+    color: var(--danger);
+  }
+  .modal-body {
+    padding: 20px;
+  }
+  .modal-footer {
+    padding: 14px 20px;
+    border-top: 1px solid var(--border-color);
+    background: #f8fafc;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+  .role-badge-admin {
+    background: #fdf4ff;
+    color: #9333ea;
+    border: 1px solid #f0abfc;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+  .role-badge-user {
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .status-badge-active {
+    color: #16a34a;
+    font-weight: 600;
+  }
+  .status-badge-disabled {
+    color: #dc2626;
+    font-weight: 600;
+  }
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/users.js?v=20260830_5"></script>
+{% endblock %}
