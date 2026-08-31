@@ -2,15 +2,17 @@
 店小秘 ERP 自动化上件桥接服务
 将商品库中录入的结构化商品、变体矩阵和图片路径，直接映射并调用 BrowserEngine 执行真实自动化上件
 """
+import os
+import sys
 import time
-from typing import Dict, Any
+import json
+from typing import Dict, Any, List, Optional
 from server.services.product_service import ProductService
+from server.services.file_service import FileService
 
 try:
     from browser_engine import BrowserEngine
 except ImportError:
-    import sys
-    import os
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from browser_engine import BrowserEngine
 
@@ -21,7 +23,7 @@ class ERPBridgeService:
     @staticmethod
     def publish_product_to_erp(product_id: int) -> Dict[str, Any]:
         """
-        根据商品 ID 读取全部数据，并执行全流程自动化上件
+        根据商品 ID 读取 product_items 全部数据，并执行全流程自动化上件至店小秘
         """
         product = ProductService.get_product_by_id(product_id)
         if not product:
@@ -30,114 +32,359 @@ class ERPBridgeService:
         ProductService.update_product_status(product_id, "publishing", "🚀 开始连接浏览器并执行店小秘 ERP 自动化上件...")
 
         engine = BrowserEngine(port=9222)
-        ok, msg = engine.connect(activate=True)
-        if not ok:
-            ProductService.update_product_status(product_id, "failed", f"连接浏览器失败: {msg}")
-            return {"success": False, "msg": f"连接浏览器失败: {msg}"}
-
         logs = []
+
+        if not engine.is_running():
+            logs.append("🌐 端口 9222 尚未开启，正在自动启动专属 CDP Chrome 浏览器...")
+            l_ok, l_msg = engine.launch_browser("https://www.dianxiaomi.com/web/amazon/add")
+            if not l_ok:
+                err_text = f"自动启动 Chrome 浏览器失败: {l_msg}。请确认已安装 Google Chrome 并具有运行权限！"
+                logs.append(f"❌ {err_text}")
+                ProductService.update_product_status(product_id, "failed", "\n".join(logs))
+                return {"success": False, "msg": err_text, "logs": logs}
+            logs.append("✅ 专属 CDP 浏览器已成功启动并就绪！")
+        else:
+            ok, msg = engine.connect(activate=True)
+            if not ok:
+                err_text = f"连接浏览器失败: {msg}"
+                logs.append(f"❌ {err_text}")
+                ProductService.update_product_status(product_id, "failed", "\n".join(logs))
+                return {"success": False, "msg": err_text, "logs": logs}
         try:
-            # 步骤 1: 店铺账号
-            store_account = product["store_account"]
-            logs.append(f"正在选择【店铺账号】 ➔ 【{store_account}】...")
-            engine.select("店铺账号", store_account)
-            engine.wait_for_value("站点选择", product.get("site", "日本"), timeout_ms=10000)
-            logs.append(f"站点【{product.get('site', '日本')}】加载就绪！")
+            # 0. 确保位于店小秘 Amazon 添加产品页面并进行干净重载
+            target_dxm_url = "https://www.dianxiaomi.com/web/amazon/add"
+            logs.append(f"🌐 正在打开/重载店小秘添加产品页: {target_dxm_url} ...")
+            engine.open_or_focus_url(target_dxm_url)
+            try:
+                def reload_or_goto():
+                    p = engine.manager._get_active_page_impl()
+                    if "amazon/add" in p.url:
+                        p.reload(wait_until="commit", timeout=8000)
+                    else:
+                        p.goto(target_dxm_url, wait_until="commit", timeout=8000)
+                engine.manager.run_on_browser_thread(reload_or_goto)
+            except Exception as nav_e:
+                print(f"⚠️ 页面跳转提示: {nav_e}")
+            time.sleep(1.5)
+            active_tab = engine.get_active_tab_info()
+            logs.append(f"🎯 已定位前台操作页面: 【{active_tab.title if active_tab else '店小秘--添加亚马逊产品'}】")
+
+            # =========================================================================
+            # 阶段 1：店铺账号、站点联动与产品标题
+            # =========================================================================
+            store_account = product.get("store_account", "").strip() or "金梧汇辰"
+            expected_site = product.get("site", "日本")
+
+            logs.append(f"⏳ [阶段 1/7] 正在选择并锁定【店铺账号】 ➔ 【{store_account}】(目标站点: {expected_site})...")
+            store_ok = engine.select_store_account(store_account, expected_site, timeout_ms=20000)
+            if not store_ok:
+                err_text = f"选择店铺账号【{store_account}】失败或超时，未能联动出站点【{expected_site}】！请检查网络连接与店小秘授权！"
+                logs.append(f"❌ {err_text}")
+                ProductService.update_product_status(product_id, "failed", "\n".join(logs))
+                return {"success": False, "msg": err_text, "logs": logs}
+
+            logs.append(f"✅ 已成功选定店铺账号【{store_account}】，且【站点选择】联动为【{expected_site}】！")
             time.sleep(0.5)
 
-            # 步骤 2: 产品 ID
-            if product.get("product_id_value"):
-                engine.select(".form-card-content .ant-select", product.get("product_id_type", "EAN"))
-                engine.fill(".form-card-content input.ant-input", product["product_id_value"])
-                logs.append(f"配置产品 ID: {product.get('product_id_type')} = {product['product_id_value']}")
-                time.sleep(0.5)
-
-            # 步骤 3: 产品标题
-            engine.fill("产品标题", product["title"])
-            logs.append(f"填入产品标题: {product['title'][:30]}...")
+            title_text = product.get("title", "").strip()
+            if title_text:
+                logs.append(f"⏳ [阶段 1/7] 正在填入【产品标题】 ➔ 【{title_text[:25]}...】...")
+                engine.fill("产品标题", title_text)
+                logs.append("✅ 【产品标题】填入完成！")
             time.sleep(0.5)
 
-            # 步骤 4: 自动识别产品类型
+            # =========================================================================
+            # 阶段 2：类目自动识别与动态属性加载
+            # =========================================================================
+            logs.append("⏳ [阶段 2/7] 正在点击【自动识别产品类型】...")
             if engine.click_button("自动识别产品类型"):
-                engine.confirm_modal("确定", timeout_ms=8000)
-                logs.append("完成产品分类自动识别与确认！")
+                logs.append("   • 成功触发【自动识别产品类型】，正在等待类目推荐弹窗...")
+                time.sleep(1.5)
+                s_modal = engine.confirm_modal("确定", wait_timeout_ms=8000)
+                if s_modal:
+                    logs.append("✅ 已在推荐弹窗中确认类目，等待动态属性渲染...")
+                    time.sleep(2)
             time.sleep(0.5)
 
-            # 步骤 5: 售卖形式 (多变体)
-            if product.get("sale_type") == "variation":
-                engine.click_radio("多变体")
-                logs.append("已勾选【多变体】！")
-                time.sleep(0.5)
+            # =========================================================================
+            # 阶段 3：多变体售卖形式、Parent SKU 与品牌配置
+            # =========================================================================
+            is_variation = (product.get("sale_type") == "variation" or len(product.get("variations", [])) > 0)
+            if is_variation:
+                logs.append("⏳ [阶段 3/7] 正在勾选【售卖形式】 ➔ 【多变种】...")
+                engine.click_radio("多变体") or engine.click_radio("多变种")
+                logs.append("✅ 已勾选【多变体】！")
+            else:
+                logs.append("⏳ [阶段 3/7] 正在勾选【售卖形式】 ➔ 【单品】...")
+                engine.click_radio("单品")
 
-            # 步骤 6: 品牌
-            if product.get("brand"):
-                engine.select("品牌", product["brand"])
-                logs.append(f"配置品牌: {product['brand']}")
-                time.sleep(0.5)
-
-            # 步骤 7: 变种主题
-            if product.get("variation_theme"):
-                engine.select("变种主题", product["variation_theme"])
-                logs.append(f"选择变种主题: {product['variation_theme']}")
-                time.sleep(0.8)
-
-            # 步骤 8: 动态添加颜色与尺寸属性选项
-            attributes = product.get("attributes", {})
-            for color_val in attributes.get("color", []):
-                engine.add_variation_option("カラー", color_val)
-                logs.append(f"添加颜色选项: {color_val}")
-                time.sleep(0.3)
-
-            for size_val in attributes.get("size", []):
-                engine.add_variation_option("サイズ", size_val)
-                logs.append(f"添加尺寸选项: {size_val}")
-                time.sleep(0.3)
-
-            # 步骤 9: 变体表格设置 EAN
-            engine.select("#variationInfo table thead th:nth-child(4) .ant-select", "EAN")
             time.sleep(0.5)
 
-            # 步骤 10: 遍历填写变体表格明细
-            for var in product.get("variations", []):
-                color = var.get("color")
-                size = var.get("size")
-                if color and size:
-                    engine.fill_variation_row(
-                        filter_criteria={"颜色": color, "尺寸": size},
-                        row_data={
-                            "sku": var.get("sku", ""),
-                            "ean": var.get("ean", ""),
-                            "price": var.get("price_jpy", 0),
-                            "quantity": var.get("quantity", 0)
-                        }
-                    )
-                    logs.append(f"填写变体行【{color} / {size}】: SKU={var.get('sku')} 价格={var.get('price_jpy')}")
-                    time.sleep(0.2)
+            parent_sku = product.get("sku") or product.get("parent_sku") or ""
+            if parent_sku:
+                logs.append(f"⏳ [阶段 3/7] 正在填入【Parent SKU】 ➔ 【{parent_sku}】...")
+                engine.fill("Parent SKU", parent_sku)
+                time.sleep(0.3)
 
-            # 步骤 11: 遍历上传变体图片
-            for var in product.get("variations", []):
-                color = var.get("color")
-                size = var.get("size")
-                main_img = var.get("main_image")
-                swatch_img = var.get("swatch_image")
-                extra_imgs = var.get("extra_images", [])
+            brand_val = product.get("brand", "").strip()
+            if brand_val:
+                logs.append(f"⏳ [阶段 3/7] 正在配置【品牌】 ➔ 【{brand_val}】...")
+                engine.fill("品牌", brand_val) or engine.select("品牌", brand_val)
+                time.sleep(0.3)
 
-                if (main_img or swatch_img or extra_imgs) and color and size:
-                    engine.set_variation_images(
-                        filter_criteria={"颜色": color, "尺寸": size},
-                        main_image=main_img,
-                        swatch_image=swatch_img,
-                        extra_images=extra_imgs
-                    )
-                    logs.append(f"完成变体【{color} / {size}】图片上传！")
-                    time.sleep(0.3)
+            # 制造商填入品牌名称 (用户要求: 1. 制造商填写品牌名称)
+            mfg_val = product.get("manufacturer", "").strip() or brand_val
+            if mfg_val:
+                logs.append(f"⏳ [阶段 3/7] 正在配置【制造商】 ➔ 【{mfg_val}】...")
+                engine.fill_manufacturer(mfg_val)
+                time.sleep(0.3)
 
+            # =========================================================================
+            # 阶段 4：变体主题选择、属性标签添加与变体矩阵展开
+            # =========================================================================
+            if is_variation:
+                v_theme = product.get("variation_theme") or "カラー/サイズ(颜色/尺寸)"
+                logs.append(f"⏳ [阶段 4/7] 正在选择【变种主题】 ➔ 【{v_theme}】...")
+                engine.select("变种主题", v_theme)
+                time.sleep(1.0)
+
+                # 添加颜色标签
+                color_opts = product.get("color_options", [])
+                if not color_opts and product.get("color_options_json"):
+                    try:
+                        color_opts = json.loads(product["color_options_json"])
+                    except Exception:
+                        pass
+                if not color_opts:
+                    color_opts = list(dict.fromkeys([v.get("color") for v in product.get("variations", []) if v.get("color")]))
+
+                for col in color_opts:
+                    if col:
+                        logs.append(f"   • 正在添加颜色选项: {col}")
+                        engine.add_variation_option("カラー", col)
+                        time.sleep(0.3)
+
+                # 添加尺寸标签
+                size_opts = product.get("size_options", [])
+                if not size_opts and product.get("size_options_json"):
+                    try:
+                        size_opts = json.loads(product["size_options_json"])
+                    except Exception:
+                        pass
+                if not size_opts:
+                    size_opts = list(dict.fromkeys([v.get("size") for v in product.get("variations", []) if v.get("size")]))
+
+                for sz in size_opts:
+                    if sz:
+                        logs.append(f"   • 正在添加尺寸选项: {sz}")
+                        engine.add_variation_option("サイズ", sz)
+                        time.sleep(0.3)
+
+                logs.append(f"✅ 已配置变体属性，生成 {len(color_opts)} × {len(size_opts)} 变体矩阵！")
+                time.sleep(1.0)
+
+                # 切换变体表头第 4 项为 EAN
+                engine.select("#variationInfo table thead th:nth-child(4) .ant-select", "EAN")
+                time.sleep(0.5)
+
+                # =========================================================================
+                # 阶段 5：遍历填充各变体行数据与并发装配变体主附图
+                # =========================================================================
+                logs.append("⏳ [阶段 5/7] 正在快速填充变体表格数据并并发装配变体主图与附图...")
+                
+                # 准备图片配置
+                img_dimension = product.get("variant_image_dimension") or "color"
+                dim_images_map = product.get("variant_dimension_images") or {}
+                if not dim_images_map and product.get("variant_dimension_images_json"):
+                    try:
+                        dim_images_map = json.loads(product["variant_dimension_images_json"])
+                    except Exception:
+                        pass
+
+                # 解析父商品附图清单 (所有子 SKU 统一复用)
+                parent_extras = product.get("extra_images") or []
+                if not parent_extras and product.get("extra_images_json"):
+                    try:
+                        parent_extras = json.loads(product["extra_images_json"])
+                    except Exception:
+                        pass
+                
+                parent_extra_abs_files = [
+                    FileService.resolve_image_path(p) 
+                    for p in parent_extras 
+                    if p and FileService.resolve_image_path(p) and os.path.exists(FileService.resolve_image_path(p))
+                ]
+
+                # 1. 快速填充所有变体行数据
+                for var in product.get("variations", []):
+                    col = var.get("color", "")
+                    sz = var.get("size", "")
+                    v_sku = var.get("sku", "")
+                    v_ean = var.get("ean", "")
+                    v_price = var.get("price_jpy", 0) or var.get("sale_price_jpy", 0)
+                    v_qty = var.get("quantity", 0) or 40
+
+                    filter_crit = {}
+                    if col:
+                        filter_crit["颜色"] = col
+                    if sz:
+                        filter_crit["尺寸"] = sz
+
+                    if filter_crit:
+                        engine.fill_variation_row(
+                            filter_criteria=filter_crit,
+                            row_data={
+                                "sku": v_sku,
+                                "ean": v_ean,
+                                "price": str(v_price),
+                                "quantity": str(v_qty)
+                            }
+                        )
+                        logs.append(f"   • 填写变体行【{col} / {sz}】: SKU={v_sku}, EAN={v_ean}, 价格={v_price} JPY, 库存={v_qty}")
+
+                # 2. 为全部变体（所有 6 个子 SKU）快速装配主图与附图
+                for var in product.get("variations", []):
+                    col = var.get("color", "")
+                    sz = var.get("size", "")
+
+                    filter_crit = {}
+                    if col:
+                        filter_crit["颜色"] = col
+                    if sz:
+                        filter_crit["尺寸"] = sz
+
+                    # 确定变体主图 (按颜色/按尺寸维度映射，或独立变体图)
+                    v_main_img_path = ""
+                    if img_dimension == "color" and col and col in dim_images_map:
+                        v_main_img_path = dim_images_map[col]
+                    elif img_dimension == "size" and sz and sz in dim_images_map:
+                        v_main_img_path = dim_images_map[sz]
+                    elif var.get("variant_image"):
+                        v_main_img_path = var.get("variant_image")
+                    elif var.get("main_image"):
+                        v_main_img_path = var.get("main_image")
+
+                    if v_main_img_path:
+                        abs_main = FileService.resolve_image_path(v_main_img_path)
+                        if abs_main and os.path.exists(abs_main):
+                            engine.upload_variation_image(
+                                filter_criteria=filter_crit,
+                                image_path=abs_main,
+                                image_type="main"
+                            )
+                            logs.append(f"     ➔ 上传变体主图【{col} / {sz}】: {v_main_img_path}")
+
+                    # 装配变体附图 (批量传入多张附图)
+                    if parent_extra_abs_files:
+                        engine.upload_variation_image(
+                            filter_criteria=filter_crit,
+                            image_path=parent_extra_abs_files,
+                            image_type="extra"
+                        )
+                        logs.append(f"     ➔ 装配附图【{col} / {sz}】({len(parent_extra_abs_files)} 张)")
+
+            # =========================================================================
+            # 阶段 6：父级主附图、五点描述、长描述、配送渠道、搜索词、尺寸与重量
+            # =========================================================================
+            logs.append("⏳ [阶段 6/7] 正在上传父级商品主附图并填入描述文案、尺寸与关键词...")
+
+            # 1. 父级主附图一次性批量上传 (主图 + 1~8 张附图并行提交)
+            p_main = product.get("main_image", "")
+            p_main_abs = FileService.resolve_image_path(p_main) if p_main else ""
+            
+            p_extras = product.get("extra_images") or []
+            if not p_extras and product.get("extra_images_json"):
+                try:
+                    p_extras = json.loads(product["extra_images_json"])
+                except Exception:
+                    pass
+            p_extra_abs_list = [
+                FileService.resolve_image_path(p) 
+                for p in p_extras 
+                if p and FileService.resolve_image_path(p) and os.path.exists(FileService.resolve_image_path(p))
+            ]
+
+            if (p_main_abs and os.path.exists(p_main_abs)) or p_extra_abs_list:
+                engine.upload_parent_images(
+                    main_image=p_main_abs if os.path.exists(p_main_abs) else None,
+                    extra_images=p_extra_abs_list
+                )
+                logs.append("✅ 父级商品主图与附图批量并发上传完成！")
+                time.sleep(0.5)
+
+            # 2. 五点描述 (Bullet Points)
+            bps = product.get("bullet_points") or []
+            if not bps and product.get("bullet_points_json"):
+                try:
+                    bps = json.loads(product["bullet_points_json"])
+                except Exception:
+                    pass
+            if bps:
+                engine.fill_bullet_points(bps)
+                logs.append(f"✅ 五点描述 (Bullet Points {len(bps)} 项) 填入完成！")
+                time.sleep(0.3)
+
+            # 3. 商品长描述 (Description)
+            desc_text = product.get("description", "").strip()
+            if desc_text:
+                engine.fill_description(desc_text)
+                logs.append("✅ 商品详细长描述填入完成！")
+                time.sleep(0.3)
+
+            # 4. 配送渠道 (FBM / FBA)
+            fulfillment = product.get("fulfillment_channel") or "FBM"
+            engine.select("配送渠道", fulfillment)
+            time.sleep(0.3)
+
+            # 5. Search Terms (搜索关键词)
+            search_terms = product.get("search_terms", "").strip()
+            if search_terms:
+                engine.fill_search_terms(search_terms)
+                logs.append("✅ Search Terms 搜索关键词填入完成！")
+                time.sleep(0.3)
+
+            # 6. 品目寸法（商品尺寸）、包装尺寸(パッケージ寸法)、商品重量与包装重量
+            dim_res = engine.fill_dimensions_and_weight(
+                item_length=product.get("item_length"),
+                item_width=product.get("item_width"),
+                item_height=product.get("item_height"),
+                item_dim_unit=product.get("item_dim_unit", "cm"),
+                package_length=product.get("package_length"),
+                package_width=product.get("package_width"),
+                package_height=product.get("package_height"),
+                package_dim_unit=product.get("package_dim_unit", "cm"),
+                item_weight=product.get("item_weight"),
+                item_weight_unit=product.get("item_weight_unit"),
+                package_weight=product.get("package_weight"),
+                package_weight_unit=product.get("package_weight_unit", "kg")
+            )
+            if dim_res:
+                logs.append("✅ 品目寸法(商品尺寸)、パッケージ寸法(包装尺寸)与包装重量填入完成！")
+            time.sleep(0.3)
+
+            # 7. 型号参数（若动态类目渲染出对应字段则填入）
+            if product.get("model_number"):
+                engine.fill("品番", product["model_number"]) or engine.fill("型番", product["model_number"])
+            if product.get("model_name"):
+                engine.fill("モデル名", product["model_name"])
+
+            # =========================================================================
+            # 阶段 7：点击【保存】存为草稿 (不直接发布)
+            # =========================================================================
+            logs.append("⏳ [阶段 7/7] 正在点击【保存】存为店小秘草稿...")
+            s_saved = engine.save_draft(timeout_ms=10000)
+            if s_saved:
+                logs.append("🎉 已成功点击【保存】！商品已以草稿形式保存在店小秘 ERP，供人工复核！")
+            else:
+                logs.append("⚠️ 点击保存按钮完成，请在浏览器中确认页面提示。")
+
+            time.sleep(1.0)
             final_log = "\n".join(logs)
             ProductService.update_product_status(product_id, "published", final_log)
-            return {"success": True, "msg": "商品成功全自动发布到店小秘 ERP！", "logs": logs}
+            return {"success": True, "msg": "商品成功全自动上传并保存至店小秘 ERP！", "logs": logs}
 
         except Exception as e:
-            err_msg = f"上件过程中发生异常: {str(e)}"
+            err_msg = f"❌ 上件过程中发生异常: {str(e)}"
             logs.append(err_msg)
             ProductService.update_product_status(product_id, "failed", "\n".join(logs))
             return {"success": False, "msg": err_msg, "logs": logs}

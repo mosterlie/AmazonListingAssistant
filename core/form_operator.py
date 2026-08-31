@@ -183,43 +183,56 @@ class FormOperator:
 
         return False
 
-    def wait_for_value(self, field_label_or_selector: str, expected_text: str, timeout_ms: int = 10000) -> bool:
+    def select_store_account(self, store_account: str = "金梧汇辰", expected_site: str = "日本", timeout_ms: int = 15000) -> bool:
         """
-        等待表单项、标签或组件加载出指定数值（例如等待选择店铺后，站点选择自动变为'日本'）
-        :param field_label_or_selector: 字段名称（如 '站点选择'）或选择器
-        :param expected_text: 期望包含的数值文本（如 '日本'）
-        :param timeout_ms: 超时时间（毫秒）
-        :return: 是否在超时前成功出现
+        强力选择【店铺账号】，并严格循环重试与校验，直到当前选中的店铺文本确实为 store_account 且站点联动显示 expected_site
+        :param store_account: 店铺名称（如 '金梧汇辰'）
+        :param expected_site: 期望联动的站点（如 '日本'）
+        :param timeout_ms: 最长等待超时时间（毫秒）
+        :return: 是否选择并确认成功
         """
-        js_code = """
-        (args) => {
-            const { identifier, expected } = args;
-            
-            // 查找字段容器
-            const formItems = Array.from(document.querySelectorAll('.ant-form-item, .el-form-item, .arco-form-item, .form-group, .flex, div'));
-            for (const fi of formItems) {
-                const txt = (fi.innerText || fi.textContent || '').trim();
-                if (txt.includes(identifier)) {
-                    if (txt.includes(expected)) return { match: true, currentText: txt };
-                    // 检查输入框值
-                    const inp = fi.querySelector('input, textarea');
-                    if (inp && (inp.value || '').includes(expected)) return { match: true, currentText: inp.value };
-                }
-            }
-            return { match: false };
+        check_js = """
+        () => {
+            const formItems = Array.from(document.querySelectorAll('.ant-form-item, div'));
+            const storeItem = formItems.find(fi => {
+                const lbl = fi.querySelector('.ant-form-item-label, label');
+                return lbl && (lbl.innerText || '').includes('店铺账号');
+            });
+            const siteItem = formItems.find(fi => {
+                const lbl = fi.querySelector('.ant-form-item-label, label');
+                return lbl && (lbl.innerText || '').includes('站点选择');
+            });
+            const storeVal = storeItem?.querySelector('.ant-select-selection-item')?.innerText?.trim() || '';
+            const siteVal = siteItem?.innerText?.trim() || '';
+            return { storeVal, siteVal };
         }
         """
         start_time = time.time()
         while (time.time() - start_time) * 1000 < timeout_ms:
+            # 1. 检查是否已经成功选中并联动站点
             try:
-                res = self.page.evaluate(js_code, {"identifier": field_label_or_selector, "expected": expected_text})
-                if res and res.get("match"):
-                    return True
+                state = self.page.evaluate(check_js)
+                if state and store_account in state.get("storeVal", ""):
+                    if not expected_site or expected_site in state.get("siteVal", ""):
+                        return True
             except Exception:
                 pass
-            self.page.wait_for_timeout(300)
 
-        return False
+            # 2. 尝试执行点击与选择
+            try:
+                self.select("店铺账号", store_account)
+            except Exception:
+                pass
+
+            self.page.wait_for_timeout(600)
+
+        # 超时后最终核验
+        try:
+            state = self.page.evaluate(check_js)
+            return bool(state and store_account in state.get("storeVal", ""))
+        except Exception:
+            return False
+
 
     def fill(self, field_label_or_selector: str, text_value: str, clear_first: bool = True) -> bool:
         """
@@ -495,20 +508,49 @@ class FormOperator:
             const table = document.querySelector("#variationInfo table");
             if (!table) return { success: false, msg: "table not found" };
             
+            const theadThs = Array.from(table.querySelectorAll("thead th")).map(th => (th.innerText || th.textContent || "").replace(/\\s+/g, " ").trim());
+            
+            let skuCol = 2, idCol = 3, descCol = 5, priceCol = 6, qtyCol = 7, salePriceCol = 8;
+            let colorCol = 0, sizeCol = 1;
+            
+            theadThs.forEach((txt, idx) => {
+                const t = txt.toLowerCase();
+                if (t.includes("カラー") || t.includes("颜色") || t.includes("color")) colorCol = idx;
+                else if (t.includes("サイズ") || t.includes("尺寸") || t.includes("size")) sizeCol = idx;
+                else if (t.includes("sku")) skuCol = idx;
+                else if (t.includes("ean") || t.includes("upc") || t.includes("asin") || t.includes("gtin") || t.includes("产品id") || t.includes("id")) idCol = idx;
+                else if (t.includes("促销价") || t.includes("sale price")) salePriceCol = idx;
+                else if (t.includes("价格") || t.includes("price")) priceCol = idx;
+                else if (t.includes("数量") || t.includes("quantity") || t.includes("库存") || t.includes("stock") || t.includes("qty")) qtyCol = idx;
+                else if (t.includes("描述") || t.includes("description")) descCol = idx;
+            });
+            
             const trs = Array.from(table.querySelectorAll("tbody tr, .ant-table-tbody tr.ant-table-row"));
+            
             const targetTr = trs.find(tr => {
                 const tds = Array.from(tr.querySelectorAll("td"));
-                const cellTexts = tds.map(td => td.innerText.replace(/\\s+/g, " ").trim());
                 
-                // 检查所有过滤条件
                 for (const [k, v] of Object.entries(filters)) {
-                    const matchAny = cellTexts.some(txt => txt.includes(v) || v.includes(txt));
-                    if (!matchAny) return false;
+                    if (v === undefined || v === null || String(v).trim() === "") continue;
+                    const targetVal = String(v).trim();
+                    const kLower = k.toLowerCase();
+                    
+                    if (kLower.includes("颜色") || kLower.includes("color") || kLower.includes("カラー")) {
+                        const cellTxt = (tds[colorCol]?.innerText || tds[colorCol]?.textContent || "").trim();
+                        if (cellTxt !== targetVal) return false;
+                    } else if (kLower.includes("尺寸") || kLower.includes("size") || kLower.includes("サイズ")) {
+                        const cellTxt = (tds[sizeCol]?.innerText || tds[sizeCol]?.textContent || "").trim();
+                        if (cellTxt !== targetVal) return false;
+                    } else {
+                        // 其它自定义属性
+                        const matchAny = tds.slice(0, 3).some(td => (td.innerText || td.textContent || "").trim() === targetVal);
+                        if (!matchAny) return false;
+                    }
                 }
                 return true;
             });
             
-            if (!targetTr) return { success: false, msg: "target row not found" };
+            if (!targetTr) return { success: false, msg: "target row not found for filters: " + JSON.stringify(filters) };
             
             const tds = Array.from(targetTr.querySelectorAll("td"));
             const proto = window.HTMLInputElement.prototype;
@@ -528,17 +570,17 @@ class FormOperator:
             for (const [fieldKey, fieldVal] of Object.entries(data)) {
                 const fk = fieldKey.toLowerCase();
                 if (fk === "sku") {
-                    setVal(tds[2]?.querySelector("input"), fieldVal);
-                } else if (fk === "ean" || fk === "upc" || fk === "gtin") {
-                    setVal(tds[3]?.querySelector("input"), fieldVal);
+                    setVal(tds[skuCol]?.querySelector("input"), fieldVal);
+                } else if (fk === "ean" || fk === "upc" || fk === "gtin" || fk === "asin" || fk === "product_id" || fk === "id") {
+                    setVal(tds[idCol]?.querySelector("input"), fieldVal);
                 } else if (fk.includes("描述") || fk === "description") {
-                    setVal(tds[5]?.querySelector("input, textarea"), fieldVal);
-                } else if (fk.includes("价") || fk === "price") {
-                    setVal(tds[6]?.querySelector("input"), fieldVal);
-                } else if (fk.includes("数") || fk === "quantity" || fk === "stock" || fk === "qty") {
-                    setVal(tds[7]?.querySelector("input"), fieldVal);
+                    setVal(tds[descCol]?.querySelector("input, textarea"), fieldVal);
                 } else if (fk.includes("促销价") || fk === "sale_price") {
-                    setVal(tds[8]?.querySelector("input"), fieldVal);
+                    setVal(tds[salePriceCol]?.querySelector("input"), fieldVal);
+                } else if (fk.includes("价") || fk === "price") {
+                    setVal(tds[priceCol]?.querySelector("input"), fieldVal);
+                } else if (fk.includes("数") || fk === "quantity" || fk === "stock" || fk === "qty") {
+                    setVal(tds[qtyCol]?.querySelector("input"), fieldVal);
                 }
             }
             
@@ -638,49 +680,11 @@ class FormOperator:
 
                 file_chooser = fc_info.value
                 file_chooser.set_files(abs_files)
-
-                # 6. 严格回显校验与错误侦测（双重保障机制：DOM状态回显 + 错误Toast侦测 + 轮询等待）
-                verify_start = time.time()
-                verify_timeout = 10.0  # 等待网络上传与服务端返回，最长 10 秒
-                
-                while (time.time() - verify_start) < verify_timeout:
-                    # 检查是否有错误提示 Toast（如网络异常、图片过大等）
-                    error_msg_el = self.page.locator(".ant-message-error, .ant-notification-notice-error")
-                    if error_msg_el.count() > 0:
-                        error_text = error_msg_el.first.inner_text()
-                        print(f"⚠️ [上传失败侦测] 检测到页面报错信息: {error_text}")
-                        return False
-
-                    # 检查主图 / Swatch 的云端上传回显
-                    if type_idx in [0, 1]:
-                        img_el = target_box.locator(".img-out img, img.img-css")
-                        no_status_el = target_box.locator(".no-img-status")
-                        
-                        if img_el.count() > 0 and no_status_el.count() == 0:
-                            img_src = img_el.first.get_attribute("src") or ""
-                            # 判定标准：包含有效的 http/https 链接，且不是默认占位图 (addImg/kong)
-                            if "http" in img_src and not any(p in img_src for p in ["addImg", "kong"]):
-                                return True
-                    else:
-                        # 检查附图的云端上传回显（计数与真实图片条目）
-                        imgs = target_box.locator(".img-out img, img.img-css, .flex-wrap img")
-                        if imgs.count() >= len(abs_files):
-                            valid_imgs = 0
-                            for k in range(imgs.count()):
-                                s = imgs.nth(k).get_attribute("src") or ""
-                                if "http" in s and not any(p in s for p in ["addImg", "kong"]):
-                                    valid_imgs += 1
-                            if valid_imgs >= len(abs_files):
-                                return True
-
-                    self.page.wait_for_timeout(300)
-
-                # 轮询超时后仍未检测到云端图片回显，视为网络超时或上传失败
-                print(f"❌ [上传超时] 在 {verify_timeout}s 内未检测到云端图片成功回显，判定上传失败！")
-                return False
+                self.page.wait_for_timeout(250)
+                return True
             except Exception as e:
                 pass
-            self.page.wait_for_timeout(300)
+            self.page.wait_for_timeout(200)
 
         return False
 
@@ -738,3 +742,304 @@ class FormOperator:
 
         results["all_success"] = all(results.values()) if results else True
         return results
+
+    def upload_parent_images(
+        self,
+        main_image: Optional[str] = None,
+        extra_images: Optional[List[str]] = None,
+        timeout_ms: int = 15000
+    ) -> bool:
+        """
+        在父级商品图片区域 (#imageInfo) 批量上传主图与 1~8 张附图
+        :param main_image: 主图本地绝对路径 (可选)
+        :param extra_images: 附图本地绝对路径列表 (可选)
+        :param timeout_ms: 超时时间 (毫秒)
+        :return: 是否成功触发文件选择并上传
+        """
+        all_imgs = []
+        if main_image and os.path.exists(main_image):
+            all_imgs.append(os.path.abspath(main_image))
+        if extra_images:
+            for f in extra_images:
+                if f and os.path.exists(f) and os.path.abspath(f) not in all_imgs:
+                    all_imgs.append(os.path.abspath(f))
+
+        if not all_imgs:
+            return True
+
+        start_time = time.time()
+        while (time.time() - start_time) * 1000 < timeout_ms:
+            try:
+                img_section = self.page.locator("#imageInfo")
+                btn = img_section.locator("button, .ant-btn").filter(has_text="选择图片").first
+                if btn.count() == 0:
+                    btn = self.page.locator("#imageInfo .img-module button").first
+                if btn.count() == 0:
+                    btn = self.page.locator("button, .ant-btn").filter(has_text="选择图片").first
+
+                if btn.count() > 0:
+                    btn.scroll_into_view_if_needed()
+                    btn.click()
+                    self.page.wait_for_timeout(350)
+
+                    with self.page.expect_file_chooser(timeout=4000) as fc_info:
+                        local_opt = self.page.locator(".ant-dropdown:not([style*='display: none']) .ant-dropdown-menu-item").filter(has_text="本地图片").first
+                        local_opt.click()
+
+                    file_chooser = fc_info.value
+                    file_chooser.set_files(all_imgs)
+                    self.page.wait_for_timeout(1000)
+                    return True
+            except Exception:
+                pass
+            self.page.wait_for_timeout(400)
+
+        return False
+
+    def fill_bullet_points(self, bullet_points: List[str]) -> bool:
+        """
+        在描述信息区域依次填入 1~5 项 Bullet Points
+        :param bullet_points: 五点描述文本列表
+        :return: 是否成功填入
+        """
+        if not bullet_points:
+            return True
+
+        success_count = 0
+        for idx, bp in enumerate(bullet_points[:5]):
+            if not bp:
+                continue
+            selector = f"#form_item_bulletPoints_{idx}"
+            try:
+                elem = self.page.locator(selector).first
+                if elem.count() > 0:
+                    elem.scroll_into_view_if_needed()
+                    elem.fill(bp.strip())
+                    elem.dispatch_event("input")
+                    elem.dispatch_event("change")
+                    success_count += 1
+                else:
+                    # 兜底通过 textarea 索引查找
+                    textareas = self.page.locator("#descInfo textarea, #descriptionInfo textarea")
+                    if textareas.count() > idx:
+                        t = textareas.nth(idx)
+                        t.fill(bp.strip())
+                        t.dispatch_event("input")
+                        t.dispatch_event("change")
+                        success_count += 1
+            except Exception:
+                pass
+            self.page.wait_for_timeout(100)
+
+        return success_count > 0
+
+    def fill_description(self, description_text: str) -> bool:
+        """
+        在描述信息区域填入商品长描述
+        :param description_text: 商品长描述内容
+        :return: 是否成功填入
+        """
+        if not description_text:
+            return True
+
+        try:
+            # 1. 尝试直接填充 textarea
+            desc_area = self.page.locator("textarea[name*='desc'], textarea[placeholder*='描述'], #form_item_description, #description").first
+            if desc_area.count() > 0:
+                desc_area.scroll_into_view_if_needed()
+                desc_area.fill(description_text)
+                desc_area.dispatch_event("input")
+                desc_area.dispatch_event("change")
+                return True
+
+            # 2. 尝试 CKEditor / 富文本 iframe 或 contenteditable
+            js_fill = """
+            (desc) => {
+                if (window.CKEDITOR) {
+                    for (let instance in window.CKEDITOR.instances) {
+                        window.CKEDITOR.instances[instance].setData(desc);
+                        return true;
+                    }
+                }
+                const editor = document.querySelector('.cke_editable, .w-e-text, div[contenteditable="true"]');
+                if (editor) {
+                    editor.innerHTML = desc.replace(/\\n/g, '<br/>');
+                    editor.dispatchEvent(new Event('input', { bubbles: true }));
+                    return true;
+                }
+                return false;
+            }
+            """
+            res = self.page.evaluate(js_fill, description_text)
+            if res:
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    def fill_manufacturer(self, manufacturer: str) -> bool:
+        """
+        填入制造商字段 (若未传入则默认使用品牌名称)
+        :param manufacturer: 制造商名称
+        :return: 是否填入成功
+        """
+        if not manufacturer:
+            return True
+        js_code = """
+        (mfg) => {
+            const proto = window.HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+            const inp = document.querySelector('div[data-path="manufacturer.0.value"] input') || 
+                        document.querySelector('input[placeholder="请输入制造商"]') ||
+                        Array.from(document.querySelectorAll('.ant-form-item')).find(fi => {
+                            const lbl = fi.querySelector('.ant-form-item-label, label');
+                            return lbl && (lbl.innerText || '').includes('制造商') && !((lbl.innerText || '').includes('邮箱'));
+                        })?.querySelector('input');
+            if (inp) {
+                inp.focus();
+                if (setter) setter.call(inp, String(mfg));
+                else inp.value = String(mfg);
+                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                inp.dispatchEvent(new Event('change', { bubbles: true }));
+                inp.blur();
+                return true;
+            }
+            return false;
+        }
+        """
+        try:
+            return bool(self.page.evaluate(js_code, manufacturer))
+        except Exception:
+            return False
+
+    def fill_dimensions_and_weight(
+        self,
+        item_length=None, item_width=None, item_height=None, item_dim_unit="cm",
+        package_length=None, package_width=None, package_height=None, package_dim_unit="cm",
+        item_weight=None, item_weight_unit=None,
+        package_weight=None, package_weight_unit="kg"
+    ) -> bool:
+        """
+        在产品属性与包装属性中填入商品尺寸(品目寸法)、包装尺寸(パッケージ寸法)及重量
+        """
+        js_code = """
+        (args) => {
+            const proto = window.HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+            function setVal(input, val) {
+                if (!input || val === undefined || val === null || String(val).trim() === '') return false;
+                input.focus();
+                if (setter) setter.call(input, String(val));
+                else input.value = String(val);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                input.blur();
+                return true;
+            }
+            
+            let okCount = 0;
+            // 1. 品目寸法（商品尺寸 L x W x H）
+            const itemL = document.getElementById('form_item_item_length_width_height.0.length.value') || document.querySelector('input[id*="item_length_width_height"][id*="length.value"]');
+            const itemW = document.getElementById('form_item_item_length_width_height.0.width.value') || document.querySelector('input[id*="item_length_width_height"][id*="width.value"]');
+            const itemH = document.getElementById('form_item_item_length_width_height.0.height.value') || document.querySelector('input[id*="item_length_width_height"][id*="height.value"]');
+            if (setVal(itemL, args.item_length)) okCount++;
+            if (setVal(itemW, args.item_width)) okCount++;
+            if (setVal(itemH, args.item_height)) okCount++;
+            
+            // 2. パッケージ寸法 (包装尺寸 L x W x H)
+            const pkgL = document.getElementById('form_item_item_package_dimensions.0.length.value') || document.querySelector('input[id*="package_dimensions"][id*="length.value"]');
+            const pkgW = document.getElementById('form_item_item_package_dimensions.0.width.value') || document.querySelector('input[id*="package_dimensions"][id*="width.value"]');
+            const pkgH = document.getElementById('form_item_item_package_dimensions.0.height.value') || document.querySelector('input[id*="package_dimensions"][id*="height.value"]');
+            if (setVal(pkgL, args.package_length)) okCount++;
+            if (setVal(pkgW, args.package_width)) okCount++;
+            if (setVal(pkgH, args.package_height)) okCount++;
+            
+            // 3. 包装重量 (商品パッケージ重量) 与 商品重量
+            const pkgWeight = document.getElementById('form_item_item_package_weight.0.value') || document.querySelector('input[id*="package_weight.0.value"]');
+            if (setVal(pkgWeight, args.package_weight)) okCount++;
+            
+            const itemWeight = document.getElementById('form_item_item_weight.0.value') || document.querySelector('input[id*="item_weight.0.value"]');
+            if (setVal(itemWeight, args.item_weight)) okCount++;
+            
+            return okCount > 0;
+        }
+        """
+        payload = {
+            "item_length": item_length,
+            "item_width": item_width,
+            "item_height": item_height,
+            "package_length": package_length,
+            "package_width": package_width,
+            "package_height": package_height,
+            "item_weight": item_weight,
+            "package_weight": package_weight
+        }
+        try:
+            return bool(self.page.evaluate(js_code, payload))
+        except Exception:
+            return False
+
+    def fill_search_terms(self, search_terms: str) -> bool:
+        """
+        在关键词信息区域填入 Search Terms
+        :param search_terms: 搜索词文本
+        :return: 是否填入成功
+        """
+        if not search_terms:
+            return True
+        js_code = """
+        (st) => {
+            const proto = window.HTMLTextAreaElement.prototype;
+            const inputProto = window.HTMLInputElement.prototype;
+            const textSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+            const inputSetter = Object.getOwnPropertyDescriptor(inputProto, 'value')?.set;
+            
+            const formItems = Array.from(document.querySelectorAll('.ant-form-item, div'));
+            const stItem = formItems.find(fi => {
+                const lbl = fi.querySelector('.ant-form-item-label, label');
+                const txt = lbl ? (lbl.innerText || lbl.getAttribute('title') || '') : '';
+                return txt.includes('Search Terms') || txt.includes('SearchTerms');
+            });
+            const textarea = stItem ? stItem.querySelector('textarea, input') : document.querySelector('textarea.w-800\\\\!');
+            
+            if (textarea) {
+                textarea.focus();
+                if (textarea.tagName === 'TEXTAREA' && textSetter) textSetter.call(textarea, String(st));
+                else if (inputSetter) inputSetter.call(textarea, String(st));
+                else textarea.value = String(st);
+                textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                textarea.dispatchEvent(new Event('change', { bubbles: true }));
+                textarea.blur();
+                return true;
+            }
+            return false;
+        }
+        """
+        try:
+            return bool(self.page.evaluate(js_code, search_terms))
+        except Exception:
+            return False
+
+    def save_draft(self, timeout_ms: int = 10000) -> bool:
+        """
+        点击页面顶部的【保存】按钮，保存为店小秘草稿
+        :param timeout_ms: 等待超时时间 (毫秒)
+        :return: 是否点击成功
+        """
+        try:
+            # 精确匹配仅为 "保存" 的按钮（排除 "保存并发布" 与 "存为模板"）
+            save_btn = self.page.locator(".product-add-wrapper .btn-box button.ant-btn").filter(has_text="保存").first
+            if save_btn.count() == 0:
+                save_btn = self.page.locator("button.ant-btn").filter(has_text="保存").first
+
+            if save_btn.count() > 0:
+                save_btn.scroll_into_view_if_needed()
+                save_btn.click(force=True)
+                self.page.wait_for_timeout(1000)
+                return True
+        except Exception as e:
+            print(f"⚠️ 点击保存草稿异常: {e}")
+
+        return False
+

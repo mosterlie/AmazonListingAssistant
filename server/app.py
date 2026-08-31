@@ -2,11 +2,20 @@
 商品维护与 ERP 自动化服务 - FastAPI 核心应用入口
 """
 import os
+import sys
+from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, Request, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 from server.config import BASE_DIR, DATA_DIR, UPLOADS_DIR, SERVER_HOST, SERVER_PORT
 from server.database import init_db
@@ -24,11 +33,18 @@ from server.routers import (
     task_router
 )
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    print(f"🚀 服务已就绪！访问地址: http://{SERVER_HOST}:{SERVER_PORT}")
+    yield
+
 # 1. 实例化 FastAPI 应用
 app = FastAPI(
     title="跨境电商商品维护与店小秘 ERP 自动化上件中台",
     description="提供商品基础信息录入、多变体属性管理、变体矩阵笛卡尔积计算、智能物流运费比价、日元售价测算、系统参数配置、用户登录认证、权限管理、本地图片上传与店小秘 ERP 自动化上件驱动接口",
-    version="1.1.0"
+    version="1.1.0",
+    lifespan=lifespan
 )
 
 # 2. 静态目录与模板引擎配置
@@ -112,7 +128,7 @@ async def render_login_page(request: Request):
     user = get_current_user_from_request(request)
     if user:
         return RedirectResponse(url="/list", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="login.html", context={})
 
 
 @app.get("/", summary="默认根路由 (输入地址不带路径默认跳转至商品管理)")
@@ -128,8 +144,7 @@ async def render_entry_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse("entry.html", {
-        "request": request,
+    return templates.TemplateResponse(request=request, name="entry.html", context={
         "active_page": "entry",
         "current_user": user
     })
@@ -143,8 +158,7 @@ async def render_list_page(request: Request):
         return redirect_resp
 
     products = ProductService.list_products(limit=50, offset=0)
-    return templates.TemplateResponse("list.html", {
-        "request": request,
+    return templates.TemplateResponse(request=request, name="list.html", context={
         "active_page": "list",
         "products": products,
         "current_user": user
@@ -158,8 +172,7 @@ async def render_settings_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse("settings.html", {
-        "request": request,
+    return templates.TemplateResponse(request=request, name="settings.html", context={
         "active_page": "settings",
         "current_user": user
     })
@@ -172,8 +185,7 @@ async def render_users_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse("users.html", {
-        "request": request,
+    return templates.TemplateResponse(request=request, name="users.html", context={
         "active_page": "users",
         "current_user": user
     })
@@ -186,18 +198,10 @@ async def render_tasks_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse("tasks.html", {
-        "request": request,
+    return templates.TemplateResponse(request=request, name="tasks.html", context={
         "active_page": "tasks",
         "current_user": user
     })
-
-
-@app.on_event("startup")
-def on_startup():
-    """应用启动钩子：初始化数据库"""
-    init_db()
-    print(f"🚀 服务已就绪！访问地址: http://{SERVER_HOST}:{SERVER_PORT}")
 
 
 def start_server():

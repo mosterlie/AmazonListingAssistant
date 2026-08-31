@@ -162,10 +162,10 @@ class BrowserEngine:
             lambda: FormOperator(page or self.manager._get_active_page_impl()).confirm_modal(button_text, wait_timeout_ms)
         )
 
-    def wait_for_value(self, field_label_or_selector: str, expected_text: str, timeout_ms: int = 10000, page: Optional[Page] = None) -> bool:
-        """等待页面字段、标签或组件加载出指定数值（例如等待选择店铺后，站点选择自动变为'日本'）"""
+    def select_store_account(self, store_account: str = "金梧汇辰", expected_site: str = "日本", timeout_ms: int = 15000, page: Optional[Page] = None) -> bool:
+        """强力选择【店铺账号】，并严格循环重试与校验直到选中并联动站点"""
         return self.manager.run_on_browser_thread(
-            lambda: FormOperator(page or self.manager._get_active_page_impl()).wait_for_value(field_label_or_selector, expected_text, timeout_ms)
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).select_store_account(store_account, expected_site, timeout_ms)
         )
 
     def add_variation_option(self, attribute_name: str, option_value: str, timeout_ms: int = 5000, page: Optional[Page] = None) -> bool:
@@ -210,6 +210,68 @@ class BrowserEngine:
             lambda: FormOperator(page or self.manager._get_active_page_impl()).set_variation_images(
                 filter_criteria, main_image, swatch_image, extra_images, timeout_ms
             )
+        )
+
+    def upload_parent_images(
+        self,
+        main_image: Optional[str] = None,
+        extra_images: Optional[List[str]] = None,
+        timeout_ms: int = 15000,
+        page: Optional[Page] = None
+    ) -> bool:
+        """在父级商品图片区域 (#imageInfo) 批量上传主图与 1~8 张附图"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).upload_parent_images(
+                main_image, extra_images, timeout_ms
+            )
+        )
+
+    def fill_bullet_points(self, bullet_points: List[str], page: Optional[Page] = None) -> bool:
+        """在描述信息区域依次填入 1~5 项 Bullet Points"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).fill_bullet_points(bullet_points)
+        )
+
+    def fill_description(self, description_text: str, page: Optional[Page] = None) -> bool:
+        """在描述信息区域填入商品长描述"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).fill_description(description_text)
+        )
+
+    def fill_manufacturer(self, manufacturer: str, page: Optional[Page] = None) -> bool:
+        """填入制造商字段 (若未传入则默认使用品牌名称)"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).fill_manufacturer(manufacturer)
+        )
+
+    def fill_dimensions_and_weight(
+        self,
+        item_length=None, item_width=None, item_height=None, item_dim_unit="cm",
+        package_length=None, package_width=None, package_height=None, package_dim_unit="cm",
+        item_weight=None, item_weight_unit=None,
+        package_weight=None, package_weight_unit="kg",
+        page: Optional[Page] = None
+    ) -> bool:
+        """在产品属性与包装属性中填入商品尺寸(品目寸法)、包装尺寸(パッケージ寸法)及重量"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).fill_dimensions_and_weight(
+                item_length, item_width, item_height, item_dim_unit,
+                package_length, package_width, package_height, package_dim_unit,
+                item_weight, item_weight_unit,
+                package_weight, package_weight_unit
+            )
+        )
+
+    def fill_search_terms(self, search_terms: str, page: Optional[Page] = None) -> bool:
+        """在关键词信息区域填入 Search Terms"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).fill_search_terms(search_terms)
+        )
+
+    def save_draft(self, timeout_ms: int = 10000, page: Optional[Page] = None) -> bool:
+        """点击页面顶部的【保存】按钮，保存为店小秘草稿"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).save_draft(timeout_ms)
         )
 
     def parse_and_export_json(self, output_path: str, page: Optional[Page] = None) -> Dict[str, Any]:

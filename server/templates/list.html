@@ -207,6 +207,52 @@
   </div>
 </div>
 
+<!-- ========================================================================= -->
+<!-- 店小秘自动化上件实时进度与日志模态弹窗 (Publish Progress Modal) -->
+<!-- ========================================================================= -->
+<div id="publishProgressModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closePublishProgressModal()"></div>
+  <div class="custom-modal-dialog" style="max-width: 800px;">
+    <div class="custom-modal-header" style="background:#f0fdf4; border-bottom:1px solid #bbf7d0;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-size:1.4rem;">🚀</span>
+        <div>
+          <h3 id="publishModalTitle" style="margin:0; font-size:1.15rem; color:#166534; font-weight:700;">店小秘 ERP 自动化上件执行中</h3>
+          <div style="font-size:0.82rem; color:#15803d; margin-top:2px;">
+            正在通过原生 CDP 协议接管浏览器执行表单填充与图片装配
+          </div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closePublishProgressModal()">✕</button>
+    </div>
+
+    <div class="custom-modal-body" style="padding:20px;">
+      <!-- 7 阶段进度步骤条 -->
+      <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:6px; margin-bottom:18px; text-align:center;">
+        <div id="pubStep1" class="publish-step-badge">1.基础信息</div>
+        <div id="pubStep2" class="publish-step-badge">2.类目识别</div>
+        <div id="pubStep3" class="publish-step-badge">3.变体属性</div>
+        <div id="pubStep4" class="publish-step-badge">4.矩阵表格</div>
+        <div id="pubStep5" class="publish-step-badge">5.装配图片</div>
+        <div id="pubStep6" class="publish-step-badge">6.文案参数</div>
+        <div id="pubStep7" class="publish-step-badge">7.保存草稿</div>
+      </div>
+
+      <!-- 实时控制台终端日志 -->
+      <div style="background:#0f172a; border-radius:8px; padding:14px 16px; color:#e2e8f0; font-family:Consolas, Monaco, monospace; font-size:0.84rem; height:260px; overflow-y:auto; line-height:1.6; border:1px solid #334155;" id="publishConsoleLogs">
+        <div style="color:#94a3b8;">[系统初始化] 准备连接 CDP 浏览器...</div>
+      </div>
+    </div>
+
+    <div class="custom-modal-footer" style="background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
+      <div id="publishStatusHint" style="font-size:0.86rem; color:#64748b;">
+        <span class="spinner-sm" style="display:inline-block; vertical-align:middle; margin-right:4px;">⏳</span> 正在后台执行自动化上件...
+      </div>
+      <button id="publishModalCloseBtn" class="btn btn-primary" onclick="closePublishProgressModal()">关闭窗口</button>
+    </div>
+  </div>
+</div>
+
 <style>
 .custom-modal {
   position: fixed;
@@ -328,6 +374,32 @@
   background: #ecfdf5;
   padding: 4px 8px;
   border-radius: 4px;
+}
+.publish-step-badge {
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 6px 2px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+}
+.publish-step-badge.active {
+  background: #eff6ff;
+  color: #2563eb;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+.publish-step-badge.completed {
+  background: #f0fdf4;
+  color: #16a34a;
+  border-color: #86efac;
+}
+.publish-step-badge.failed {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fca5a5;
 }
 </style>
 
@@ -608,19 +680,97 @@ function closeProductDetailModal() {
   document.getElementById("productDetailModal").style.display = "none";
 }
 
+function openPublishProgressModal(productId) {
+  const modal = document.getElementById("publishProgressModal");
+  if (!modal) return;
+  modal.style.display = "flex";
+  document.getElementById("publishModalTitle").textContent = `店小秘 ERP 自动化上件 - 商品 #${productId}`;
+  document.getElementById("publishConsoleLogs").innerHTML = '<div style="color:#94a3b8;">[系统初始化] 准备连接 CDP 浏览器...</div>';
+  document.getElementById("publishStatusHint").innerHTML = '<span class="spinner-sm" style="display:inline-block; vertical-align:middle; margin-right:4px;">⏳</span> 正在后台执行自动化上件，请勿关闭窗口...';
+  
+  for (let i = 1; i <= 7; i++) {
+    const el = document.getElementById(`pubStep${i}`);
+    if (el) {
+      el.className = "publish-step-badge";
+    }
+  }
+}
+
+function closePublishProgressModal() {
+  const modal = document.getElementById("publishProgressModal");
+  if (modal) modal.style.display = "none";
+}
+
+function updatePublishProgressStep(stepNum, status = "active") {
+  for (let i = 1; i < stepNum; i++) {
+    const el = document.getElementById(`pubStep${i}`);
+    if (el) el.className = "publish-step-badge completed";
+  }
+  const cur = document.getElementById(`pubStep${stepNum}`);
+  if (cur) {
+    cur.className = `publish-step-badge ${status}`;
+  }
+}
+
+function appendPublishLog(logText) {
+  const consoleEl = document.getElementById("publishConsoleLogs");
+  if (!consoleEl) return;
+  const line = document.createElement("div");
+  line.style.marginBottom = "3px";
+  
+  if (logText.includes("❌") || logText.includes("失败") || logText.includes("异常")) {
+    line.style.color = "#f87171";
+  } else if (logText.includes("✅") || logText.includes("🎉") || logText.includes("成功")) {
+    line.style.color = "#4ade80";
+  } else if (logText.includes("⏳") || logText.includes("正在")) {
+    line.style.color = "#60a5fa";
+  } else {
+    line.style.color = "#e2e8f0";
+  }
+  
+  line.textContent = logText;
+  consoleEl.appendChild(line);
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+
+  // 动态更新 7 阶段步骤高亮
+  if (logText.includes("[阶段 1/7]")) updatePublishProgressStep(1, "active");
+  if (logText.includes("[阶段 2/7]")) updatePublishProgressStep(2, "active");
+  if (logText.includes("[阶段 3/7]")) updatePublishProgressStep(3, "active");
+  if (logText.includes("[阶段 4/7]")) updatePublishProgressStep(4, "active");
+  if (logText.includes("[阶段 5/7]")) updatePublishProgressStep(5, "active");
+  if (logText.includes("[阶段 6/7]")) updatePublishProgressStep(6, "active");
+  if (logText.includes("[阶段 7/7]")) updatePublishProgressStep(7, "active");
+}
+
 async function triggerPublish(productId) {
   if (!confirm(`确定调起真实浏览器为商品 #${productId} 执行全自动上件店小秘吗？`)) return;
-  showToast("🚀 正在启动后台自动化引擎上件店小秘，请观察 Chrome 浏览器...");
+  
+  openPublishProgressModal(productId);
+  appendPublishLog(`🚀 已发起上件请求，正在调度 CDP 浏览器引擎...`);
+  
   try {
     const res = await fetch(`/api/automation/publish/${productId}`, { method: "POST" });
     const result = await res.json();
+    
+    if (result.data && result.data.logs) {
+      document.getElementById("publishConsoleLogs").innerHTML = "";
+      result.data.logs.forEach(l => appendPublishLog(l));
+    }
+    
     if (result.code === 0) {
-      showToast("🎉 商品成功全自动发布到店小秘 ERP！");
-      setTimeout(() => location.reload(), 2000);
+      for (let i = 1; i <= 7; i++) {
+        const el = document.getElementById(`pubStep${i}`);
+        if (el) el.className = "publish-step-badge completed";
+      }
+      document.getElementById("publishStatusHint").innerHTML = '<span style="color:#16a34a; font-weight:700;">🎉 上件完成并已存为店小秘草稿！</span>';
+      showToast("🎉 商品成功全自动发布并保存至店小秘 ERP！");
     } else {
+      document.getElementById("publishStatusHint").innerHTML = `<span style="color:#dc2626; font-weight:700;">❌ 上件失败: ${result.msg}</span>`;
       showToast(`上件失败: ${result.msg}`, "error");
     }
   } catch (err) {
+    appendPublishLog(`❌ 系统网络异常: ${err.message}`);
+    document.getElementById("publishStatusHint").innerHTML = `<span style="color:#dc2626; font-weight:700;">❌ 系统异常: ${err.message}</span>`;
     showToast(`触发异常: ${err.message}`, "error");
   }
 }
@@ -797,6 +947,13 @@ function renderProductTableRows(products) {
 
 document.addEventListener("DOMContentLoaded", () => {
   loadFilterOptions();
+  const urlParams = new URLSearchParams(window.location.search);
+  const autoPublishId = urlParams.get("publish");
+  if (autoPublishId) {
+    setTimeout(() => {
+      triggerPublish(parseInt(autoPublishId, 10));
+    }, 500);
+  }
 });
 </script>
 {% endblock %}

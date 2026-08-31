@@ -1480,25 +1480,14 @@ async function saveProduct(publishImmediately = false) {
       const productId = result.data.id;
       showToast(`✅ 商品保存成功！正在跳转商品管理列表...`);
 
-      if (publishImmediately) {
-        showToast("🚀 正在调起后台 BrowserEngine 自动化上件店小秘...");
-        try {
-          const pubRes = await fetch(`/api/automation/publish/${productId}`, { method: "POST" });
-          const pubResult = await pubRes.json();
-          if (pubResult.code === 0) {
-            showToast("🎉 商品成功全自动发布到店小秘 ERP！");
-          } else {
-            showToast(`发布失败: ${pubResult.msg}`, "error");
-          }
-        } catch (e) {
-          console.error("自动化发布异常:", e);
-        }
-      }
-
-      // 录入商品点击保存后，提交成功自动跳转到商品列表页面
+      // 录入商品点击保存后，提交成功自动跳转到商品列表页面并按需自动调起上件
       setTimeout(() => {
-        window.location.href = "/list";
-      }, 800);
+        if (publishImmediately) {
+          window.location.href = `/list?publish=${productId}`;
+        } else {
+          window.location.href = "/list";
+        }
+      }, 600);
     } else {
       showToast(`保存失败: ${result.msg}`, "error");
     }
@@ -1848,8 +1837,30 @@ function initAiPromptAssistant() {
     });
   }
 
-  const dsBtn = document.getElementById("openDeepSeekBtn");
   const DEEPSEEK_TARGET_URL = "https://chat.deepseek.com/a/chat/s/7d257fd5-a7f7-482f-bec5-ba53f94f6725";
+
+  // 1. 仅跳转 DeepSeek 按钮（复制提示词 + 新标签页直达，不执行后台自动化回填）
+  const jumpOnlyBtn = document.getElementById("jumpDeepSeekOnlyBtn");
+  if (jumpOnlyBtn) {
+    jumpOnlyBtn.addEventListener("click", () => {
+      const title = document.getElementById("titleInput")?.value.trim() || "";
+      const promptText = buildJapaneseDescAiPrompt(title);
+
+      // 自动复制提示词到剪贴板
+      copyTextToClipboard(promptText, false);
+
+      // 启动智能剪贴板监听（用户在 DeepSeek 复制回答切回本页时可自动秒级回填）
+      startLiveClipboardWatcher();
+
+      // 在当前浏览器打开 DeepSeek 页面
+      window.open(DEEPSEEK_TARGET_URL, "_blank");
+
+      showToast("🚀 已复制提示词并为您打开 DeepSeek（直接按 Ctrl+V 粘贴发送即可）！");
+    });
+  }
+
+  // 2. 跳转 DeepSeek 并通过 CDP 自动化自动填入、等待与回填按钮
+  const dsBtn = document.getElementById("openDeepSeekBtn");
 
   if (dsBtn) {
     dsBtn.addEventListener("click", async () => {
@@ -1940,6 +1951,333 @@ function fallbackCopyText(text, notify = true) {
 }
 
 // ============================================================================
+// DB Import Panel — 从数据库导入已有商品数据，一键回填录入表单
+// ============================================================================
+
+/**
+ * 加载商品列表到导入下拉框
+ */
+async function initDbImportPanel() {
+  const sel = document.getElementById("dbImportSelect");
+  if (!sel) return;
+
+  try {
+    const res = await fetch("/api/products/list-parent-skus");
+    const result = await res.json();
+    if (result.code !== 0 || !Array.isArray(result.data)) {
+      sel.innerHTML = "<option value=''>-- 暂无可导入的商品 --</option>";
+      return;
+    }
+
+    const items = result.data;
+    if (items.length === 0) {
+      sel.innerHTML = "<option value=''>-- 暂无已保存的商品 --</option>";
+      return;
+    }
+
+    const statusLabel = { published: "已上件", ready: "已就绪", draft: "草稿", failed: "失败", publishing: "上件中" };
+    sel.innerHTML = [
+      "<option value=''>-- 请选择要导入的商品 --</option>",
+      ...items.map(p => {
+        const label = statusLabel[p.status] || p.status || "";
+        const skuText = p.parent_sku || p.sku || "";
+        const titleShort = (p.title || "").substring(0, 30);
+        return `<option value="${skuText}" data-id="${p.id}">[${skuText}] ${titleShort || "(无标题)"} | ${p.brand || ""} | ${label}</option>`;
+      })
+    ].join("");
+
+    // 选择变化时显示预览
+    sel.addEventListener("change", onDbImportSelectChange);
+
+  } catch (e) {
+    sel.innerHTML = "<option value=''>-- 加载失败，请刷新重试 --</option>";
+    console.error("加载商品列表失败:", e);
+  }
+
+  // 绑定导入按钮
+  const btn = document.getElementById("dbImportConfirmBtn");
+  if (btn) btn.addEventListener("click", doDbImport);
+}
+
+/**
+ * 选择商品时显示简要预览信息
+ */
+async function onDbImportSelectChange() {
+  const sel = document.getElementById("dbImportSelect");
+  const preview = document.getElementById("dbImportPreview");
+  const statusEl = document.getElementById("dbImportStatus");
+  if (!sel || !preview) return;
+
+  const parentSku = sel.value;
+  if (!parentSku) {
+    preview.style.display = "none";
+    if (statusEl) statusEl.textContent = "";
+    return;
+  }
+
+  try {
+    if (statusEl) statusEl.textContent = "加载中...";
+    const res = await fetch(`/api/products/by-parent-sku/${encodeURIComponent(parentSku)}`);
+    const result = await res.json();
+    if (result.code !== 0) {
+      preview.style.display = "none";
+      if (statusEl) statusEl.textContent = "加载失败";
+      return;
+    }
+    const p = result.data;
+    const colors = (p.color_options || []).join(", ") || "-";
+    const sizes = (p.size_options || []).join(", ") || "-";
+    const varCount = (p.variations || []).length;
+    preview.innerHTML = `
+      <span style="color:#60a5fa; font-weight:700;">${p.parent_sku || p.sku}</span>
+      &nbsp;|&nbsp;<span style="color:#94a3b8;">${p.title || "无标题"}</span>
+      <br>
+      🏪 店铺: <b style="color:#e2e8f0;">${p.store_account || "-"}</b>
+      &nbsp;|&nbsp; 🏷️ 品牌: <b style="color:#e2e8f0;">${p.brand || "-"}</b>
+      &nbsp;|&nbsp; 📦 变体数: <b style="color:#a78bfa;">${varCount}</b>
+      <br>
+      🎨 颜色: <span style="color:#86efac;">${colors}</span>
+      &nbsp;|&nbsp; 📏 尺寸: <span style="color:#fcd34d;">${sizes}</span>
+    `;
+    preview.style.display = "block";
+    if (statusEl) statusEl.textContent = `✓ ${varCount} 个变体`;
+
+    // 缓存数据供导入使用
+    sel._cachedData = result.data;
+  } catch (e) {
+    preview.style.display = "none";
+    if (statusEl) statusEl.textContent = "加载异常";
+    console.error("预览商品数据失败:", e);
+  }
+}
+
+/**
+ * 执行导入：将所选商品数据回填到录入表单的所有字段
+ */
+async function doDbImport() {
+  const sel = document.getElementById("dbImportSelect");
+  const statusEl = document.getElementById("dbImportStatus");
+  if (!sel || !sel.value) {
+    showToast("请先在下拉框中选择一个商品！", "error");
+    return;
+  }
+
+  // 优先使用缓存，否则重新请求
+  let p = sel._cachedData;
+  if (!p || p.parent_sku !== sel.value) {
+    try {
+      if (statusEl) statusEl.textContent = "导入中...";
+      const res = await fetch(`/api/products/by-parent-sku/${encodeURIComponent(sel.value)}`);
+      const result = await res.json();
+      if (result.code !== 0) {
+        showToast("导入失败：" + (result.detail || result.msg || "接口错误"), "error");
+        if (statusEl) statusEl.textContent = "导入失败";
+        return;
+      }
+      p = result.data;
+    } catch (e) {
+      showToast("导入异常：" + e.message, "error");
+      return;
+    }
+  }
+
+  // ── 1. 基础信息 ──────────────────────────────────────────────────
+  // 店铺账号
+  const storeSel = document.getElementById("storeAccountSelect");
+  if (storeSel && p.store_account) {
+    for (let i = 0; i < storeSel.options.length; i++) {
+      if (storeSel.options[i].value === p.store_account) {
+        storeSel.selectedIndex = i;
+        break;
+      }
+    }
+  }
+
+  // 品牌
+  const brandInp = document.getElementById("brandInput");
+  if (brandInp) brandInp.value = p.brand || "";
+
+  // 标题
+  const titleInp = document.getElementById("titleInput");
+  if (titleInp) titleInp.value = p.title || "";
+
+  // 售卖形式
+  const saleTypeRadios = document.querySelectorAll("input[name='saleTypeRadio']");
+  saleTypeRadios.forEach(r => { r.checked = (r.value === (p.sale_type || "variation")); });
+
+  // ── 2. 产品信息 ──────────────────────────────────────────────────
+  const parentSkuInp = document.getElementById("parentSkuInput");
+  if (parentSkuInp) parentSkuInp.value = p.parent_sku || p.sku || "";
+
+  // ── 3. 产品属性 ──────────────────────────────────────────────────
+  const modelNumInp = document.getElementById("modelNumberInput");
+  if (modelNumInp) modelNumInp.value = p.model_number || p.brand || "";
+
+  const modelNameInp = document.getElementById("modelNameInput");
+  if (modelNameInp) modelNameInp.value = p.model_name || "";
+
+  // 商品尺寸
+  const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ""; };
+  setVal("itemLengthInput", p.item_length || "");
+  setVal("itemWidthInput", p.item_width || "");
+  setVal("itemHeightInput", p.item_height || "");
+
+  const itemDimUnitSel = document.getElementById("itemDimUnitSelect");
+  if (itemDimUnitSel && p.item_dim_unit) {
+    for (let i = 0; i < itemDimUnitSel.options.length; i++) {
+      if (itemDimUnitSel.options[i].value === p.item_dim_unit) { itemDimUnitSel.selectedIndex = i; break; }
+    }
+  }
+
+  // 包装尺寸（只读，直接写入）
+  setVal("pkgLengthInput", p.package_length || "");
+  setVal("pkgWidthInput", p.package_width || "");
+  setVal("pkgHeightInput", p.package_height || "");
+  setVal("pkgWeightInput", p.package_weight || "");
+
+  // ── 4. 产品图片 ──────────────────────────────────────────────────
+  state.productMainImage = p.main_image || "";
+  state.productExtraImages = Array.isArray(p.extra_images) ? p.extra_images.filter(Boolean) : [];
+  renderProductGallery();
+
+  // ── 5. 变体属性设定 ──────────────────────────────────────────────
+  // 变种主题
+  const variationThemeSel = document.getElementById("variationThemeSelect");
+  if (variationThemeSel && p.variation_theme) {
+    // 尝试匹配，或直接设值
+    let matched = false;
+    for (let i = 0; i < variationThemeSel.options.length; i++) {
+      if (variationThemeSel.options[i].value === p.variation_theme) {
+        variationThemeSel.selectedIndex = i;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      variationThemeSel.options[0].value = p.variation_theme;
+      variationThemeSel.options[0].text = p.variation_theme;
+      variationThemeSel.selectedIndex = 0;
+    }
+  }
+
+  // 颜色与尺寸选项
+  const colorOpts = Array.isArray(p.color_options) ? p.color_options.filter(Boolean) : [];
+  const sizeOpts = Array.isArray(p.size_options) ? p.size_options.filter(Boolean) : [];
+
+  state.colorInputs = colorOpts.length > 0 ? [...colorOpts] : ["", "", "", "", ""];
+  state.sizeInputs = sizeOpts.length > 0 ? [...sizeOpts] : ["", "", "", "", ""];
+
+  // 变体图片维度
+  if (p.variant_image_dimension) {
+    state.imageDimension = p.variant_image_dimension;
+    document.querySelectorAll("input[name='imageDimensionRadio']").forEach(r => {
+      r.checked = (r.value === p.variant_image_dimension);
+    });
+  }
+
+  // 维度图片映射
+  const dimImgs = p.variant_dimension_images || {};
+  state.colorImages = {};
+  state.sizeImages = {};
+  if (p.variant_image_dimension === "color" && dimImgs) {
+    state.colorImages = { ...dimImgs };
+  } else if (p.variant_image_dimension === "size" && dimImgs) {
+    state.sizeImages = { ...dimImgs };
+  }
+
+  updateColorBoxes();
+  updateSizeBoxes();
+
+  // ── 6 & 7. 变体明细矩阵 —— 直接用 DB 数据覆盖 state.variations ──
+  if (Array.isArray(p.variations) && p.variations.length > 0) {
+    const baseSkuInp = document.getElementById("baseSkuInput");
+
+    state.variations = p.variations.map(v => {
+      const pricingRes = calculateSkuPricingClient(
+        v.length_cm || 0, v.width_cm || 0, v.height_cm || 0,
+        v.weight_kg || v.weight || 0,
+        v.purchase_price || 0,
+        v.profit_coefficient || 1.0,
+        v.shipping_channel || null
+      );
+      return {
+        sku: v.sku || "",
+        ean: v.ean || "",
+        color: v.color || "",
+        size: v.size || "",
+        length_cm: v.length_cm || 0,
+        width_cm: v.width_cm || 0,
+        height_cm: v.height_cm || 0,
+        weight: v.weight_kg || v.weight || 0,
+        purchase_price: v.purchase_price || 0,
+        profit_coefficient: v.profit_coefficient || 1.0,
+        price_jpy: v.price_jpy || pricingRes.priceJpy || 0,
+        quantity: v.quantity !== undefined ? v.quantity : 40,
+        main_image: v.variant_image || "",
+        optimal_channel: v.shipping_channel || pricingRes.optimalChannel || "",
+        optimal_freight: pricingRes.optimalFreight || 0,
+        selected_channel: v.shipping_channel || pricingRes.selectedChannel || "",
+        selected_freight: pricingRes.selectedFreight || 0,
+        freights: pricingRes.freights || [],
+        manually_selected: !!v.shipping_channel
+      };
+    });
+
+    renderMatrixTable();
+    renderAttrImageCards();
+  }
+
+  // ── 8. 描述信息 ──────────────────────────────────────────────────
+  const descInp = document.getElementById("descriptionInput");
+  if (descInp) descInp.value = p.description || "";
+
+  // 五点描述
+  const bulletPoints = Array.isArray(p.bullet_points) ? p.bullet_points : [];
+  const chineseTrans = Array.isArray(p.chinese_translations) ? p.chinese_translations : [];
+  const bpContainer = document.getElementById("bulletPointsContainer");
+  if (bpContainer && bulletPoints.length > 0) {
+    const existingItems = bpContainer.querySelectorAll(".bullet-point-item");
+    existingItems.forEach((item, i) => {
+      const inp = item.querySelector(".bullet-point-inp");
+      const cnSpan = item.querySelector(".cn-text");
+      if (inp && bulletPoints[i] !== undefined) inp.value = bulletPoints[i];
+      if (cnSpan && chineseTrans[i] !== undefined) cnSpan.textContent = chineseTrans[i] || "(暂无翻译)";
+    });
+    // 若 BP 数量超过现有框，追加新框
+    for (let i = existingItems.length; i < bulletPoints.length && i < 10; i++) {
+      const addBtn = document.getElementById("addBulletPointBtn");
+      if (addBtn) addBtn.click();
+      setTimeout(() => {
+        const newItems = bpContainer.querySelectorAll(".bullet-point-item");
+        if (newItems[i]) {
+          const inp = newItems[i].querySelector(".bullet-point-inp");
+          if (inp) inp.value = bulletPoints[i];
+        }
+      }, 50 * (i - existingItems.length + 1));
+    }
+  }
+
+  // ── 9. 运输信息 ──────────────────────────────────────────────────
+  const fulfillSel = document.getElementById("fulfillmentChannelSelect");
+  if (fulfillSel && p.fulfillment_channel) {
+    for (let i = 0; i < fulfillSel.options.length; i++) {
+      if (fulfillSel.options[i].value === p.fulfillment_channel) { fulfillSel.selectedIndex = i; break; }
+    }
+  }
+
+  // ── 10. 关键词 ────────────────────────────────────────────────────
+  const searchInp = document.getElementById("searchTermsInput");
+  if (searchInp) searchInp.value = p.search_terms || "";
+
+  // ── 包装尺寸同步 ──────────────────────────────────────────────────
+  if (typeof syncPackageDimFromMaxVolumeSku === "function") syncPackageDimFromMaxVolumeSku();
+
+  if (statusEl) statusEl.textContent = "✅ 导入成功！";
+  showToast(`✅ 已成功从数据库导入商品「${p.parent_sku || p.sku}」的全部数据！`, "success");
+}
+
+
+// ============================================================================
 // Initialization
 // ============================================================================
 document.addEventListener("DOMContentLoaded", () => {
@@ -1951,6 +2289,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initBulletPointsManager();
   initKeywordsManager();
   initAiPromptAssistant();
+  initDbImportPanel();
 
   const fileInput = document.getElementById("globalFileInput");
   if (fileInput) fileInput.addEventListener("change", handleFileSelect);

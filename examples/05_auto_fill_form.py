@@ -1,37 +1,48 @@
 #!/usr/bin/env python3
 """
-示例 5：页面表单自动化智能填写（步骤式逐步执行）
+示例 5：页面表单自动化智能填写（步骤式逐步执行演示）
 """
 import os
 import sys
+import time
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-TOOLKIT_DIR = os.path.dirname(CURRENT_DIR)
-WORKSPACE_DIR = os.path.dirname(TOOLKIT_DIR)
-for p in [WORKSPACE_DIR, TOOLKIT_DIR]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
+PROJECT_DIR = os.path.dirname(CURRENT_DIR)
+if PROJECT_DIR not in sys.path:
+    sys.path.insert(0, PROJECT_DIR)
 
 from browser_engine import BrowserEngine
 
 
 def main():
-    print("🔍 正在连接当前 Chrome 浏览器...")
+    print("🔍 正在连接当前 Chrome 浏览器 (端口: 9222)...")
     engine = BrowserEngine(port=9222)
-    ok, msg = engine.connect(activate=False)
+    ok, msg = engine.connect(activate=True)
     if not ok:
         print(f"❌ 连接失败: {msg}")
         return
 
-    import time
+    test_images_dir = os.path.join(PROJECT_DIR, "test_images")
+    img_black_m = os.path.join(test_images_dir, "black_m.jpg")
+    img_yellow_l = os.path.join(test_images_dir, "yellow_l.jpg")
+    img_blue_m = os.path.join(test_images_dir, "blue_m.jpg")
+    img_white_s = os.path.join(test_images_dir, "white_s.jpg")
+
+    target_url = "https://www.dianxiaomi.com/web/amazon/add"
+    print(f"🌐 正在打开/重载创建亚马逊产品页面: {target_url} ...")
+    engine.open_or_focus_url(target_url)
+    engine.manager.run_on_browser_thread(
+        lambda: engine.manager._get_active_page_impl().goto(target_url, wait_until="domcontentloaded", timeout=15000)
+    )
+    time.sleep(2.5)
     active_tab = engine.get_active_tab_info()
-    if not active_tab or "amazon/add" not in (active_tab.url or ""):
-        print("🌐 正在跳转至创建亚马逊产品页面: https://www.dianxiaomi.com/web/amazon/add ...")
-        engine.manager.run_on_browser_thread(
-            lambda: engine.manager._get_active_page_impl().goto("https://www.dianxiaomi.com/web/amazon/add", wait_until="networkidle")
-        )
-        time.sleep(1)
-        active_tab = engine.get_active_tab_info()
 
     print(f"🎯 正在对前台页面 【{active_tab.title if active_tab else '未知'}】 执行自动化填写操作...")
 
@@ -82,7 +93,7 @@ def main():
     s4_btn = engine.click_button("自动识别产品类型")
     if s4_btn:
         print("   • 成功触发【自动识别产品类型】，正在等待弹窗并确认...")
-        s4_modal = engine.confirm_modal("确定")
+        s4_modal = engine.confirm_modal("确定", wait_timeout_ms=8000)
         if s4_modal:
             print("✅ [操作 4] 成功在弹出的产品类型推荐框中点击【确定】！")
             time.sleep(2)  # 等待动态分类及表单项加载完成
@@ -96,7 +107,7 @@ def main():
     # 步骤 5：在【售卖形式/类型】单选框中勾选【多变体】（多变种）
     # =========================================================================
     print("\n⏳ [操作 5] 正在勾选【售卖形式】 ➔ 【多变体】...")
-    s5 = engine.click_radio("多变体")
+    s5 = engine.click_radio("多变体") or engine.click_radio("多变种")
     if s5:
         print("✅ [操作 5] 成功勾选【售卖形式】: 多变体（多变种）！")
     else:
@@ -183,67 +194,74 @@ def main():
     # 步骤 12：为变体【dd / tt】上传主图（本地图片）
     # =========================================================================
     print("\n⏳ [操作 12] 正在为变体【dd / tt】上传主图...")
-    img_main = "/Users/gx/Desktop/mypro/browser_toolkit/test_images/black_m.jpg"
-    s12 = engine.upload_variation_image(
-        filter_criteria={"颜色": "dd", "尺寸": "tt"},
-        image_path=img_main,
-        image_type="main",
-        upload_mode="local"
-    )
-    if s12:
-        print(f"✅ [操作 12] 成功为变体【dd / tt】上传主图: {img_main}！")
+    if os.path.exists(img_black_m):
+        s12 = engine.upload_variation_image(
+            filter_criteria={"颜色": "dd", "尺寸": "tt"},
+            image_path=img_black_m,
+            image_type="main",
+            upload_mode="local"
+        )
+        if s12:
+            print(f"✅ [操作 12] 成功为变体【dd / tt】上传主图: {img_black_m}！")
+        else:
+            print("❌ [操作 12] 上传主图失败！")
     else:
-        print("❌ [操作 12] 上传主图失败！")
+        print(f"⚠️ 图片不存在: {img_black_m}")
     time.sleep(0.5)
 
     # =========================================================================
     # 步骤 13：为变体【dd / tt】上传 Swatch Image（本地图片）
     # =========================================================================
     print("\n⏳ [操作 13] 正在为变体【dd / tt】上传 Swatch Image...")
-    img_swatch = "/Users/gx/Desktop/mypro/browser_toolkit/test_images/yellow_l.jpg"
-    s13 = engine.upload_variation_image(
-        filter_criteria={"颜色": "dd", "尺寸": "tt"},
-        image_path=img_swatch,
-        image_type="swatch",
-        upload_mode="local"
-    )
-    if s13:
-        print(f"✅ [操作 13] 成功为变体【dd / tt】上传 Swatch Image: {img_swatch}！")
-    else:
-        print("❌ [操作 13] 上传 Swatch Image 失败！")
+    if os.path.exists(img_yellow_l):
+        s13 = engine.upload_variation_image(
+            filter_criteria={"颜色": "dd", "尺寸": "tt"},
+            image_path=img_yellow_l,
+            image_type="swatch",
+            upload_mode="local"
+        )
+        if s13:
+            print(f"✅ [操作 13] 成功为变体【dd / tt】上传 Swatch Image: {img_yellow_l}！")
+        else:
+            print("❌ [操作 13] 上传 Swatch Image 失败！")
     time.sleep(0.5)
 
     # =========================================================================
     # 步骤 14：为变体【dd / tt】上传两张附图（本地图片）
     # =========================================================================
     print("\n⏳ [操作 14] 正在为变体【dd / tt】上传 2 张附图...")
-    extra_imgs = [
-        "/Users/gx/Desktop/mypro/browser_toolkit/test_images/blue_m.jpg",
-        "/Users/gx/Desktop/mypro/browser_toolkit/test_images/white_s.jpg"
-    ]
-    s14 = engine.upload_variation_image(
-        filter_criteria={"颜色": "dd", "尺寸": "tt"},
-        image_path=extra_imgs,
-        image_type="extra",
-        upload_mode="local"
-    )
+    extra_imgs = [p for p in [img_blue_m, img_white_s] if os.path.exists(p)]
+    if extra_imgs:
+        s14 = engine.upload_variation_image(
+            filter_criteria={"颜色": "dd", "尺寸": "tt"},
+            image_path=extra_imgs,
+            image_type="extra",
+            upload_mode="local"
+        )
+        if s14:
+            print(f"✅ [操作 14] 成功为变体【dd / tt】上传 2 张附图！")
+        else:
+            print("❌ [操作 14] 上传附图失败！")
+    time.sleep(0.5)
+
     # =========================================================================
     # 步骤 15：使用封装方法 set_variation_images 一站式为新变体【红色 / mm】配置全套图片
     # =========================================================================
     print("\n⏳ [操作 15] 正在使用 set_variation_images 为【红色 / mm】一站式配置主图、Swatch 与多张附图...")
     res_bundle = engine.set_variation_images(
         filter_criteria={"颜色": "红色", "尺寸": "mm"},
-        main_image="/Users/gx/Desktop/mypro/browser_toolkit/test_images/black_m.jpg",
-        swatch_image="/Users/gx/Desktop/mypro/browser_toolkit/test_images/yellow_l.jpg",
-        extra_images=[
-            "/Users/gx/Desktop/mypro/browser_toolkit/test_images/blue_m.jpg",
-            "/Users/gx/Desktop/mypro/browser_toolkit/test_images/white_s.jpg"
-        ]
+        main_image=img_black_m if os.path.exists(img_black_m) else None,
+        swatch_image=img_yellow_l if os.path.exists(img_yellow_l) else None,
+        extra_images=[p for p in [img_blue_m, img_white_s] if os.path.exists(p)]
     )
     if res_bundle.get("all_success"):
         print(f"✅ [操作 15] 成功一站式为【红色 / mm】配置主图、Swatch与2张附图: {res_bundle}！")
     else:
         print(f"❌ [操作 15] 一站式配置图片失败: {res_bundle}")
+
+    print("\n" + "=" * 60)
+    print("🎉 【演示完成】所有步骤已在当前有头 Chrome 浏览器中全自动执行完毕！")
+    print("=" * 60)
 
 
 if __name__ == "__main__":

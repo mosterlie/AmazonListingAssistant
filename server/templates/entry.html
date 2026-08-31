@@ -6,6 +6,30 @@
 <input type="file" id="globalFileInput" style="display:none;" accept="image/*">
 <input type="file" id="batchExtraFileInput" style="display:none;" accept="image/*" multiple>
 
+<!-- 0. 从数据库导入已有商品数据 (顶部快速导入面板) -->
+<div id="dbImportPanel" style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%); border:1.5px solid #334155; border-radius:12px; padding:18px 24px; margin-bottom:18px; display:flex; align-items:center; gap:18px; flex-wrap:wrap; box-shadow:0 4px 20px rgba(0,0,0,0.18);">
+  <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
+    <span style="font-size:1.5rem;">📥</span>
+    <div>
+      <div style="font-size:0.95rem; font-weight:700; color:#f1f5f9; letter-spacing:0.02em;">从数据库导入已有商品</div>
+      <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">选择已保存的商品，一键回填所有字段到录入工作台</div>
+    </div>
+  </div>
+  <div style="flex:1; min-width:260px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+    <select id="dbImportSelect" style="flex:1; min-width:220px; padding:8px 12px; border-radius:8px; border:1.5px solid #334155; background:#1e293b; color:#e2e8f0; font-size:0.88rem; outline:none; cursor:pointer;">
+      <option value="">-- 加载商品列表中... --</option>
+    </select>
+    <button id="dbImportConfirmBtn" type="button"
+      style="padding:8px 22px; border-radius:8px; border:none; background:linear-gradient(135deg,#3b82f6,#6366f1); color:#fff; font-size:0.88rem; font-weight:700; cursor:pointer; white-space:nowrap; box-shadow:0 2px 8px rgba(59,130,246,0.3); transition:all 0.2s;"
+      onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 4px 14px rgba(59,130,246,0.45)'"
+      onmouseout="this.style.transform='';this.style.boxShadow='0 2px 8px rgba(59,130,246,0.3)'">
+      ⚡ 导入回填
+    </button>
+    <span id="dbImportStatus" style="font-size:0.8rem; color:#64748b;"></span>
+  </div>
+  <div id="dbImportPreview" style="display:none; flex-basis:100%; margin-top:2px; background:#0f172a; border-radius:8px; padding:10px 14px; border:1px solid #1e3a5f; font-size:0.8rem; color:#94a3b8; line-height:1.6;"></div>
+</div>
+
 <!-- 1. 店铺与基础配置卡片 -->
 <div class="form-card">
   <div class="card-header">
@@ -360,7 +384,10 @@
       <button class="btn btn-primary btn-sm" id="generatePromptBtn" type="button" style="background:#7c3aed; border-color:#7c3aed; font-size:0.8rem; padding:4px 12px;" title="将提示词模板与当前标题拼接并自动复制到剪贴板">
         ✨ 生成提示词
       </button>
-      <button class="btn btn-outline btn-sm" id="openDeepSeekBtn" type="button" style="color:#0284c7; border-color:#bae6fd; background:#f0f9ff; font-size:0.8rem; padding:4px 10px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;" title="点击自动跳转 DeepSeek 并在输入框填入提示词提交，等待回答自动回填">
+      <button class="btn btn-outline btn-sm" id="jumpDeepSeekOnlyBtn" type="button" style="color:#059669; border-color:#a7f3d0; background:#ecfdf5; font-size:0.8rem; padding:4px 10px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;" title="自动复制提示词并直接在浏览器中打开 DeepSeek 页面（仅跳转，不执行自动化回填）">
+        🚀 跳转DS (仅跳转)
+      </button>
+      <button class="btn btn-outline btn-sm" id="openDeepSeekBtn" type="button" style="color:#0284c7; border-color:#bae6fd; background:#f0f9ff; font-size:0.8rem; padding:4px 10px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;" title="点击自动通过浏览器 CDP 接管 DeepSeek 填入提示词并提交，等待回答自动回填">
         🌐 跳转DS (自动回填)
       </button>
       <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">对标店小秘 Amazon 描述标准</span>
