@@ -1,0 +1,137 @@
+{
+  "btn_found": true,
+  "container_html": "<div class=\"ant-select ant-select-in-form-item css-l8jjhh w240 ant-select-single ant-select-allow-clear ant-select-show-arrow\"><!----><div class=\"ant-select-selector\"><span class=\"ant-select-selection-search\"><input type=\"search\" class=\"ant-select-selection-search-input\" id=\"form_item_category\" autocomplete=\"off\" role=\"combobox\" aria-haspopup=\"listbox\" aria-owns=\"form_item_category_list\" aria-autocomplete=\"list\" aria-controls=\"form_item_category_list\" aria-activedescendant=\"form_item_category_list_0\" readonly=\"\" unselectable=\"on\" value=\"\" style=\"opacity: 0;\"></span><!----><span class=\"ant-select-selection-placeholder\">---- 请选择分类 ----</span></div><!----><span class=\"ant-select-arrow\" unselectable=\"on\" aria-hidden=\"true\" style=\"user-select: none;\"><span role=\"img\" aria-label=\"down\" class=\"an",
+  "container_text": "---- 请选择分类 ----\n选择分类自动识别产品类型",
+  "matching_spans": [
+    {
+      "tag": "DIV",
+      "className": "layout-con",
+      "text": "Amazon>创建产品\n存为模板\n一键翻译\n引用产品\n保存\n保存并发布\nAmazon 新刊登说明：\nNew\n\n1、新版刊登仅支持专业卖家（新版刊登分类和后台分类一致，部分分类暂不支持刊登）。\n\n2、仅在店小秘刊登的产品支持编辑全量信息，在线产品编辑后发布，会提交全部信息，请谨慎操作。\n\n3、目前支持20个站点刊登，1个站点暂不支持刊登(埃及)， 查看支持站点\n\n基本信息\n店铺账号\n---- 请选择店铺 ----\n站点选择\n--\n产品标题\n0 / 200\n商品亮点\n0 / 125\n说明\n产品标题大于75字符时，设置亮点将不会生效\n产品分类\n---- 请选择分类 ----\n选择分类自动识别产品类型\n平台推荐产品类型：--\n未选择分类\n说明\n填写标题后会显示Amazon平台推荐的产品分类，建议根据平台推荐产品类型选择分类\n售卖形式\n单品\n多变种\nUPC豁免\n是\n否\n店小秘信息\n（注：下列信息，仅在店小秘系统生效）\n店小秘分类\n选择分类\n+ 管理分类\n来源URL\n1\t\n访问\n|\n找货源\n产品信息\nParent SKU\n0 / 40\n可自定义填写内容，方便卖家在后台识别是什么产品，该内容不在平台商城展示。 详细说明\n产品ID\nUPC\n品牌\n请输入品牌\n0 / 50\n产品属性\n引用现有产品\n请选择引用模板\n产品属性：\n更多属性 \n价格信息\n价格\n促销价\n促销开始时间\n促销结束时间\n产品数量\n物品状况\n请选择物品状况\n状况描述\n0 / 2000\n产品图片\n产品图片\n选择图片\n添加水印\ncrop\n编辑图片\n导出勾选图片\n说明！\n\n1、点击图片拖动，即可调整图片顺序！ 「图片最多选用9张，已经选用了0 张」建议最少选用3张\n\n全选\n反选\n已选0张\n描述信息\n产品描述\n \n源码\n \n \n \n \n \n \nAI生成\n \n◢\n总字符数： 0\n* Bullet Point：\n AI生成\n0 / 500\n0 / 500\n0 / 500\n0 / 500\n0 / 500\n运输信息\n处理时间\n配送渠道\n请选择\n运费模板\n请选择\n关键词信息\nSearch Terms\n0 / 250\n基本信息\n店小秘信息\n产品信息\n产品属性\n价格信息\n产品图片\n描述信息\n运输信息\n关键词信息\n\n存为模板\n一键翻译\n引用产品\n保存\n保存并发布"
+    },
+    {
+      "tag": "DIV",
+      "className": "product-info-module",
+      "text": "Amazon 新刊登说明：\nNew\n\n1、新版刊登仅支持专业卖家（新版刊登分类和后台分类一致，部分分类暂不支持刊登）。\n\n2、仅在店小秘刊登的产品支持编辑全量信息，在线产品编辑后发布，会提交全部信息，请谨慎操作。\n\n3、目前支持20个站点刊登，1个站点暂不支持刊登(埃及)， 查看支持站点"
+    },
+    {
+      "tag": "P",
+      "className": "p5",
+      "text": "1、新版刊登仅支持专业卖家（新版刊登分类和后台分类一致，部分分类暂不支持刊登）。"
+    },
+    {
+      "tag": "DIV",
+      "className": "form-card-content",
+      "text": "店铺账号\n---- 请选择店铺 ----\n站点选择\n--\n产品标题\n0 / 200\n商品亮点\n0 / 125\n说明\n产品标题大于75字符时，设置亮点将不会生效\n产品分类\n---- 请选择分类 ----\n选择分类自动识别产品类型\n平台推荐产品类型：--\n未选择分类\n说明\n填写标题后会显示Amazon平台推荐的产品分类，建议根据平台推荐产品类型选择分类\n售卖形式\n单品\n多变种\nUPC豁免\n是\n否"
+    },
+    {
+      "tag": "DIV",
+      "className": "",
+      "text": "店铺账号\n---- 请选择店铺 ----\n站点选择\n--\n产品标题\n0 / 200\n商品亮点\n0 / 125\n说明\n产品标题大于75字符时，设置亮点将不会生效\n产品分类\n---- 请选择分类 ----\n选择分类自动识别产品类型\n平台推荐产品类型：--\n未选择分类\n说明\n填写标题后会显示Amazon平台推荐的产品分类，建议根据平台推荐产品类型选择分类\n售卖形式\n单品\n多变种\nUPC豁免\n是\n否"
+    },
+    {
+      "tag": "DIV",
+      "className": "ant-form-item css-l8jjhh",
+      "text": "产品分类\n---- 请选择分类 ----\n选择分类自动识别产品类型\n平台推荐产品类型：--\n未选择分类\n说明\n填写标题后会显示Amazon平台推荐的产品分类，建议根据平台推荐产品类型选择分类"
+    },
+    {
+      "tag": "DIV",
+      "className": "ant-col ant-form-item-label css-l8jjhh",
+      "text": "产品分类"
+    },
+    {
+      "tag": "LABEL",
+      "className": "ant-form-item-required",
+      "text": "产品分类"
+    },
+    {
+      "tag": "DIV",
+      "className": "ant-form-item-control-input",
+      "text": "---- 请选择分类 ----\n选择分类自动识别产品类型\n平台推荐产品类型：--\n未选择分类\n说明\n填写标题后会显示Amazon平台推荐的产品分类，建议根据平台推荐产品类型选择分类"
+    },
+    {
+      "tag": "SPAN",
+      "className": "ant-select-selection-placeholder",
+      "text": "---- 请选择分类 ----"
+    },
+    {
+      "tag": "SPAN",
+      "className": "",
+      "text": "选择分类"
+    },
+    {
+      "tag": "SPAN",
+      "className": "",
+      "text": "自动识别产品类型"
+    },
+    {
+      "tag": "SPAN",
+      "className": "color-[#933] mr-3",
+      "text": "平台推荐产品类型"
+    },
+    {
+      "tag": "DIV",
+      "className": "category-list color-[#933] my-6 mb-0",
+      "text": "未选择分类"
+    },
+    {
+      "tag": "SPAN",
+      "className": "cont",
+      "text": "填写标题后会显示Amazon平台推荐的产品分类，建议根据平台推荐产品类型选择分类"
+    },
+    {
+      "tag": "DIV",
+      "className": "form-card-content",
+      "text": "店小秘分类\n选择分类\n+ 管理分类\n来源URL\n1\t\n访问\n|\n找货源"
+    },
+    {
+      "tag": "DIV",
+      "className": "",
+      "text": "店小秘分类\n选择分类\n+ 管理分类\n来源URL\n1\t\n访问\n|\n找货源"
+    },
+    {
+      "tag": "DIV",
+      "className": "ant-form-item css-l8jjhh",
+      "text": "店小秘分类\n选择分类\n+ 管理分类"
+    },
+    {
+      "tag": "DIV",
+      "className": "ant-col ant-form-item-label css-l8jjhh",
+      "text": "店小秘分类"
+    },
+    {
+      "tag": "LABEL",
+      "className": "",
+      "text": "店小秘分类"
+    },
+    {
+      "tag": "DIV",
+      "className": "ant-col ant-form-item-control css-l8jjhh",
+      "text": "选择分类\n+ 管理分类"
+    },
+    {
+      "tag": "DIV",
+      "className": "ant-form-item-control-input",
+      "text": "选择分类\n+ 管理分类"
+    },
+    {
+      "tag": "DIV",
+      "className": "ant-form-item-control-input-content",
+      "text": "选择分类\n+ 管理分类"
+    },
+    {
+      "tag": "DIV",
+      "className": "categories-select",
+      "text": "选择分类"
+    },
+    {
+      "tag": "SPAN",
+      "className": "no-new-line",
+      "text": "选择分类"
+    },
+    {
+      "tag": "SPAN",
+      "className": "",
+      "text": "+ 管理分类"
+    }
+  ]
+}

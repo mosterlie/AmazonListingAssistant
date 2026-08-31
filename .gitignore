@@ -50,6 +50,3 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
-
-# Scratch / Temp test files
-scratch/

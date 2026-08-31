@@ -1,0 +1,222 @@
+[
+  {
+    "index": 27,
+    "label_text": "品牌",
+    "container_class": "ant-col ant-form-item-label css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 28,
+    "label_text": "品牌",
+    "container_class": "ant-col ant-form-item-label css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 29,
+    "label_text": "制造商",
+    "container_class": "ant-col ant-form-item-label css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 30,
+    "label_text": "制造商",
+    "container_class": "ant-col ant-form-item-label css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 40,
+    "label_text": "ターゲット層のキーワード(目标受众关键词)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 41,
+    "label_text": "ターゲット層のキーワード(目标受众关键词)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 89,
+    "label_text": "メーカー型番(零件编号)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 90,
+    "label_text": "メーカー型番(零件编号)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 135,
+    "label_text": "重量",
+    "container_class": "checkbox-grid-item",
+    "inputs": [
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "id": "",
+        "name": "",
+        "placeholder": "",
+        "value": "重量",
+        "className": "ant-checkbox-input"
+      }
+    ]
+  },
+  {
+    "index": 232,
+    "label_text": "商品の重量(商品重量)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 233,
+    "label_text": "商品の重量(商品重量)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 234,
+    "label_text": "商品の重量の単位(商品重量单位)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 235,
+    "label_text": "商品の重量の単位(商品重量单位)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 238,
+    "label_text": "再入荷日(重新库存日期)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 239,
+    "label_text": "再入荷日(重新库存日期)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 256,
+    "label_text": "メーカー希望小売価格・定価(税抜)の通貨(价目表货币)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 257,
+    "label_text": "メーカー希望小売価格・定価(税抜)の通貨(价目表货币)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 318,
+    "label_text": "商品パッケージ重量(包装重量)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 319,
+    "label_text": "商品パッケージ重量(包装重量)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 320,
+    "label_text": "商品パッケージ重量の単位(包装重量单位)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 321,
+    "label_text": "商品パッケージ重量の単位(包装重量单位)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 339,
+    "label_text": "電池の重量(电池重量)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 340,
+    "label_text": "電池の重量(电池重量)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 341,
+    "label_text": "電池の重量の単位(电池重量单位)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 342,
+    "label_text": "電池の重量の単位(电池重量单位)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 366,
+    "label_text": "リチウムバッテリーの重量の単位(锂电池重量)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 367,
+    "label_text": "リチウムバッテリーの重量の単位(锂电池重量)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 368,
+    "label_text": "リチウムバッテリーの重量の単位(锂电池重量单位)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 369,
+    "label_text": "リチウムバッテリーの重量の単位(锂电池重量单位)",
+    "container_class": "ant-col ant-form-item-label ant-form-item-label-wrap css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 466,
+    "label_text": "サイズ(尺寸):",
+    "container_class": "label p-right10",
+    "inputs": []
+  },
+  {
+    "index": 501,
+    "label_text": "制造商邮箱",
+    "container_class": "ant-col ant-form-item-label css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 502,
+    "label_text": "制造商邮箱",
+    "container_class": "ant-col ant-form-item-label css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 518,
+    "label_text": "关键词信息",
+    "container_class": "form-card-header",
+    "inputs": []
+  },
+  {
+    "index": 519,
+    "label_text": "Search Terms",
+    "container_class": "ant-col ant-form-item-label css-l8jjhh",
+    "inputs": []
+  },
+  {
+    "index": 520,
+    "label_text": "Search Terms",
+    "container_class": "ant-col ant-form-item-label css-l8jjhh",
+    "inputs": []
+  }
+]

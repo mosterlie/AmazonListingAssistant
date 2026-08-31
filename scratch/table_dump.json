@@ -1,0 +1,784 @@
+{
+  "found": true,
+  "theadThs": [
+    {
+      "index": 0,
+      "text": "カラー(颜色)"
+    },
+    {
+      "index": 1,
+      "text": "サイズ(尺寸)"
+    },
+    {
+      "index": 2,
+      "text": "SKU ( 一键生成 • 高级 )"
+    },
+    {
+      "index": 3,
+      "text": "EAN (批量)"
+    },
+    {
+      "index": 4,
+      "text": "物品状况 ( 批量 )"
+    },
+    {
+      "index": 5,
+      "text": "物品描述 ( 批量 )"
+    },
+    {
+      "index": 6,
+      "text": "价格 (JPY) ( 批量 • 尾数 )"
+    },
+    {
+      "index": 7,
+      "text": "数量 ( 批量 )"
+    },
+    {
+      "index": 8,
+      "text": "促销价 (JPY) ( 批量 • 尾数 )"
+    },
+    {
+      "index": 9,
+      "text": "促销时间 ( 批量 )"
+    },
+    {
+      "index": 10,
+      "text": "操作"
+    }
+  ],
+  "row_count": 6,
+  "rows": [
+    {
+      "row_index": 0,
+      "cells": [
+        {
+          "col_index": 0,
+          "text": "11",
+          "inputs": []
+        },
+        {
+          "col_index": 1,
+          "text": "aa",
+          "inputs": []
+        },
+        {
+          "col_index": 2,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "ADMIN11-33-qq",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 3,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "4650402753026",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 4,
+          "text": "新品",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "search",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 5,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 6,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "29568.0",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 7,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "40",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 8,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 9,
+          "text": "~",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": "请选择日期"
+            },
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": "请选择日期"
+            }
+          ]
+        },
+        {
+          "col_index": 10,
+          "text": "移除",
+          "inputs": []
+        }
+      ]
+    },
+    {
+      "row_index": 1,
+      "cells": [
+        {
+          "col_index": 0,
+          "text": "22",
+          "inputs": []
+        },
+        {
+          "col_index": 1,
+          "text": "aa",
+          "inputs": []
+        },
+        {
+          "col_index": 2,
+          "text": "请填写SKU",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 3,
+          "text": "请填写产品ID",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 4,
+          "text": "新品",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "search",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 5,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 6,
+          "text": "请填写价格",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 7,
+          "text": "请填写数量",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 8,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 9,
+          "text": "~",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": "请选择日期"
+            },
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": "请选择日期"
+            }
+          ]
+        },
+        {
+          "col_index": 10,
+          "text": "移除",
+          "inputs": []
+        }
+      ]
+    },
+    {
+      "row_index": 2,
+      "cells": [
+        {
+          "col_index": 0,
+          "text": "33",
+          "inputs": []
+        },
+        {
+          "col_index": 1,
+          "text": "aa",
+          "inputs": []
+        },
+        {
+          "col_index": 2,
+          "text": "请填写SKU",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 3,
+          "text": "请填写产品ID",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 4,
+          "text": "新品",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "search",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 5,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 6,
+          "text": "请填写价格",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 7,
+          "text": "请填写数量",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 8,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 9,
+          "text": "~",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": "请选择日期"
+            },
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": "请选择日期"
+            }
+          ]
+        },
+        {
+          "col_index": 10,
+          "text": "移除",
+          "inputs": []
+        }
+      ]
+    },
+    {
+      "row_index": 3,
+      "cells": [
+        {
+          "col_index": 0,
+          "text": "11",
+          "inputs": []
+        },
+        {
+          "col_index": 1,
+          "text": "qq",
+          "inputs": []
+        },
+        {
+          "col_index": 2,
+          "text": "请填写SKU",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 3,
+          "text": "请填写产品ID",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 4,
+          "text": "新品",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "search",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 5,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 6,
+          "text": "请填写价格",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 7,
+          "text": "请填写数量",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 8,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 9,
+          "text": "~",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": "请选择日期"
+            },
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": "请选择日期"
+            }
+          ]
+        },
+        {
+          "col_index": 10,
+          "text": "移除",
+          "inputs": []
+        }
+      ]
+    },
+    {
+      "row_index": 4,
+      "cells": [
+        {
+          "col_index": 0,
+          "text": "22",
+          "inputs": []
+        },
+        {
+          "col_index": 1,
+          "text": "qq",
+          "inputs": []
+        },
+        {
+          "col_index": 2,
+          "text": "请填写SKU",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 3,
+          "text": "请填写产品ID",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 4,
+          "text": "新品",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "search",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 5,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 6,
+          "text": "请填写价格",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 7,
+          "text": "请填写数量",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 8,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 9,
+          "text": "~",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": "请选择日期"
+            },
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": "请选择日期"
+            }
+          ]
+        },
+        {
+          "col_index": 10,
+          "text": "移除",
+          "inputs": []
+        }
+      ]
+    },
+    {
+      "row_index": 5,
+      "cells": [
+        {
+          "col_index": 0,
+          "text": "33",
+          "inputs": []
+        },
+        {
+          "col_index": 1,
+          "text": "qq",
+          "inputs": []
+        },
+        {
+          "col_index": 2,
+          "text": "请填写SKU",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 3,
+          "text": "请填写产品ID",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 4,
+          "text": "新品",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "search",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 5,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 6,
+          "text": "请填写价格",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 7,
+          "text": "请填写数量",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 8,
+          "text": "",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": ""
+            }
+          ]
+        },
+        {
+          "col_index": 9,
+          "text": "~",
+          "inputs": [
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": "请选择日期"
+            },
+            {
+              "tag": "INPUT",
+              "type": "text",
+              "value": "",
+              "placeholder": "请选择日期"
+            }
+          ]
+        },
+        {
+          "col_index": 10,
+          "text": "移除",
+          "inputs": []
+        }
+      ]
+    }
+  ]
+}
