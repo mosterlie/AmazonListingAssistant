@@ -661,14 +661,28 @@ class FormOperator:
                     self.page.wait_for_timeout(300)
                     continue
 
+                # 幂等检查（仅主图/Swatch）：目标框已存在真实图片时跳过上传，直接视为成功
+                # 场景：流程中该行主图已上传过（如第一个 SKU 的主图在步骤1已传，步骤3无需重传）
+                if type_idx in (0, 1):
+                    existing_real = target_box.evaluate(
+                        "el => Array.from(el.querySelectorAll('img')).filter(i => !/addimg|kong-|\\/assets\\//i.test(i.src)).length"
+                    )
+                    if existing_real and existing_real > 0:
+                        return True
+
                 # 4. 点击上传触发区域 (主图/Swatch 点 .img-out，附图点 '选择图片' 按钮)
                 if type_idx == 2:
                     trigger = target_box.locator("button, .ant-btn").filter(has_text="选择图片").first
                 else:
                     trigger = target_box.locator(".img-out, .single-image, img").first
-                
+
                 if trigger.count() == 0:
                     trigger = target_box
+
+                # 记录上传前图片框内已有缩略图的数量与 src 集合（用于后续完成判定）
+                # 注意：主图/Swatch 是"替换占位图"模式（img 数量不变，仅 src 变化），必须记录 src 集合
+                before_img_count = target_box.locator("img").count()
+                before_srcs = target_box.evaluate("el => Array.from(el.querySelectorAll('img')).map(i => i.src)")
 
                 trigger.click()
                 self.page.wait_for_timeout(300)
@@ -680,9 +694,183 @@ class FormOperator:
 
                 file_chooser = fc_info.value
                 file_chooser.set_files(abs_files)
-                self.page.wait_for_timeout(250)
-                return True
+
+                # 6. 等待图片真实上传并渲染完成（新图出现 + loading 消失），确保后续批量应用时图片已就绪
+                #    注意：文件已提交，此处不再重试整个上传流程，避免重复上传
+                return self._wait_image_upload_complete(target_box, before_srcs, len(abs_files))
             except Exception as e:
+                pass
+            self.page.wait_for_timeout(200)
+
+        return False
+
+    def _wait_image_upload_complete(self, target_box: Locator, before_srcs: List[str], upload_count: int, timeout_ms: int = 30000) -> bool:
+        """
+        等待图片上传真正完成：目标图片框内出现足够数量的"新真实图片"，且页面无可见的 loading 动画
+        完成判定兼容两种渲染模式:
+          - 替换模式（主图/Swatch）: 占位图被真实图片替换，img 数量不变但 src 变化
+          - 追加模式（附图）: 新 img 追加进图片框
+        :param target_box: 目标图片块 Locator
+        :param before_srcs: 上传前图片框内全部 img 的 src 列表
+        :param upload_count: 本次上传的图片数量
+        :param timeout_ms: 等待超时（毫秒）
+        :return: 是否确认上传完成
+        """
+        # 占位图/空槽图的特征（店小秘静态资源，非用户图片）
+        placeholder_marks = ["addimg", "kong-", "/assets/"]
+        before_set = set(before_srcs or [])
+
+        # JS: 返回图片框内全部 img 的 src，并统计"新增真实图片"数量（注意 locator.evaluate 首参为元素本身）
+        js_collect_srcs = """
+        (el, args) => {
+            const { beforeSet, phMarks } = args;
+            const imgs = Array.from(el.querySelectorAll('img'));
+            const srcs = [];
+            let newReal = 0;
+            for (const i of imgs) {
+                const s = i.src || '';
+                srcs.push(s);
+                const isPlaceholder = phMarks.some(m => s.toLowerCase().includes(m));
+                if (!beforeSet.includes(s) && !isPlaceholder) newReal++;
+            }
+            return { srcs, newReal };
+        }
+        """
+
+        # JS: 检查是否存在可见的 loading 指示器（ant-spin / ant-upload 上传中状态等）
+        js_has_loading = """
+        () => {
+            const loaders = Array.from(document.querySelectorAll(
+                ".ant-spin-spinning, .ant-spin-blur, [class*='loading'], [class*='uploading'], .image-uploading"
+            ));
+            return loaders.some(el => el.offsetParent !== null);
+        }
+        """
+
+        start_time = time.time()
+        while (time.time() - start_time) * 1000 < timeout_ms:
+            try:
+                res = target_box.evaluate(js_collect_srcs, {"beforeSet": list(before_set), "phMarks": placeholder_marks})
+                if res and res.get("newReal", 0) >= upload_count:
+                    # 再确认无可见 loading 动画（上传请求已结束）
+                    has_loading = self.page.evaluate(js_has_loading)
+                    if not has_loading:
+                        self.page.wait_for_timeout(300)  # 缓冲，确保 Vue/React 响应式更新完毕
+                        return True
+            except Exception:
+                pass
+            self.page.wait_for_timeout(400)
+
+        return False
+
+    def apply_variation_image(
+        self,
+        filter_criteria: Dict[str, str],
+        apply_type: str,
+        timeout_ms: int = 8000
+    ) -> bool:
+        """
+        点击指定变体卡片头部的「图片应用到」，并在下拉菜单中选择批量应用选项
+        :param filter_criteria: 变体匹配条件，如 {"颜色": "dd", "尺寸": "tt"}
+        :param apply_type: 应用类型:
+            - 'extra_all'  : 附图 ➔ 所有变体（附图-所有变体）
+            - 'main_color' : 主图 ➔ 同カラー(颜色)的变种
+            - 'main_size'  : 主图 ➔ 同サイズ(尺寸)的变种
+        :param timeout_ms: 超时时间（毫秒）
+        :return: 是否应用成功
+        """
+        # 应用类型 ➔ (分组标题关键词, 菜单项范围关键词)
+        # 菜单实际结构: .ant-dropdown > .product-image-apply-menu > .menu-group(.group-title + .menu-item)
+        # 分组: 全部图片 / 主图 / Swatch Image / 附图；菜单项: 所有变种 / 同カラー(颜色)的变种 / 同サイズ(尺寸)的变种
+        type_keyword_map = {
+            "extra_all": ("附图", ["所有变种", "所有变体"]),
+            "main_color": ("主图", ["カラー", "颜色"]),
+            "main_size": ("主图", ["サイズ", "尺寸"]),
+        }
+        if apply_type not in type_keyword_map:
+            raise ValueError(f"不支持的 apply_type: {apply_type}，可选值: {list(type_keyword_map.keys())}")
+        group_keyword, scope_keywords = type_keyword_map[apply_type]
+
+        # JS: 在可见下拉菜单中，按 .group-title 匹配分组（附图/主图），返回匹配 .menu-item 的中心坐标（供物理点击）
+        # 注意1: 该下拉可能使用 position:fixed 定位（offsetParent 为 null），必须用 computed display 判断可见性
+        # 注意2: 返回坐标而非直接 JS click —— 页面下拉状态机依赖真实鼠标事件，JS click 会导致下次触发失效
+        js_find_option = """
+        (args) => {
+            const { groupKw, scopeKw } = args;
+            const drops = Array.from(document.querySelectorAll('.ant-dropdown'));
+            for (const d of drops) {
+                if (getComputedStyle(d).display === 'none') continue; // 跳过隐藏下拉
+                const groups = d.querySelectorAll('.menu-group');
+                for (const g of groups) {
+                    const title = (g.querySelector('.group-title')?.innerText || '').trim();
+                    // 标题需包含分组关键词（如 '主图'），且排除 '全部图片' 等其它分组
+                    if (!title.includes(groupKw)) continue;
+                    for (const it of g.querySelectorAll('.menu-item')) {
+                        const txt = (it.innerText || '').trim();
+                        if (scopeKw.some(s => txt.includes(s))) {
+                            const r = it.getBoundingClientRect();
+                            return { found: true, group: title, item: txt,
+                                     x: r.left + r.width / 2, y: r.top + r.height / 2 };
+                        }
+                    }
+                }
+            }
+            return { found: false };
+        }
+        """
+
+        start_time = time.time()
+        while (time.time() - start_time) * 1000 < timeout_ms:
+            try:
+                # 0. 重置页面交互状态（残留的下拉/焦点会导致「图片应用到」触发失效）
+                self.page.keyboard.press("Escape")
+                self.page.mouse.click(300, 200)  # 点击空白区域，触发 document click 清理浮层状态
+                self.page.wait_for_timeout(400)
+
+                # 1. 匹配目标变种图片卡片头部
+                var_container = self.page.locator("#variationImage .overflow-y-auto, #variationImage .max-h-700").first
+                headers = var_container.locator(".item-header")
+
+                target_header = None
+                for i in range(headers.count()):
+                    h = headers.nth(i)
+                    txt = h.inner_text()
+                    if all(v in txt for v in filter_criteria.values()):
+                        target_header = h
+                        break
+
+                if not target_header:
+                    self.page.wait_for_timeout(300)
+                    continue
+
+                target_header.scroll_into_view_if_needed()
+                self.page.wait_for_timeout(200)
+
+                # 2. 点击卡片头部的「图片应用到」链接
+                apply_btn = target_header.locator("span.link, a, span[class*='link']").filter(has_text="图片应用到").first
+                if apply_btn.count() == 0:
+                    self.page.wait_for_timeout(300)
+                    continue
+
+                apply_btn.click()
+                self.page.wait_for_timeout(600)  # 下拉菜单渲染需要时间
+
+                # 3. 在可见下拉菜单中查找目标应用选项，获取其坐标
+                res = self.page.evaluate(js_find_option, {"groupKw": group_keyword, "scopeKw": scope_keywords})
+                if not (res and res.get("found")):
+                    # 未匹配到选项，收起下拉后重试
+                    self.page.keyboard.press("Escape")
+                    self.page.wait_for_timeout(300)
+                    continue
+
+                # 4. 物理鼠标点击菜单项（真实事件流，保证下拉状态机正确关闭与后续可再次触发）
+                self.page.mouse.click(res["x"], res["y"])
+                self.page.wait_for_timeout(800)  # 等待批量应用生效
+
+                # 5. 若弹出确认框则自动确认
+                self.confirm_modal("确定", wait_timeout_ms=1500)
+                return True
+            except Exception:
                 pass
             self.page.wait_for_timeout(200)
 
@@ -1021,6 +1209,56 @@ class FormOperator:
         except Exception:
             return False
 
+    def select_fulfillment_channel(self, channel: str = "FBM", timeout_ms: int = 8000) -> bool:
+        """
+        强力选择并校验【配送渠道】(FBM / FBA)
+        :param channel: 目标配送渠道，如 'FBM' 或 'FBA'
+        :param timeout_ms: 最长等待超时时间 (毫秒)
+        :return: 是否选择并确认成功
+        """
+        check_js = """
+        () => {
+            const formItems = Array.from(document.querySelectorAll('.ant-form-item, div'));
+            const item = formItems.find(fi => {
+                const lbl = fi.querySelector('.ant-form-item-label, label');
+                const txt = lbl ? (lbl.innerText || lbl.getAttribute('title') || '') : '';
+                return txt.includes('配送渠道') || txt.includes('Fulfillment');
+            }) || document.querySelector('[data-path*="fulfillment_availability"]')?.closest('.ant-form-item');
+            
+            const selVal = item?.querySelector('.ant-select-selection-item')?.innerText?.trim() || '';
+            return { selVal, found: Boolean(item) };
+        }
+        """
+        start_time = time.time()
+        while (time.time() - start_time) * 1000 < timeout_ms:
+            try:
+                state = self.page.evaluate(check_js)
+                if state and channel == state.get("selVal", ""):
+                    return True
+            except Exception:
+                pass
+
+            # 1. 尝试直接选择器
+            try:
+                self.select('[data-path*="fulfillment_availability"] .ant-select', channel)
+            except Exception:
+                pass
+
+            # 2. 尝试字段名
+            try:
+                self.select("配送渠道", channel)
+            except Exception:
+                pass
+
+            self.page.wait_for_timeout(400)
+
+        # 兜底核验
+        try:
+            state = self.page.evaluate(check_js)
+            return bool(state and channel == state.get("selVal", ""))
+        except Exception:
+            return False
+
     def save_draft(self, timeout_ms: int = 10000) -> bool:
         """
         点击页面顶部的【保存】按钮，保存为店小秘草稿
@@ -1042,4 +1280,5 @@ class FormOperator:
             print(f"⚠️ 点击保存草稿异常: {e}")
 
         return False
+
 

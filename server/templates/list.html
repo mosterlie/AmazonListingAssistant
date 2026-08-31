@@ -744,34 +744,74 @@ function appendPublishLog(logText) {
 
 async function triggerPublish(productId) {
   if (!confirm(`确定调起真实浏览器为商品 #${productId} 执行全自动上件店小秘吗？`)) return;
-  
+
   openPublishProgressModal(productId);
   appendPublishLog(`🚀 已发起上件请求，正在调度 CDP 浏览器引擎...`);
-  
+
+  const hint = document.getElementById("publishStatusHint");
+
+  // 第一步：触发后台异步上件任务
   try {
     const res = await fetch(`/api/automation/publish/${productId}`, { method: "POST" });
     const result = await res.json();
-    
-    if (result.data && result.data.logs) {
-      document.getElementById("publishConsoleLogs").innerHTML = "";
-      result.data.logs.forEach(l => appendPublishLog(l));
+
+    const started = (result.code === 0) || (result.data && result.data.status === "running");
+    if (!started) {
+      appendPublishLog(`❌ 上件任务启动失败: ${result.msg || '未知错误'}`);
+      hint.innerHTML = `<span style="color:#dc2626; font-weight:700;">❌ 上件启动失败: ${result.msg || '未知错误'}</span>`;
+      showToast(`上件启动失败: ${result.msg}`, "error");
+      return;
     }
-    
-    if (result.code === 0) {
-      for (let i = 1; i <= 7; i++) {
-        const el = document.getElementById(`pubStep${i}`);
-        if (el) el.className = "publish-step-badge completed";
-      }
-      document.getElementById("publishStatusHint").innerHTML = '<span style="color:#16a34a; font-weight:700;">🎉 上件完成并已存为店小秘草稿！</span>';
-      showToast("🎉 商品成功全自动发布并保存至店小秘 ERP！");
-    } else {
-      document.getElementById("publishStatusHint").innerHTML = `<span style="color:#dc2626; font-weight:700;">❌ 上件失败: ${result.msg}</span>`;
-      showToast(`上件失败: ${result.msg}`, "error");
-    }
+    appendPublishLog(`✅ 上件任务已在后台启动，正在实时跟踪执行进度...`);
   } catch (err) {
     appendPublishLog(`❌ 系统网络异常: ${err.message}`);
-    document.getElementById("publishStatusHint").innerHTML = `<span style="color:#dc2626; font-weight:700;">❌ 系统异常: ${err.message}</span>`;
+    hint.innerHTML = `<span style="color:#dc2626; font-weight:700;">❌ 系统异常: ${err.message}</span>`;
     showToast(`触发异常: ${err.message}`, "error");
+    return;
+  }
+
+  // 第二步：轮询增量日志直到任务完成（最长 10 分钟）
+  let since = 0;
+  const pollIntervalMs = 1500;
+  const maxWaitMs = 10 * 60 * 1000;
+  const startTime = Date.now();
+
+  while (true) {
+    await new Promise(r => setTimeout(r, pollIntervalMs));
+
+    let result;
+    try {
+      const res = await fetch(`/api/automation/publish-status/${productId}?since=${since}`);
+      result = await res.json();
+    } catch (e) {
+      continue; // 网络抖动，下一轮重试
+    }
+    if (result.code !== 0 || !result.data) continue; // 任务状态尚未注册，继续等待
+
+    const d = result.data;
+    (d.new_logs || []).forEach(l => appendPublishLog(l));
+    since = d.total_log_lines;
+
+    if (d.done) {
+      if (d.success) {
+        for (let i = 1; i <= 7; i++) {
+          const el = document.getElementById(`pubStep${i}`);
+          if (el) el.className = "publish-step-badge completed";
+        }
+        hint.innerHTML = '<span style="color:#16a34a; font-weight:700;">🎉 上件完成并已存为店小秘草稿！</span>';
+        showToast("🎉 商品成功全自动发布并保存至店小秘 ERP！");
+      } else {
+        hint.innerHTML = `<span style="color:#dc2626; font-weight:700;">❌ 上件失败: ${d.result_msg || '执行异常'}</span>`;
+        showToast(`上件失败: ${d.result_msg || '执行异常'}`, "error");
+      }
+      return;
+    }
+
+    if (Date.now() - startTime > maxWaitMs) {
+      appendPublishLog("❌ 等待超时（10 分钟），任务仍在后台执行，可稍后在任务日志中查看结果。");
+      hint.innerHTML = '<span style="color:#ea580c; font-weight:700;">⏱️ 轮询超时，任务仍在后台执行...</span>';
+      return;
+    }
   }
 }
 

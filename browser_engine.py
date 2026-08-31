@@ -212,6 +212,22 @@ class BrowserEngine:
             )
         )
 
+    def apply_variation_image(
+        self,
+        filter_criteria: Dict[str, str],
+        apply_type: str,
+        timeout_ms: int = 8000,
+        page: Optional[Page] = None
+    ) -> bool:
+        """点击指定变体卡片的「图片应用到」并批量应用图片
+        :param apply_type: 'extra_all'(附图-所有变体) / 'main_color'(主图-同カラー的变种) / 'main_size'(主图-同サイズ的变种)
+        """
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).apply_variation_image(
+                filter_criteria, apply_type, timeout_ms
+            )
+        )
+
     def upload_parent_images(
         self,
         main_image: Optional[str] = None,
@@ -266,6 +282,12 @@ class BrowserEngine:
         """在关键词信息区域填入 Search Terms"""
         return self.manager.run_on_browser_thread(
             lambda: FormOperator(page or self.manager._get_active_page_impl()).fill_search_terms(search_terms)
+        )
+
+    def select_fulfillment_channel(self, channel: str = "FBM", timeout_ms: int = 8000, page: Optional[Page] = None) -> bool:
+        """强力选择并锁定【配送渠道】(FBM / FBA)"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).select_fulfillment_channel(channel, timeout_ms)
         )
 
     def save_draft(self, timeout_ms: int = 10000, page: Optional[Page] = None) -> bool:

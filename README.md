@@ -4,6 +4,14 @@
 
 无需复杂配置，免安装扩展插件，**可对任意指定的网页进行 100% 精准、无死角的表单、按钮、表格与结构化数据解析**。
 
+
+启动调试chrmoe
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="D:\ChromeDebugUser"
+
+项目启动
+cd D:\myCoding\AmazonListingAssistant
+python -m server.app
+
 ---
 
 ## 🌟 核心特性

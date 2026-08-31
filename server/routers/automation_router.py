@@ -32,17 +32,25 @@ def _run_publish_in_thread(product_id: int):
             "started_at": time.time()
         }
 
+    def on_log(line: str):
+        """erp_bridge 每产生一条日志，立即追加到任务状态供前端轮询"""
+        with _task_lock:
+            state = _publish_tasks.get(product_id)
+            if state is not None:
+                state["logs"].append(line)
+
     try:
-        res = ERPBridgeService.publish_product_to_erp(product_id)
+        res = ERPBridgeService.publish_product_to_erp(product_id, log_callback=on_log)
         with _task_lock:
             state = _publish_tasks.get(product_id, {})
             state["running"] = False
             state["done"] = True
             state["success"] = res.get("success", False)
             state["msg"] = res.get("msg", "")
-            # 用后端返回的 logs 替换（更详细）
-            if res.get("logs"):
-                state["logs"] = res["logs"]
+            # 兜底：若流式回调未生效（日志几乎为空），用后端完整日志替换
+            if len(state.get("logs", [])) <= 1 and res.get("logs"):
+                state["logs"] = ["🚀 后台线程已启动，正在连接 CDP 浏览器..."] + res["logs"]
+            state["logs"].append(("✅" if res.get("success") else "❌") + f" 任务结束: {res.get('msg', '')}")
     except Exception as e:
         with _task_lock:
             state = _publish_tasks.get(product_id, {})
