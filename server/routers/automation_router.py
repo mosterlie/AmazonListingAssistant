@@ -71,6 +71,17 @@ def publish_product(product_id: int):
         existing = _publish_tasks.get(product_id)
         if existing and existing.get("running"):
             return {"code": 1, "msg": f"商品 #{product_id} 正在上件中，请稍候...", "data": {"status": "running"}}
+        
+        # 同步初始化任务状态，防止前端轮询瞬间读到上一次任务残留的 done=True 状态
+        _publish_tasks[product_id] = {
+            "running": True,
+            "done": False,
+            "success": False,
+            "msg": "",
+            "logs": ["🚀 后台线程已启动，正在连接 CDP 浏览器..."],
+            "seen": 0,
+            "started_at": time.time()
+        }
 
     t = threading.Thread(target=_run_publish_in_thread, args=(product_id,), daemon=True)
     t.start()

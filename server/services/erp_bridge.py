@@ -53,12 +53,20 @@ class ERPBridgeService:
                 return {"success": False, "msg": err_text, "logs": logs}
             emit_log("✅ 专属 CDP 浏览器已成功启动并就绪！")
         else:
-            ok, msg = engine.connect(activate=True)
+            ok, msg = engine.connect(activate=False)
             if not ok:
-                err_text = f"连接浏览器失败: {msg}"
-                emit_log(f"❌ {err_text}")
-                ProductService.update_product_status(product_id, "failed", "\n".join(logs))
-                return {"success": False, "msg": err_text, "logs": logs}
+                emit_log(f"⚠️ 检测到原有浏览器连接异常 ({msg})，正在自动清理并重新拉起专属 Chrome 浏览器...")
+                try:
+                    engine.close()
+                except Exception:
+                    pass
+                l_ok, l_msg = engine.launch_browser("https://www.dianxiaomi.com/web/amazon/add")
+                if not l_ok:
+                    err_text = f"连接与重新启动 Chrome 浏览器失败: {l_msg}。请确认已安装 Google Chrome 并具有运行权限！"
+                    emit_log(f"❌ {err_text}")
+                    ProductService.update_product_status(product_id, "failed", "\n".join(logs))
+                    return {"success": False, "msg": err_text, "logs": logs}
+                emit_log("✅ 专属 CDP 浏览器已成功重新启动并就绪！")
         try:
             # 0. 确保位于店小秘 Amazon 添加产品页面并进行干净重载
             target_dxm_url = "https://www.dianxiaomi.com/web/amazon/add"
@@ -210,13 +218,27 @@ class ERPBridgeService:
                     except Exception:
                         pass
 
-                # 解析父商品附图清单 (所有子 SKU 统一复用)
+                # 解析附图清单 (优先使用父商品 extra_images，若无则自动从变体 extra_images 提取，统一复用)
                 parent_extras = product.get("extra_images") or []
                 if not parent_extras and product.get("extra_images_json"):
                     try:
                         parent_extras = json.loads(product["extra_images_json"])
                     except Exception:
                         pass
+                
+                if not parent_extras:
+                    for v in product.get("variations", []):
+                        if v.get("extra_images"):
+                            parent_extras = v.get("extra_images")
+                            break
+                        elif v.get("extra_images_json"):
+                            try:
+                                v_extras = json.loads(v["extra_images_json"])
+                                if v_extras:
+                                    parent_extras = v_extras
+                                    break
+                            except Exception:
+                                pass
                 
                 parent_extra_abs_files = [
                     FileService.resolve_image_path(p) 
@@ -319,63 +341,66 @@ class ERPBridgeService:
                             timeout_ms=60000
                         )
                         emit_log(f"     ➔ {'✅' if extra_ok else '⚠️ 上传超时'} 附图【{col} / {sz}】({len(parent_extra_abs_files)} 张)")
-                        # ② 附图 ➔ 所有变体（仅在确认上传完成后才执行批量应用；失败自动重试，首次失败多为上传后页面加载态未散去）
+                        # ② 附图 ➔ 所有变体（执行批量应用，并在页面校验成功后再往下继续）
                         extra_apply_ok = False
                         for attempt in range(3):
-                            if engine.apply_variation_image(filter_criteria=filter_crit, apply_type="extra_all", timeout_ms=15000):
+                            emit_log(f"     ➔ [第 {attempt+1}/3 次] 正在执行【附图 ➔ 所有变体】批量应用并等待页面校验...")
+                            if engine.apply_variation_image(filter_criteria=filter_crit, apply_type="extra_all", timeout_ms=15000, verify_success=True):
                                 extra_apply_ok = True
                                 break
                             time.sleep(1.0)
-                        if extra_ok and extra_apply_ok:
-                            emit_log("     ➔ 已将附图应用至【附图-所有变体】")
+                        if extra_apply_ok:
+                            emit_log("     ➔ ✅ 已检验确认：全量变体附图已全部批量应用并同步成功！")
                             extra_applied = True
-                        # 失败时不置位，留待下一个变体重试
+                        else:
+                            emit_log("     ⚠️ 附图应用至【附图-所有变体】未通过页面校验，留待下一个变体重试")
 
-                    # ③/⑤ 主图按维度批量应用（仅在确认上传完成后才执行；独立变体图不应用以免误扩散；失败自动重试）
+                    # ③/⑤ 主图按维度批量应用（执行批量应用，并在页面校验成功后再往下继续）
                     if main_ok and has_dim_images and dim_val:
                         main_apply_ok = False
                         for attempt in range(3):
-                            if engine.apply_variation_image(filter_criteria=filter_crit, apply_type=main_apply_type, timeout_ms=15000):
+                            emit_log(f"     ➔ [第 {attempt+1}/3 次] 正在执行【主图 ➔ 同{dim_label}的变种】批量应用并等待页面校验...")
+                            if engine.apply_variation_image(filter_criteria=filter_crit, apply_type=main_apply_type, timeout_ms=15000, verify_success=True):
                                 main_apply_ok = True
                                 break
                             time.sleep(1.0)
                         if main_apply_ok:
-                            emit_log(f"     ➔ 已将主图应用至【同{dim_label}的变种】")
+                            emit_log(f"     ➔ ✅ 已检验确认：同【{dim_val}】的所有变体主图已全部批量应用并同步成功！")
                             applied_dim_values.add(dim_val)
                         else:
-                            emit_log(f"     ⚠️ 主图应用【同{dim_label}的变种】连续 3 次失败，跳过该维度")
+                            emit_log(f"     ⚠️ 主图应用【同{dim_label}的变种】连续 3 次未通过页面校验，跳过该维度")
                     time.sleep(0.3)
 
                 emit_log(f"✅ 变体图片装配完成：主图覆盖 {len(applied_dim_values)} 个【{dim_label}】维度值，附图已应用至所有变体！")
 
             # =========================================================================
-            # 阶段 6：父级主附图、五点描述、长描述、配送渠道、搜索词、尺寸与重量
+            # 阶段 6：五点描述、长描述、配送渠道、搜索词、尺寸与重量（产品图片暂时注释）
             # =========================================================================
-            emit_log("⏳ [阶段 6/7] 正在上传父级商品主附图并填入描述文案、尺寸与关键词...")
+            emit_log("⏳ [阶段 6/7] 正在填入五点描述、长描述文案、配送渠道、尺寸与关键词...")
 
-            # 1. 父级主附图一次性批量上传 (主图 + 1~8 张附图并行提交)
-            p_main = product.get("main_image", "")
-            p_main_abs = FileService.resolve_image_path(p_main) if p_main else ""
-            
-            p_extras = product.get("extra_images") or []
-            if not p_extras and product.get("extra_images_json"):
-                try:
-                    p_extras = json.loads(product["extra_images_json"])
-                except Exception:
-                    pass
-            p_extra_abs_list = [
-                FileService.resolve_image_path(p) 
-                for p in p_extras 
-                if p and FileService.resolve_image_path(p) and os.path.exists(FileService.resolve_image_path(p))
-            ]
-
-            if (p_main_abs and os.path.exists(p_main_abs)) or p_extra_abs_list:
-                engine.upload_parent_images(
-                    main_image=p_main_abs if os.path.exists(p_main_abs) else None,
-                    extra_images=p_extra_abs_list
-                )
-                emit_log("✅ 父级商品主图与附图批量并发上传完成！")
-                time.sleep(0.5)
+            # 1. 父级商品【产品图片】上传（暂时注释，后边看情况再定）
+            # p_main = product.get("main_image", "")
+            # p_main_abs = FileService.resolve_image_path(p_main) if p_main else ""
+            # 
+            # p_extras = product.get("extra_images") or []
+            # if not p_extras and product.get("extra_images_json"):
+            #     try:
+            #         p_extras = json.loads(product["extra_images_json"])
+            #     except Exception:
+            #         pass
+            # p_extra_abs_list = [
+            #     FileService.resolve_image_path(p) 
+            #     for p in p_extras 
+            #     if p and FileService.resolve_image_path(p) and os.path.exists(FileService.resolve_image_path(p))
+            # ]
+            # 
+            # if (p_main_abs and os.path.exists(p_main_abs)) or p_extra_abs_list:
+            #     engine.upload_parent_images(
+            #         main_image=p_main_abs if os.path.exists(p_main_abs) else None,
+            #         extra_images=p_extra_abs_list
+            #     )
+            #     emit_log("✅ 父级商品主图与附图批量并发上传完成！")
+            #     time.sleep(0.5)
 
             # 2. 五点描述 (Bullet Points)
             bps = product.get("bullet_points") or []

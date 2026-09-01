@@ -698,7 +698,7 @@ async function viewProductDetail(productId) {
                 <th style="width:75px;">重量(kg)</th>
                 <th style="width:75px;">采购价(¥)</th>
                 <th style="width:60px;">系数</th>
-                <th style="width:85px;">快递选择</th>
+                <th style="width:145px;">快递选择及运费</th>
                 <th style="width:85px;">售价(JPY)</th>
                 <th style="width:60px;">库存</th>
                 <th style="width:125px;">EAN 条码</th>
@@ -716,11 +716,6 @@ async function viewProductDetail(productId) {
   } catch (err) {
     body.innerHTML = `<div style="color:#dc2626; padding:20px;">系统异常: ${err.message}</div>`;
   }
-}
-
-function closeProductDetailModal() {
-  const modal = document.getElementById("productDetailModal");
-  if (modal) modal.style.display = "none";
 }
 
 function renderVariantDimensionCards(p) {
@@ -778,10 +773,183 @@ function renderBulletPointsCompare(bullets, trans) {
   }).join('');
 }
 
+function calculateSkuFreights(length_cm, width_cm, height_cm, weight_kg) {
+  const L = parseFloat(length_cm) || 0;
+  const W = parseFloat(width_cm) || 0;
+  const H = parseFloat(height_cm) || 0;
+  let actWt = parseFloat(weight_kg) || 0.1;
+  if (actWt <= 0) actWt = 0.1;
+
+  const sumSides = L + W + H;
+  const maxSide = sumSides > 0 ? Math.max(L, W, H) : 0;
+  const minSide = sumSides > 0 ? Math.min(L, W, H) : 0;
+  const midSide = sumSides - maxSide - minSide;
+
+  const vol6000 = sumSides > 0 ? Math.ceil((L * W * H / 6000) * 1000) / 1000 : 0;
+  const vol8000 = sumSides > 0 ? Math.ceil((L * W * H / 8000) * 1000) / 1000 : 0;
+
+  let cwRiChuan = null;
+  if (sumSides <= 960) {
+    let rawCw = sumSides < 100 ? actWt : (actWt > vol6000 ? actWt : (actWt + vol6000) / 2);
+    cwRiChuan = Math.ceil(rawCw / 0.5) * 0.5;
+  }
+
+  let cwChuDao = null;
+  if (sumSides <= 140) cwChuDao = actWt;
+  else if (sumSides <= 160) cwChuDao = (actWt + vol6000) / 2;
+  else cwChuDao = Math.max(actWt, vol6000);
+
+  let cwChuDao160 = sumSides <= 160 ? actWt : (actWt + vol6000) / 2;
+
+  let cwSfLarge = null;
+  if (!(maxSide > 200 || (midSide > 80 && minSide > 80) || (midSide > 70 && minSide > 70))) {
+    cwSfLarge = Math.ceil(Math.max(actWt, vol6000) * 1000) / 1000;
+  }
+
+  let cwHeimao = null;
+  if (sumSides <= 159) {
+    cwHeimao = (cwSfLarge !== null && cwSfLarge <= 120) ? actWt : (actWt + vol6000) / 2;
+  }
+
+  const freights = [];
+
+  // 1. 顺丰小包
+  if (!(actWt > 30 || maxSide > 120 || sumSides > 160)) {
+    const cw = Math.max(actWt, vol8000);
+    const steps = Math.ceil(cw / 0.5);
+    let base = 42 + (steps - 1) * 12;
+    if (cw <= 2) base = 38 + (steps - 1) * 8;
+    else if (cw <= 5) base = 40 + (steps - 1) * 9;
+    else if (cw <= 10) base = 41 + (steps - 1) * 11;
+    freights.push({ channel: "顺丰小包", cost: Math.round(base * 0.8 * 100) / 100 });
+  }
+
+  // 2. 顺丰国际大件
+  if (cwSfLarge !== null) {
+    if (cwSfLarge < 100) freights.push({ channel: "顺丰国际大件", cost: Math.max(cwSfLarge, 20) * 15 });
+    else if (cwSfLarge <= 500) freights.push({ channel: "顺丰国际大件", cost: cwSfLarge * 14 });
+    else if (cwSfLarge <= 1000) freights.push({ channel: "顺丰国际大件", cost: cwSfLarge * 13 });
+  }
+
+  // 3. 日川普货
+  if (cwRiChuan !== null && actWt <= 20) {
+    const steps = Math.ceil(cwRiChuan / 0.5);
+    let base = 35 + (steps - 1) * 8;
+    if (cwRiChuan <= 2) base = 32 + (steps - 1) * 6.5;
+    else if (cwRiChuan <= 5) base = 33 + (steps - 1) * 7;
+    else if (cwRiChuan <= 10) base = 34 + (steps - 1) * 7.5;
+    let extraSize = sumSides > 239 ? 260 : (sumSides > 220 ? 200 : (sumSides > 200 ? 150 : (sumSides > 179 ? 100 : (sumSides > 159 ? 80 : 0))));
+    let extraWt = actWt > 9.9 ? 50 : 0;
+    freights.push({ channel: "日川普货", cost: base + extraSize + extraWt });
+  }
+
+  // 4. 日川带电
+  if (cwRiChuan !== null && actWt <= 20) {
+    const steps = Math.ceil(cwRiChuan / 0.5);
+    let base = 37 + (steps - 1) * 8.5;
+    if (cwRiChuan <= 2) base = 35 + (steps - 1) * 7;
+    else if (cwRiChuan <= 5) base = 36 + (steps - 1) * 7.5;
+    else if (cwRiChuan <= 10) base = 36 + (steps - 1) * 8;
+    let extraSize = sumSides > 239 ? 260 : (sumSides > 220 ? 200 : (sumSides > 200 ? 150 : (sumSides > 179 ? 100 : (sumSides > 159 ? 80 : 0))));
+    let extraWt = actWt > 9.9 ? 50 : 0;
+    freights.push({ channel: "日川带电", cost: base + extraSize + extraWt });
+  }
+
+  // 5. 川日大包
+  if (cwRiChuan !== null && cwRiChuan <= 900 && L <= 305 && W <= 175 && H <= 155) {
+    let base = cwRiChuan * 16.5;
+    if (cwRiChuan < 21) base = 60 + (Math.ceil(cwRiChuan / 0.5) - 1) * 18;
+    else if (cwRiChuan < 51) base = cwRiChuan * 19;
+    else if (cwRiChuan < 101) base = cwRiChuan * 18.5;
+    else if (cwRiChuan < 301) base = cwRiChuan * 17.5;
+    else if (cwRiChuan < 501) base = cwRiChuan * 17;
+    let extra = (maxSide > 159 && cwRiChuan < 300) ? 200 : 0;
+    freights.push({ channel: "川日大包", cost: Math.round((base + extra) * 100) / 100 });
+  }
+
+  // 6. 佐川大件
+  if (cwRiChuan !== null && cwRiChuan <= 30 && sumSides <= 250 && maxSide <= 150) {
+    const steps = Math.ceil(cwRiChuan / 0.5);
+    freights.push({ channel: "佐川大件", cost: 40 + (steps - 1) * 10 });
+  }
+
+  // 7. 义乌小包
+  if (cwChuDao !== null && actWt <= 20 && maxSide <= 9100 && sumSides <= 9160) {
+    const steps = Math.ceil(cwChuDao / 0.5);
+    let base = 36 + (steps - 1) * 8;
+    if (cwChuDao <= 2) base = 34 + (steps - 1) * 6;
+    else if (cwChuDao <= 5) base = 35 + (steps - 1) * 7;
+    let extra1 = maxSide > 99 ? 35 : 0;
+    let extra2 = sumSides > 200 ? 120 : (sumSides > 160 ? 80 : 0);
+    freights.push({ channel: "义乌小包", cost: Math.ceil(base + Math.max(extra1, extra2)) });
+  }
+
+  // 8. 初岛160免泡
+  if (cwChuDao160 !== null && actWt <= 20 && maxSide <= 9100 && sumSides <= 260) {
+    const steps = Math.ceil(cwChuDao160 / 0.5);
+    let base = 36 + (steps - 1) * 8;
+    if (cwChuDao160 <= 2) base = 34 + (steps - 1) * 6;
+    else if (cwChuDao160 <= 5) base = 35 + (steps - 1) * 7;
+    let extraMax = sumSides > 200 ? 100 : (sumSides > 160 ? 50 : 0);
+    let extraSum = sumSides > 200 ? 20 : (sumSides > 160 ? 30 : 0);
+    freights.push({ channel: "初岛160免泡", cost: Math.ceil(base + extraMax + extraSum + 20) });
+  }
+
+  // 9. 初岛黑猫
+  if (cwHeimao !== null && actWt <= 20 && maxSide <= 160 && sumSides <= 160) {
+    const steps = Math.ceil(cwHeimao / 0.5);
+    let base = 39 + (steps - 1) * 10;
+    if (cwHeimao <= 2) base = 36 + (steps - 1) * 6;
+    else if (cwHeimao <= 5) base = 37 + (steps - 1) * 7;
+    else if (cwHeimao <= 10) base = 38 + (steps - 1) * 8;
+    freights.push({ channel: "初岛黑猫", cost: Math.ceil(base) });
+  }
+
+  // 10. 航空邮政大包
+  if (actWt <= 30 && maxSide <= 150 && ((sumSides - maxSide) * 2 + maxSide <= 330)) {
+    const wtCeil = Math.ceil(actWt);
+    freights.push({ channel: "航空邮政大包", cost: Math.round((124.2 + (wtCeil - 1) * 29.6 + 8.0) * 100) / 100 });
+  }
+
+  freights.sort((a, b) => a.cost - b.cost);
+  return freights;
+}
+
 function renderVariationsRows(vars) {
   if (!vars.length) return '<tr><td colspan="12" style="text-align:center; padding:20px; color:#94a3b8;">暂无变体数据</td></tr>';
   return vars.map(v => {
     const imgPath = v.variant_image || v.main_image;
+    const chosenChannel = v.shipping_channel || v.selected_channel || v.optimal_channel || '';
+    const freights = calculateSkuFreights(v.length_cm, v.width_cm, v.height_cm, v.weight_kg || v.weight);
+
+    let matchedFreight = freights.find(f => f.channel === chosenChannel);
+    if (!matchedFreight && freights.length > 0) {
+      matchedFreight = freights[0];
+    }
+    const currentChannelName = matchedFreight ? matchedFreight.channel : chosenChannel;
+    const optimalChannelName = freights.length > 0 ? freights[0].channel : '';
+
+    let channelHtml = '';
+    if (freights.length > 0) {
+      channelHtml = `
+        <select class="readonly-channel-select" 
+                style="width:100%; min-width:135px; padding:4px 6px; font-size:0.78rem; font-weight:600; color:#1e293b; background:#f8fafc; border:1px solid #cbd5e1; border-radius:6px; cursor:pointer; outline:none;"
+                title="点击展开可查看全部快递公司报价（仅供比价查看，不可修改）"
+                onfocus="this.dataset.origVal = this.value;"
+                onchange="this.value = this.dataset.origVal || '${currentChannelName}';">
+          ${freights.map(f => {
+            const isSelected = (f.channel === currentChannelName);
+            const isOptimal = (f.channel === optimalChannelName);
+            return `<option value="${f.channel}" ${isSelected ? 'selected' : ''}>¥${f.cost} ${f.channel}${isOptimal ? ' ⭐' : ''}</option>`;
+          }).join('')}
+        </select>
+      `;
+    } else if (chosenChannel) {
+      channelHtml = `<span class="tag-badge" style="font-size:0.75rem;">${chosenChannel}</span>`;
+    } else {
+      channelHtml = `<span style="color:#94a3b8; font-size:0.75rem;">未核算</span>`;
+    }
+
     return `
       <tr>
         <td style="text-align:center;">
@@ -803,7 +971,7 @@ function renderVariationsRows(vars) {
         <td>${v.weight_kg || v.weight || 0}</td>
         <td>¥${v.purchase_price || 0}</td>
         <td>${v.profit_coefficient || 1.0}</td>
-        <td><span class="tag-badge" style="font-size:0.75rem;">${v.shipping_channel || v.selected_channel || v.optimal_channel || '未核算'}</span></td>
+        <td>${channelHtml}</td>
         <td style="font-weight:700; color:#dc2626;">¥${v.price_jpy || 0}</td>
         <td>${v.quantity || 0}</td>
         <td style="font-family:monospace; color:#2563eb;">${v.ean || '-'}</td>

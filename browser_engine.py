@@ -216,14 +216,30 @@ class BrowserEngine:
         self,
         filter_criteria: Dict[str, str],
         apply_type: str,
-        timeout_ms: int = 8000,
+        timeout_ms: int = 12000,
+        verify_success: bool = True,
         page: Optional[Page] = None
     ) -> bool:
-        """点击指定变体卡片的「图片应用到」并批量应用图片
+        """点击指定变体卡片的「图片应用到」并批量应用图片，自动校验成功后返回
         :param apply_type: 'extra_all'(附图-所有变体) / 'main_color'(主图-同カラー的变种) / 'main_size'(主图-同サイズ的变种)
+        :param verify_success: 是否在点击应用后校验页面所有目标卡片是否同步成功
         """
         return self.manager.run_on_browser_thread(
             lambda: FormOperator(page or self.manager._get_active_page_impl()).apply_variation_image(
+                filter_criteria, apply_type, timeout_ms, verify_success
+            )
+        )
+
+    def verify_variation_batch_applied(
+        self,
+        filter_criteria: Dict[str, str],
+        apply_type: str,
+        timeout_ms: int = 6000,
+        page: Optional[Page] = None
+    ) -> bool:
+        """深度校验批量应用是否已真实在页面 DOM 中同步生效"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).verify_variation_batch_applied(
                 filter_criteria, apply_type, timeout_ms
             )
         )
