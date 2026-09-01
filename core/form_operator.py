@@ -4,7 +4,7 @@
 """
 import os
 import time
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, Callable
 from playwright.sync_api import Page, Locator
 
 
@@ -606,7 +606,8 @@ class FormOperator:
         image_path: Union[str, List[str]],
         image_type: str = "main",
         upload_mode: str = "local",
-        timeout_ms: int = 10000
+        timeout_ms: int = 10000,
+        skip_if_exists: bool = False
     ) -> bool:
         """
         为指定变体图片区域（如 {'颜色': 'dd', '尺寸': 'tt'}）上传单张或多张图片（主图/Swatch/附图）
@@ -615,6 +616,7 @@ class FormOperator:
         :param image_type: 图片类型: 'main' (主图), 'swatch' (色块图), 'extra' (附图)
         :param upload_mode: 上传模式: 'local' (本地图片)
         :param timeout_ms: 超时时间（毫秒）
+        :param skip_if_exists: 若已有图片是否跳过上传
         :return: 是否上传成功
         """
         file_list = [image_path] if isinstance(image_path, str) else image_path
@@ -656,22 +658,41 @@ class FormOperator:
                 elif image_type.lower() in ["extra", "附图", "副图"]:
                     type_idx = 2
 
-                target_box = body_block.locator(".p8").nth(type_idx)
-                if target_box.count() == 0:
+                target_boxes = body_block.locator(".p8")
+                box_count = target_boxes.count()
+                target_box = None
+
+                if type_idx == 2:
+                    # 附图框：优先查找含有「选择图片」按钮或文字的 .p8
+                    for bi in range(box_count):
+                        b = target_boxes.nth(bi)
+                        if b.locator("button, .ant-btn").filter(has_text="选择图片").count() > 0 or "选择图片" in (b.inner_text() or ""):
+                            target_box = b
+                            break
+                    if not target_box and box_count > 0:
+                        target_box = target_boxes.nth(box_count - 1)
+                elif type_idx == 1:
+                    if box_count >= 3:
+                        target_box = target_boxes.nth(1)
+                else:
+                    if box_count > 0:
+                        target_box = target_boxes.nth(0)
+
+                if not target_box or target_box.count() == 0:
                     self.page.wait_for_timeout(300)
                     continue
 
-                # 幂等检查：目标框已存在满足要求的真实图片时直接视为成功
-                # 主图/Swatch: 需有 1 张真实图片; 附图: 真实图片数量达标
-                existing_real = target_box.evaluate(
-                    "el => Array.from(el.querySelectorAll('img')).filter(i => !/addimg|kong-|\\/assets\\//i.test(i.src)).length"
-                )
-                if type_idx in (0, 1) and existing_real and existing_real > 0:
-                    return True
-                if type_idx == 2 and existing_real and existing_real >= len(abs_files):
-                    return True
+                # 若开启 skip_if_exists 则在满足要求时跳过
+                if skip_if_exists:
+                    existing_real = target_box.evaluate(
+                        "el => Array.from(el.querySelectorAll('img')).filter(i => !/addimg|kong-|\\/assets\\/|data:image\\/svg/i.test(i.src)).length"
+                    )
+                    if type_idx in (0, 1) and existing_real and existing_real > 0:
+                        return True
+                    if type_idx == 2 and existing_real and existing_real >= len(abs_files):
+                        return True
 
-                # 4. 点击上传触发区域 (主图/Swatch 点 .img-out，附图点 '选择图片' 按钮)
+                # 4. 点击上传触发区域 (主图/Swatch 点 .img-out / 缩略图，附图点 '选择图片' 按钮)
                 if type_idx == 2:
                     trigger = target_box.locator("button, .ant-btn").filter(has_text="选择图片").first
                 else:
@@ -680,35 +701,127 @@ class FormOperator:
                 if trigger.count() == 0:
                     trigger = target_box
 
-                # 记录上传前图片框内已有缩略图的数量与 src 集合（用于后续完成判定）
-                before_img_count = target_box.locator("img").count()
+                # 记录上传前图片框内已有缩略图的 src 集合
                 before_srcs = target_box.evaluate("el => Array.from(el.querySelectorAll('img')).map(i => i.src)")
 
                 trigger.click()
-                self.page.wait_for_timeout(300)
+                self.page.wait_for_timeout(350)
 
                 # 5. 监听文件选择器并点击下拉菜单中的【本地图片】
-                with self.page.expect_file_chooser(timeout=4000) as fc_info:
+                with self.page.expect_file_chooser(timeout=5000) as fc_info:
                     local_opt = self.page.locator(".ant-dropdown:not([style*='display: none']) .ant-dropdown-menu-item").filter(has_text="本地图片").first
                     local_opt.click()
 
                 file_chooser = fc_info.value
                 file_chooser.set_files(abs_files)
 
-                # 6. 等待图片真实上传并渲染完成（新图出现 + loading 消失），确保后续批量应用时图片已就绪
-                return self._wait_image_upload_complete(target_box, before_srcs, len(abs_files))
+                # 6. 等待图片真实上传并渲染完成（新图出现 + loading 消失）
+                upload_done = self._wait_image_upload_complete(target_box, before_srcs, len(abs_files))
+                if upload_done:
+                    # 7. 再次进行严格 DOM 校验确认图片已真实就绪
+                    min_c = len(abs_files) if type_idx == 2 else 1
+                    if self.verify_variation_image_uploaded(filter_criteria, image_type, min_count=min_c, timeout_ms=3000):
+                        return True
             except Exception as e:
                 pass
-            self.page.wait_for_timeout(200)
+            self.page.wait_for_timeout(300)
 
+        return False
+
+    def verify_variation_image_uploaded(
+        self,
+        filter_criteria: Dict[str, str],
+        image_type: str = "main",
+        min_count: int = 1,
+        timeout_ms: int = 4000
+    ) -> bool:
+        """
+        深度校验指定变体卡片的图片（主图/附图/色块）是否已真实上传并渲染在页面中
+        :param filter_criteria: 变体卡片过滤条件 (如 {"颜色": "白色"})
+        :param image_type: "main" (主图) / "extra" (附图) / "swatch" (色块)
+        :param min_count: 期望真实图片数量 (主图通常为 1, 附图为期望上传数)
+        :param timeout_ms: 校验等待超时
+        :return: 是否通过上传真实性校验
+        """
+        type_idx = 0
+        if image_type.lower() in ["swatch", "色块", "色块图"]:
+            type_idx = 1
+        elif image_type.lower() in ["extra", "附图", "副图"]:
+            type_idx = 2
+
+        js_verify_upload = """
+        async (args) => {
+            const { filterCrit, typeIdx, minCount } = args;
+            const sec = document.querySelector('#variationImage');
+            if (!sec) return { ok: false, reason: 'no variationImage' };
+            const headers = Array.from(sec.querySelectorAll('.item-header'));
+            const header = headers.find(h => {
+                const txt = h.innerText.trim();
+                return Object.values(filterCrit).every(v => txt.includes(v));
+            });
+            if (!header) return { ok: false, reason: 'header not found' };
+
+            let body = header.nextElementSibling;
+            if (!body) return { ok: false, reason: 'body not found' };
+
+            if (body.querySelectorAll('.render-skeleton').length > 0) {
+                header.scrollIntoView({ block: 'center', inline: 'nearest' });
+                await new Promise(r => setTimeout(r, 120));
+                body = header.nextElementSibling;
+            }
+
+            const p8s = Array.from(body.querySelectorAll('.p8'));
+            if (p8s.length === 0) return { ok: false, reason: 'no p8s' };
+
+            let targetBox = null;
+            if (typeIdx === 2) {
+                for (let i = 0; i < p8s.length; i++) {
+                    if (p8s[i].innerText.includes('选择图片') || p8s[i].querySelector('button, .ant-btn')) {
+                        targetBox = p8s[i];
+                        break;
+                    }
+                }
+                if (!targetBox) targetBox = p8s.length >= 3 ? p8s[2] : (p8s.length === 2 ? p8s[1] : p8s[0]);
+            } else if (typeIdx === 1) {
+                targetBox = p8s.length >= 3 ? p8s[1] : null;
+            } else {
+                targetBox = p8s[0];
+            }
+
+            if (!targetBox) return { ok: false, reason: 'targetBox not found' };
+
+            const imgs = Array.from(targetBox.querySelectorAll('img'));
+            const realImgs = imgs.filter(i => {
+                const s = (i.src || '').toLowerCase();
+                return s && !s.includes('addimg') && !s.includes('kong-') && !s.includes('/assets/') && !s.startsWith('data:image/svg');
+            });
+
+            return {
+                ok: realImgs.length >= minCount,
+                realCount: realImgs.length,
+                totalImgs: imgs.length
+            };
+        }
+        """
+
+        start = time.time()
+        while (time.time() - start) * 1000 < timeout_ms:
+            try:
+                res = self.page.evaluate(js_verify_upload, {
+                    "filterCrit": filter_criteria,
+                    "typeIdx": type_idx,
+                    "minCount": min_count
+                })
+                if res and res.get("ok"):
+                    return True
+            except Exception:
+                pass
+            self.page.wait_for_timeout(250)
         return False
 
     def _wait_image_upload_complete(self, target_box: Locator, before_srcs: List[str], upload_count: int, timeout_ms: int = 30000) -> bool:
         """
         等待图片上传真正完成：目标图片框内出现足够数量的"新真实图片"或真实图片总数已达标，且页面无可见的 loading 动画
-        完成判定兼容两种渲染模式:
-          - 替换模式（主图/Swatch）: 占位图被真实图片替换，img 数量不变但 src 变化
-          - 追加模式（附图）: 新 img 追加进图片框
         :param target_box: 目标图片块 Locator
         :param before_srcs: 上传前图片框内全部 img 的 src 列表
         :param upload_count: 本次上传的图片数量
@@ -729,7 +842,7 @@ class FormOperator:
             for (const i of imgs) {
                 const s = i.src || '';
                 srcs.push(s);
-                const isPlaceholder = phMarks.some(m => s.toLowerCase().includes(m));
+                const isPlaceholder = phMarks.some(m => s.toLowerCase().includes(m)) || s.startsWith('data:image/svg');
                 if (!isPlaceholder) {
                     totalReal++;
                     if (!beforeSet.includes(s)) newReal++;
@@ -765,34 +878,92 @@ class FormOperator:
 
         return False
 
+    def confirm_modal(self, button_text: str = "确定", wait_timeout_ms: int = 2000) -> bool:
+        """
+        自动检测页面上是否弹出 Ant Modal / 对话框，并点击确认按钮
+        :param button_text: 按钮文字（如 '确定'、'确认'、'OK'）
+        :param wait_timeout_ms: 等待弹窗超时时间（毫秒）
+        :return: 是否成功点击确认
+        """
+        js_click_modal = """
+        (btnText) => {
+            const modals = Array.from(document.querySelectorAll('.ant-modal, .ant-modal-content, [role="dialog"], .el-message-box'));
+            for (const m of modals) {
+                if (getComputedStyle(m).display === 'none') continue;
+                const btns = Array.from(m.querySelectorAll('button, .ant-btn, .el-button, a'));
+                const okBtn = btns.find(b => {
+                    const t = (b.innerText || b.textContent || '').trim();
+                    return t === btnText || t.includes(btnText) || b.classList.contains('ant-btn-primary');
+                });
+                if (okBtn) {
+                    okBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                    okBtn.click();
+                    return { ok: true, text: okBtn.innerText.trim() };
+                }
+            }
+            return { ok: false };
+        }
+        """
+        start_time = time.time()
+        while (time.time() - start_time) * 1000 < wait_timeout_ms:
+            try:
+                # 1. 优先使用 Playwright Locator
+                modal_btn = self.page.locator(".ant-modal:not([style*='display: none']) button, .ant-modal:not([style*='display: none']) .ant-btn-primary, [role='dialog'] button").filter(has_text=button_text).first
+                if modal_btn.count() > 0:
+                    modal_btn.click(timeout=1000, force=True)
+                    self.page.wait_for_timeout(400)
+                    return True
+
+                # 2. JS 兜底
+                res = self.page.evaluate(js_click_modal, button_text)
+                if res and res.get("ok"):
+                    self.page.wait_for_timeout(400)
+                    return True
+            except Exception:
+                pass
+            self.page.wait_for_timeout(250)
+        return False
+
     def apply_variation_image(
         self,
         filter_criteria: Dict[str, str],
         apply_type: str,
-        timeout_ms: int = 12000,
-        verify_success: bool = True
+        timeout_ms: int = 15000,
+        verify_success: bool = True,
+        log_callback: Optional[Callable[[str], None]] = None
     ) -> bool:
         """
         点击指定变体卡片头部的「图片应用到」，并在下拉菜单中选择批量应用选项，
-        并在选择后自动校验是否已批量应用成功（成功后再返回）。
+        并在选择后自动深度校验是否已批量应用成功（成功后再返回）。
         :param filter_criteria: 变体匹配条件，如 {"颜色": "dd", "尺寸": "tt"}
         :param apply_type: 应用类型:
             - 'extra_all'  : 附图 ➔ 所有变体（附图-所有变体）
             - 'main_color' : 主图 ➔ 同カラー(颜色)的变种
             - 'main_size'  : 主图 ➔ 同サイズ(尺寸)的变种
+            - 'main_all'   : 主图 ➔ 所有变种（主图-所有变体）
         :param timeout_ms: 超时时间（毫秒）
         :param verify_success: 是否在点击应用后校验页面所有目标卡片是否同步成功
+        :param log_callback: 日志输出回调函数
         :return: 是否应用并校验成功
         """
         # 应用类型 ➔ (分组标题关键词, 菜单项范围关键词)
         type_keyword_map = {
-            "extra_all": ("附图", ["所有变种", "所有变体", "所有", "全部"]),
-            "main_color": ("主图", ["カラー", "颜色", "color", "COLOR"]),
-            "main_size": ("主图", ["サイズ", "尺寸", "size", "SIZE", "SET_NAME", "set_name"]),
+            "extra_all": ("附图", ["所有变种", "所有变体", "所有", "全部", "all"]),
+            "main_all": ("主图", ["所有变种", "所有变体", "所有", "全部", "all"]),
+            "main_color": ("主图", ["カラー", "颜色", "color", "colour", "色"]),
+            "main_size": ("主图", ["尺寸", "サイズ", "size", "规格", "型号"]),
         }
         if apply_type not in type_keyword_map:
             raise ValueError(f"不支持的 apply_type: {apply_type}，可选值: {list(type_keyword_map.keys())}")
         group_keyword, scope_keywords = type_keyword_map[apply_type]
+
+        # 0. 极速前置检查：若页面所有目标卡片已经同步就绪，直接返回避免重复应用
+        if verify_success:
+            if self.verify_variation_batch_applied(filter_criteria, apply_type, timeout_ms=600, log_callback=None):
+                if log_callback:
+                    log_callback(f"      ➔ 检查确认：目标变体已处于同步达标状态，无需重复执行批量应用")
+                    self.verify_variation_batch_applied(filter_criteria, apply_type, timeout_ms=200, log_callback=log_callback)
+                return True
 
         js_find_option = """
         (args) => {
@@ -803,17 +974,26 @@ class FormOperator:
                 const groups = d.querySelectorAll('.menu-group, [class*="group"]');
                 for (const g of groups) {
                     const title = (g.querySelector('.group-title, [class*="title"]')?.innerText || g.innerText || '').trim();
-                    if (!title.includes(groupKw)) continue;
-                    for (const it of g.querySelectorAll('.menu-item, [class*="item"]')) {
-                        const txt = (it.innerText || '').trim();
-                        if (scopeKw.some(s => txt.toLowerCase().includes(s.toLowerCase()))) {
-                            const r = it.getBoundingClientRect();
-                            // 触发 DOM 事件与点击
-                            it.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-                            it.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-                            it.click();
-                            return { found: true, group: title, item: txt,
-                                     x: r.left + r.width / 2, y: r.top + r.height / 2 };
+                    // 严格比对分组名称，避免主图与全部图片混淆
+                    if (groupKw === '主图' && title !== '主图') continue;
+                    if (groupKw === '附图' && !title.includes('附图')) continue;
+                    if (groupKw === '全部图片' && !title.includes('全部图片')) continue;
+                    if (groupKw === 'Swatch Image' && !title.includes('Swatch')) continue;
+
+                    const items = Array.from(g.querySelectorAll('.menu-item, [class*="item"]'));
+                    // 严格按关键词优先级顺序匹配
+                    for (const kw of scopeKw) {
+                        for (const it of items) {
+                            const txt = (it.innerText || '').trim();
+                            if (txt.toLowerCase().includes(kw.toLowerCase())) {
+                                const r = it.getBoundingClientRect();
+                                // 触发 DOM 事件与点击
+                                it.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                                it.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                                it.click();
+                                return { found: true, group: title, item: txt, matchedKw: kw,
+                                         x: r.left + r.width / 2, y: r.top + r.height / 2 };
+                            }
                         }
                     }
                 }
@@ -870,18 +1050,27 @@ class FormOperator:
                 # 5. 若弹出确认框则自动确认
                 self.confirm_modal("确定", wait_timeout_ms=1500)
 
-                # 6. 每次点完批量应用后，检查是否已经批量应用成功，成功后再往下继续
+                # 6. 每次点完批量应用后，核验是否已批量应用成功
                 if verify_success:
-                    if self.verify_variation_batch_applied(filter_criteria, apply_type, timeout_ms=5000):
+                    if log_callback:
+                        item_name = res.get("item", "批量应用")
+                        log_callback(f"      ➔ 已点击【{group_keyword} ➔ {item_name}】并确认，正在检查生效情况...")
+
+                    verified = self.verify_variation_batch_applied(
+                        filter_criteria, apply_type, timeout_ms=6000, log_callback=log_callback
+                    )
+                    if verified:
                         return True
                     else:
-                        # 本次未能在 5 秒内通过校验，继续循环重试触发
+                        # 本次校验未通过，若仍有剩余时间则重试触发
+                        if log_callback:
+                            log_callback(f"      ⚠️ 本轮批量应用核验未完全达标，正在准备重试触发...")
                         continue
 
                 return True
             except Exception:
                 pass
-            self.page.wait_for_timeout(200)
+            self.page.wait_for_timeout(400)
 
         return False
 
@@ -889,90 +1078,551 @@ class FormOperator:
         self,
         filter_criteria: Dict[str, str],
         apply_type: str,
-        timeout_ms: int = 6000
+        timeout_ms: int = 6000,
+        log_callback: Optional[Callable[[str], None]] = None
     ) -> bool:
         """
-        深度校验批量应用是否已真实在页面 DOM 中同步生效
+        深度校验批量应用是否已真实在页面 DOM 中同步生效：
+        - 对于附图 (extra_all)：只需检查第 2 个 SKU 的附图是否已上传，如果通过则判定检查通过
+        - 对于主图 (main_color / main_size / main_all)：检查同维度变体卡片主图是否均已装配
         :param filter_criteria: 触发卡片的匹配条件
-        :param apply_type: 应用类型 ('extra_all' / 'main_color' / 'main_size')
+        :param apply_type: 应用类型 ('extra_all' / 'main_color' / 'main_size' / 'main_all')
         :param timeout_ms: 轮询等待超时（毫秒）
+        :param log_callback: 日志回调函数
         :return: 是否全部目标变体卡片已成功同步图片
         """
         js_verify = """
-        (args) => {
+        async (args) => {
             const { filterCrit, applyType } = args;
             const sec = document.querySelector('#variationImage');
-            if (!sec) return { success: false, reason: 'no variationImage' };
+            if (!sec) return { success: false, reason: '未找到 #variationImage 区域', cards: [] };
             const headers = Array.from(sec.querySelectorAll('.item-header'));
-            if (headers.length === 0) return { success: false, reason: 'no headers' };
+            if (headers.length === 0) return { success: false, reason: '未找到变体卡片 (.item-header)', cards: [] };
 
-            // 解析全部卡片状态
-            const cards = headers.map((h, idx) => {
-                const text = h.innerText.trim();
+            const isRealImg = (src) => {
+                if (!src) return false;
+                const s = src.toLowerCase();
+                return !s.includes('addimg') && !s.includes('kong-') && !s.includes('/assets/') && !s.startsWith('data:image/svg');
+            };
+
+            const scrollBox = sec.querySelector('.overflow-y-auto, .max-h-700') || sec;
+            const origTop = scrollBox.scrollTop;
+            const hasSkeleton = sec.querySelectorAll('.render-skeleton').length > 0;
+
+            // extra_all 仅需读取前 2 个卡片，无需滚动全部卡片
+            const scanLimit = (applyType === 'extra_all') ? Math.min(headers.length, 2) : headers.length;
+
+            const parseAttrs = (h) => {
+                const attrSpans = Array.from(h.querySelectorAll('.flex.gap-15 span, span'));
+                const attrs = { color: '', size: '' };
+                for (const s of attrSpans) {
+                    const t = s.innerText.trim();
+                    if (t.includes(':')) {
+                        const parts = t.split(':');
+                        const k = parts[0].trim();
+                        const v = parts.slice(1).join(':').trim();
+                        if (k.includes('颜色') || k.includes('カラー') || k.toLowerCase().includes('color')) {
+                            attrs.color = v;
+                        }
+                        if (k.includes('尺寸') || k.includes('サイズ') || k.toLowerCase().includes('size')) {
+                            attrs.size = v;
+                        }
+                    }
+                }
+                return attrs;
+            };
+
+            const cards = [];
+            for (let idx = 0; idx < scanLimit; idx++) {
+                const h = headers[idx];
+                if (hasSkeleton) {
+                    h.scrollIntoView({ block: 'center', inline: 'nearest' });
+                    await new Promise(r => setTimeout(r, 80));
+                }
+
+                const text = h.innerText.replace(/\\s+/g, ' ').trim();
+                const attrs = parseAttrs(h);
                 const body = h.nextElementSibling;
                 const p8s = body ? Array.from(body.querySelectorAll('.p8')) : [];
                 
                 const mainBox = p8s[0];
+                let extraBox = null;
+                for (let i = 0; i < p8s.length; i++) {
+                    if (p8s[i].innerText.includes('选择图片') || p8s[i].querySelector('button, .ant-btn')) {
+                        extraBox = p8s[i];
+                        break;
+                    }
+                }
+                if (!extraBox) {
+                    if (p8s.length >= 3) extraBox = p8s[2];
+                    else if (p8s.length === 2) extraBox = p8s[1];
+                    else extraBox = p8s[0];
+                }
+
                 const mainImgs = mainBox ? Array.from(mainBox.querySelectorAll('img')) : [];
-                const realMainImgs = mainImgs.filter(i => !/addimg|kong-|\\/assets\\//i.test(i.src));
+                const realMainImgs = mainImgs.filter(i => isRealImg(i.src));
 
-                const extraBox = p8s[2];
                 const extraImgs = extraBox ? Array.from(extraBox.querySelectorAll('img')) : [];
-                const realExtraImgs = extraImgs.filter(i => !/addimg|kong-|\\/assets\\//i.test(i.src));
+                const realExtraImgs = extraImgs.filter(i => isRealImg(i.src));
 
-                return {
-                    idx,
+                cards.push({
+                    idx: idx + 1,
                     text,
+                    color: attrs.color,
+                    size: attrs.size,
                     mainCount: realMainImgs.length,
                     extraCount: realExtraImgs.length
-                };
-            });
+                });
+            }
 
-            // 查找源卡片
-            const srcCard = cards.find(c => {
-                return Object.values(filterCrit).every(v => c.text.includes(v));
-            }) || cards[0];
+            if (hasSkeleton) {
+                scrollBox.scrollTop = origTop;
+            }
 
             if (applyType === 'extra_all') {
-                // 附图应用到所有变体: 目标为全部卡片的附图数量均达到源卡片的附图数（且源卡片附图数 > 0）
-                const expectedExtra = srcCard ? srcCard.extraCount : 0;
-                if (expectedExtra === 0) {
-                    const maxExtra = Math.max(...cards.map(c => c.extraCount));
-                    if (maxExtra === 0) return { success: false, reason: 'no extra images in any card' };
-                    const allSynced = cards.every(c => c.extraCount >= maxExtra);
-                    return { success: allSynced, totalCards: cards.length, syncedCount: cards.filter(c => c.extraCount >= maxExtra).length };
+                // 优化 1：只需检查第 2 个 SKU 的附图是否已上传 (若总数 >= 2 则检查第 2 个卡片，否则检查第 1 个)
+                if (headers.length >= 2) {
+                    const card2 = cards[1] || { extraCount: 0 };
+                    const isCard2Ok = card2.extraCount >= 1;
+                    return {
+                        success: isCard2Ok,
+                        totalCards: headers.length,
+                        syncedCount: isCard2Ok ? headers.length : 1,
+                        card2Extra: card2.extraCount,
+                        cards
+                    };
+                } else {
+                    const card1 = cards[0] || { extraCount: 0 };
+                    const isCard1Ok = card1.extraCount >= 1;
+                    return {
+                        success: isCard1Ok,
+                        totalCards: headers.length,
+                        syncedCount: isCard1Ok ? 1 : 0,
+                        card2Extra: card1.extraCount,
+                        cards
+                    };
                 }
-                const allSynced = cards.every(c => c.extraCount >= expectedExtra);
-                return { success: allSynced, totalCards: cards.length, syncedCount: cards.filter(c => c.extraCount >= expectedExtra).length };
             } else if (applyType === 'main_color') {
-                const colVal = filterCrit['颜色'] || filterCrit['color'] || '';
-                const matchCards = colVal ? cards.filter(c => c.text.includes(colVal)) : cards;
-                if (matchCards.length === 0) return { success: false, reason: 'no matching color cards' };
-                const allSynced = matchCards.every(c => c.mainCount >= 1);
-                return { success: allSynced, totalCards: matchCards.length, syncedCount: matchCards.filter(c => c.mainCount >= 1).length };
+                let targetCol = '';
+                const srcCard = cards.find(c => {
+                    return filterCrit && Object.values(filterCrit).every(v => c.text.includes(v));
+                });
+                if (srcCard && srcCard.color) {
+                    targetCol = srcCard.color;
+                } else if (filterCrit) {
+                    targetCol = filterCrit['颜色'] || filterCrit['color'] || '';
+                }
+
+                const matchCards = targetCol 
+                    ? cards.filter(c => (c.color && c.color === targetCol) || (!c.color && c.text.includes(targetCol))) 
+                    : cards;
+
+                if (matchCards.length === 0) return { success: false, reason: `未匹配到颜色【${targetCol}】的卡片`, totalCards: 0, syncedCount: 0, cards };
+                const syncedCards = matchCards.filter(c => c.mainCount >= 1);
+                const allSynced = syncedCards.length === matchCards.length;
+                return {
+                    success: allSynced,
+                    totalCards: matchCards.length,
+                    syncedCount: syncedCards.length,
+                    targetDim: targetCol,
+                    cards: matchCards
+                };
             } else if (applyType === 'main_size') {
-                const szVal = filterCrit['尺寸'] || filterCrit['size'] || '';
-                const matchCards = szVal ? cards.filter(c => c.text.includes(szVal)) : cards;
-                if (matchCards.length === 0) return { success: false, reason: 'no matching size cards' };
-                const allSynced = matchCards.every(c => c.mainCount >= 1);
-                return { success: allSynced, totalCards: matchCards.length, syncedCount: matchCards.filter(c => c.mainCount >= 1).length };
+                let targetSz = '';
+                const srcCard = cards.find(c => {
+                    return filterCrit && Object.values(filterCrit).every(v => c.text.includes(v));
+                });
+                if (srcCard && srcCard.size) {
+                    targetSz = srcCard.size;
+                } else if (filterCrit) {
+                    targetSz = filterCrit['尺寸'] || filterCrit['size'] || '';
+                }
+
+                const matchCards = targetSz 
+                    ? cards.filter(c => (c.size && c.size === targetSz) || (!c.size && c.text.includes(targetSz))) 
+                    : cards;
+
+                if (matchCards.length === 0) return { success: false, reason: `未匹配到尺寸【${targetSz}】的卡片`, totalCards: 0, syncedCount: 0, cards };
+                const syncedCards = matchCards.filter(c => c.mainCount >= 1);
+                const allSynced = syncedCards.length === matchCards.length;
+                return {
+                    success: allSynced,
+                    totalCards: matchCards.length,
+                    syncedCount: syncedCards.length,
+                    targetDim: targetSz,
+                    cards: matchCards
+                };
+            } else if (applyType === 'main_all') {
+                const syncedCards = cards.filter(c => c.mainCount >= 1);
+                const allSynced = (syncedCards.length === cards.length) && (cards.length > 0);
+                return {
+                    success: allSynced,
+                    totalCards: cards.length,
+                    syncedCount: syncedCards.length,
+                    cards
+                };
             }
-            return { success: false, reason: 'unknown applyType' };
+
+            return { success: false, reason: `未知 applyType: ${applyType}`, cards };
         }
         """
 
         start_time = time.time()
+        last_res = None
         while (time.time() - start_time) * 1000 < timeout_ms:
             try:
                 res = self.page.evaluate(js_verify, {"filterCrit": filter_criteria, "applyType": apply_type})
-                if res and res.get("success"):
-                    self.page.wait_for_timeout(300)
-                    return True
+                if res:
+                    last_res = res
+                    if res.get("success"):
+                        self.page.wait_for_timeout(300)
+                        break
             except Exception:
                 pass
-            self.page.wait_for_timeout(300)
+            self.page.wait_for_timeout(350)
 
-        return False
+        # 逐个 SKU 检查结果登记日志
+        if last_res and log_callback:
+            cards = last_res.get("cards", [])
+            total_cards = last_res.get("totalCards", len(cards))
+            synced_cnt = last_res.get("syncedCount", 0)
+            is_success = last_res.get("success", False)
+
+            if apply_type == "extra_all":
+                log_callback(f"\n      📋 【附图批量应用核验】核验第 2 个 SKU 附图同步状态 (全量共 {total_cards} 个变体卡片):")
+                for c in cards:
+                    c_idx = c.get("idx", 0)
+                    c_text = c.get("text", "")
+                    c_spec = c_text.replace("变种属性:", "").replace("图片应用到", "").strip()
+                    c_extra = c.get("extraCount", 0)
+                    c_main = c.get("mainCount", 0)
+                    tag = f"✅ 已装配附图 ({c_extra} 张)" if c_extra >= 1 else "❌ 附图为空 (0 张)"
+                    log_callback(f"         • SKU #{c_idx:02d}【{c_spec}】: 附图 {c_extra} 张 | 主图 {c_main} 张 ➔ {tag}")
+
+                if is_success:
+                    c2_extra = last_res.get("card2Extra", 0)
+                    log_callback(f"      ➔ ✅ 附图批量应用核验通过：第 2 个 SKU 附图已成功装配 ({c2_extra} 张)，全量附图批量应用生效！\n")
+                else:
+                    log_callback(f"      ➔ ⚠️ 附图批量应用核验中：第 2 个 SKU 附图尚未检测到同步数据\n")
+
+            elif apply_type in ["main_color", "main_size", "main_all"]:
+                dim_title = "同颜色" if apply_type == "main_color" else ("同尺寸" if apply_type == "main_size" else "全部变体")
+                target_dim = last_res.get("targetDim", "")
+                dim_str = f"【{target_dim}】" if target_dim else ""
+                log_callback(f"\n      📋 【主图批量应用核验】{dim_title}{dim_str} 变体主图详情 (共 {len(cards)} 个变体卡片):")
+                for c in cards:
+                    c_idx = c.get("idx", 0)
+                    c_text = c.get("text", "")
+                    c_spec = c_text.replace("变种属性:", "").replace("图片应用到", "").strip()
+                    c_main = c.get("mainCount", 0)
+                    c_extra = c.get("extraCount", 0)
+                    tag = "✅ 已装配主图" if c_main >= 1 else "❌ 主图为空"
+                    log_callback(f"         • SKU #{c_idx:02d}【{c_spec}】: 主图 {c_main} 张 | 附图 {c_extra} 张 ➔ {tag}")
+
+                if is_success:
+                    log_callback(f"      ➔ ✅ 主图批量应用深度核验通过：{dim_title}{dim_str} 所有变体主图已全部批量同步成功（{synced_cnt}/{total_cards}）！\n")
+                else:
+                    log_callback(f"      ➔ ⚠️ 主图批量应用同步率: {synced_cnt}/{total_cards} 个变体已同步主图\n")
+
+        return bool(last_res and last_res.get("success"))
+
+    def verify_all_variation_images_summary(self) -> Dict[str, Any]:
+        """
+        获取当前页面全部变体卡片的主图与附图装配与渲染统计
+        """
+        js_summary = """
+        async () => {
+            const sec = document.querySelector('#variationImage');
+            if (!sec) return { total: 0, withMain: 0, withExtra: 0, cards: [] };
+            const headers = Array.from(sec.querySelectorAll('.item-header'));
+
+            const isRealImg = (src) => {
+                if (!src) return false;
+                const s = src.toLowerCase();
+                return !s.includes('addimg') && !s.includes('kong-') && !s.includes('/assets/') && !s.startsWith('data:image/svg');
+            };
+
+            const scrollBox = sec.querySelector('.overflow-y-auto, .max-h-700') || sec;
+            const origTop = scrollBox.scrollTop;
+            const hasSkeleton = sec.querySelectorAll('.render-skeleton').length > 0;
+
+            const cards = [];
+            for (let idx = 0; idx < headers.length; idx++) {
+                const h = headers[idx];
+                if (hasSkeleton) {
+                    h.scrollIntoView({ block: 'center', inline: 'nearest' });
+                    await new Promise(r => setTimeout(r, 80));
+                }
+
+                const text = h.innerText.replace(/\\s+/g, ' ').trim();
+                const body = h.nextElementSibling;
+                const p8s = body ? Array.from(body.querySelectorAll('.p8')) : [];
+                
+                const mainBox = p8s[0];
+                let extraBox = null;
+                for (let i = 0; i < p8s.length; i++) {
+                    if (p8s[i].innerText.includes('选择图片') || p8s[i].querySelector('button, .ant-btn')) {
+                        extraBox = p8s[i];
+                        break;
+                    }
+                }
+                if (!extraBox) {
+                    if (p8s.length >= 3) extraBox = p8s[2];
+                    else if (p8s.length === 2) extraBox = p8s[1];
+                    else extraBox = p8s[0];
+                }
+
+                const mainImgs = mainBox ? Array.from(mainBox.querySelectorAll('img')) : [];
+                const realMain = mainImgs.filter(i => isRealImg(i.src));
+
+                const extraImgs = extraBox ? Array.from(extraBox.querySelectorAll('img')) : [];
+                const realExtra = extraImgs.filter(i => isRealImg(i.src));
+
+                cards.push({
+                    idx: idx + 1,
+                    text,
+                    mainCount: realMain.length,
+                    extraCount: realExtra.length
+                });
+            }
+
+            if (hasSkeleton) {
+                scrollBox.scrollTop = origTop;
+            }
+
+            return {
+                total: cards.length,
+                withMain: cards.filter(c => c.mainCount >= 1).length,
+                withExtra: cards.filter(c => c.extraCount >= 1).length,
+                cards
+            };
+        }
+        """
+        try:
+            return self.page.evaluate(js_summary)
+        except Exception as e:
+            return {"total": 0, "withMain": 0, "withExtra": 0, "cards": [], "error": str(e)}
+
+    def get_dianxiaomi_variation_cards(self) -> List[Dict[str, Any]]:
+        """
+        按照店小秘页面 DOM 中的实际排列顺序，读取全部变体卡片列表
+        返回每个卡片的 {idx: int, headerIndex: int, text: str, color: str, size: str, hasMain: bool, mainCount: int}
+        """
+        js_get_cards = """
+        async () => {
+            const sec = document.querySelector('#variationImage');
+            if (!sec) return [];
+            const headers = Array.from(sec.querySelectorAll('.item-header'));
+            if (headers.length === 0) return [];
+
+            const parseAttrs = (h) => {
+                const attrSpans = Array.from(h.querySelectorAll('.flex.gap-15 span, span'));
+                const attrs = { color: '', size: '' };
+                for (const s of attrSpans) {
+                    const t = s.innerText.trim();
+                    if (t.includes(':')) {
+                        const parts = t.split(':');
+                        const k = parts[0].trim();
+                        const v = parts.slice(1).join(':').trim();
+                        if (k.includes('颜色') || k.includes('カラー') || k.toLowerCase().includes('color')) {
+                            attrs.color = v;
+                        }
+                        if (k.includes('尺寸') || k.includes('サイズ') || k.toLowerCase().includes('size')) {
+                            attrs.size = v;
+                        }
+                    }
+                }
+                return attrs;
+            };
+
+            const isRealImg = (src) => {
+                if (!src) return false;
+                const s = src.toLowerCase();
+                return !s.includes('addimg') && !s.includes('kong-') && !s.includes('/assets/') && !s.startsWith('data:image/svg');
+            };
+
+            const cards = [];
+            for (let idx = 0; idx < headers.length; idx++) {
+                const h = headers[idx];
+                const text = h.innerText.replace(/\\s+/g, ' ').trim();
+                const attrs = parseAttrs(h);
+                const body = h.nextElementSibling;
+                const p8s = body ? Array.from(body.querySelectorAll('.p8')) : [];
+                const mainBox = p8s[0];
+                const mainImgs = mainBox ? Array.from(mainBox.querySelectorAll('img')) : [];
+                const realMain = mainImgs.filter(i => isRealImg(i.src));
+
+                cards.push({
+                    idx: idx,
+                    headerIndex: idx + 1,
+                    text: text,
+                    color: attrs.color,
+                    size: attrs.size,
+                    hasMain: realMain.length >= 1,
+                    mainCount: realMain.length
+                });
+            }
+            return cards;
+        }
+        """
+        try:
+            return self.page.evaluate(js_get_cards) or []
+        except Exception:
+            return []
+
+    def is_variation_card_main_uploaded(
+        self,
+        filter_criteria: Optional[Dict[str, str]] = None,
+        card_idx: Optional[int] = None
+    ) -> bool:
+        """
+        检查指定变体卡片（通过 card_idx 或 filter_criteria 匹配）的主图是否已经上传/存在
+        :param filter_criteria: 变体卡片过滤条件 (如 {"颜色": "11", "尺寸": "aa"})
+        :param card_idx: 变体卡片索引 (0-indexed)
+        :return: True (已上传主图) / False (主图为空)
+        """
+        js_check = """
+        async (args) => {
+            const { filterCrit, cardIdx } = args;
+            const sec = document.querySelector('#variationImage');
+            if (!sec) return false;
+            const headers = Array.from(sec.querySelectorAll('.item-header'));
+            if (headers.length === 0) return false;
+
+            let header = null;
+            if (typeof cardIdx === 'number' && cardIdx >= 0 && cardIdx < headers.length) {
+                header = headers[cardIdx];
+            } else if (filterCrit && Object.keys(filterCrit).length > 0) {
+                header = headers.find(h => {
+                    const txt = h.innerText.trim();
+                    return Object.values(filterCrit).every(v => txt.includes(v));
+                });
+            }
+            if (!header) return false;
+
+            const hasSkeleton = sec.querySelectorAll('.render-skeleton').length > 0;
+            if (hasSkeleton) {
+                header.scrollIntoView({ block: 'center', inline: 'nearest' });
+                await new Promise(r => setTimeout(r, 80));
+            }
+
+            const body = header.nextElementSibling;
+            if (!body) return false;
+            const p8s = Array.from(body.querySelectorAll('.p8'));
+            if (p8s.length === 0) return false;
+            const mainBox = p8s[0];
+            const imgs = Array.from(mainBox.querySelectorAll('img'));
+            const isRealImg = (src) => {
+                if (!src) return false;
+                const s = src.toLowerCase();
+                return !s.includes('addimg') && !s.includes('kong-') && !s.includes('/assets/') && !s.startsWith('data:image/svg');
+            };
+            const realImgs = imgs.filter(i => isRealImg(i.src));
+            return realImgs.length >= 1;
+        }
+        """
+        try:
+            return bool(self.page.evaluate(js_check, {
+                "filterCrit": filter_criteria,
+                "cardIdx": card_idx
+            }))
+        except Exception:
+            return False
+
+    def find_next_unassigned_variation_card(
+        self,
+        dimension: str = "color",
+        start_idx: int = 0,
+        skip_indices: Optional[List[int]] = None
+    ) -> Dict[str, Any]:
+        """
+        动态扫描页面 DOM，从第 start_idx 个 SKU 开始往下查找第一个主图仍为空（mainCount == 0）的变体卡片
+        返回该卡片的序号、头部文本、提取的属性（颜色/尺寸）以及是否找到
+        :param dimension: "color" 或 "size"
+        :param start_idx: 起始扫描序号 (0-indexed)
+        :param skip_indices: 需要跳过的索引列表
+        :return: 包含 {found: bool, idx: int, text: str, color: str, size: str} 的字典
+        """
+        js_find_next = """
+        async (args) => {
+            const { dim, startIdx, skipList } = args;
+            const sec = document.querySelector('#variationImage');
+            if (!sec) return { found: false, msg: 'no variationImage' };
+            const headers = Array.from(sec.querySelectorAll('.item-header'));
+            const skipSet = new Set(skipList || []);
+
+            const isRealImg = (src) => {
+                if (!src) return false;
+                const s = src.toLowerCase();
+                return !s.includes('addimg') && !s.includes('kong-') && !s.includes('/assets/') && !s.startsWith('data:image/svg');
+            };
+
+            const parseAttrs = (h) => {
+                const attrSpans = Array.from(h.querySelectorAll('.flex.gap-15 span, span'));
+                const attrs = { color: '', size: '' };
+                for (const s of attrSpans) {
+                    const t = s.innerText.trim();
+                    if (t.includes(':')) {
+                        const parts = t.split(':');
+                        const k = parts[0].trim();
+                        const v = parts.slice(1).join(':').trim();
+                        if (k.includes('颜色') || k.includes('カラー') || k.toLowerCase().includes('color')) {
+                            attrs.color = v;
+                        }
+                        if (k.includes('尺寸') || k.includes('サイズ') || k.toLowerCase().includes('size')) {
+                            attrs.size = v;
+                        }
+                    }
+                }
+                return attrs;
+            };
+
+            const scrollBox = sec.querySelector('.overflow-y-auto, .max-h-700') || sec;
+            const origTop = scrollBox.scrollTop;
+            const hasSkeleton = sec.querySelectorAll('.render-skeleton').length > 0;
+
+            for (let idx = Math.max(0, startIdx); idx < headers.length; idx++) {
+                if (skipSet.has(idx)) continue;
+                const h = headers[idx];
+                if (hasSkeleton) {
+                    h.scrollIntoView({ block: 'center', inline: 'nearest' });
+                    await new Promise(r => setTimeout(r, 80));
+                }
+
+                const text = h.innerText.trim();
+                const attrs = parseAttrs(h);
+                const body = h.nextElementSibling;
+                const p8s = body ? Array.from(body.querySelectorAll('.p8')) : [];
+                const mainBox = p8s[0];
+                const mainImgs = mainBox ? Array.from(mainBox.querySelectorAll('img')) : [];
+                const realMain = mainImgs.filter(i => isRealImg(i.src));
+
+                if (realMain.length === 0) {
+                    if (hasSkeleton) scrollBox.scrollTop = origTop;
+                    return {
+                        found: true,
+                        idx: idx,
+                        text: text,
+                        color: attrs.color,
+                        size: attrs.size
+                    };
+                }
+            }
+            if (hasSkeleton) scrollBox.scrollTop = origTop;
+            return { found: false, totalHeaders: headers.length };
+        }
+        """
+        try:
+            res = self.page.evaluate(js_find_next, {
+                "dim": dimension,
+                "startIdx": start_idx,
+                "skipList": skip_indices or []
+            })
+            if res and res.get("found"):
+                return res
+            return {"found": False}
+        except Exception as e:
+            return {"found": False, "error": str(e)}
 
     def set_variation_images(
         self,

@@ -4,7 +4,7 @@ Browser Toolkit - 统一门面引擎 (BrowserEngine)
 """
 import os
 import json
-from typing import Dict, Any, List, Optional, Tuple, Union
+from typing import Dict, Any, List, Optional, Tuple, Union, Callable
 from playwright.sync_api import Page
 
 try:
@@ -187,12 +187,13 @@ class BrowserEngine:
         image_type: str = "main",
         upload_mode: str = "local",
         timeout_ms: int = 10000,
+        skip_if_exists: bool = False,
         page: Optional[Page] = None
     ) -> bool:
         """为指定变体（如 {'颜色': 'dd', '尺寸': 'tt'}）上传单张或多张图片（主图/Swatch/附图）"""
         return self.manager.run_on_browser_thread(
             lambda: FormOperator(page or self.manager._get_active_page_impl()).upload_variation_image(
-                filter_criteria, image_path, image_type, upload_mode, timeout_ms
+                filter_criteria, image_path, image_type, upload_mode, timeout_ms, skip_if_exists
             )
         )
 
@@ -218,15 +219,17 @@ class BrowserEngine:
         apply_type: str,
         timeout_ms: int = 12000,
         verify_success: bool = True,
+        log_callback: Optional[Callable[[str], None]] = None,
         page: Optional[Page] = None
     ) -> bool:
         """点击指定变体卡片的「图片应用到」并批量应用图片，自动校验成功后返回
         :param apply_type: 'extra_all'(附图-所有变体) / 'main_color'(主图-同カラー的变种) / 'main_size'(主图-同サイズ的变种)
         :param verify_success: 是否在点击应用后校验页面所有目标卡片是否同步成功
+        :param log_callback: 日志回调函数
         """
         return self.manager.run_on_browser_thread(
             lambda: FormOperator(page or self.manager._get_active_page_impl()).apply_variation_image(
-                filter_criteria, apply_type, timeout_ms, verify_success
+                filter_criteria, apply_type, timeout_ms, verify_success, log_callback
             )
         )
 
@@ -235,12 +238,73 @@ class BrowserEngine:
         filter_criteria: Dict[str, str],
         apply_type: str,
         timeout_ms: int = 6000,
+        log_callback: Optional[Callable[[str], None]] = None,
         page: Optional[Page] = None
     ) -> bool:
-        """深度校验批量应用是否已真实在页面 DOM 中同步生效"""
+        """深度校验批量应用是否已真实在页面 DOM 中同步生效，逐个 SKU 检查附图与主图数据并登记日志"""
         return self.manager.run_on_browser_thread(
             lambda: FormOperator(page or self.manager._get_active_page_impl()).verify_variation_batch_applied(
-                filter_criteria, apply_type, timeout_ms
+                filter_criteria, apply_type, timeout_ms, log_callback
+            )
+        )
+
+    def verify_variation_image_uploaded(
+        self,
+        filter_criteria: Dict[str, str],
+        image_type: str = "main",
+        min_count: int = 1,
+        timeout_ms: int = 4000,
+        page: Optional[Page] = None
+    ) -> bool:
+        """深度校验指定变体卡片的图片是否已真实上传并渲染"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).verify_variation_image_uploaded(
+                filter_criteria, image_type, min_count, timeout_ms
+            )
+        )
+
+    def verify_all_variation_images_summary(
+        self,
+        page: Optional[Page] = None
+    ) -> Dict[str, Any]:
+        """获取当前页面全部变体卡片的主图与附图装配统计"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).verify_all_variation_images_summary()
+        )
+
+    def get_dianxiaomi_variation_cards(
+        self,
+        page: Optional[Page] = None
+    ) -> List[Dict[str, Any]]:
+        """按照店小秘页面 DOM 中的实际排列顺序，读取全部变体卡片列表"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).get_dianxiaomi_variation_cards()
+        )
+
+    def is_variation_card_main_uploaded(
+        self,
+        filter_criteria: Optional[Dict[str, str]] = None,
+        card_idx: Optional[int] = None,
+        page: Optional[Page] = None
+    ) -> bool:
+        """检查指定变体卡片的主图是否已经上传/存在"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).is_variation_card_main_uploaded(
+                filter_criteria, card_idx
+            )
+        )
+
+    def find_next_unassigned_variation_card(
+        self,
+        dimension: str = "color",
+        start_idx: int = 0,
+        skip_indices: Optional[List[int]] = None,
+        page: Optional[Page] = None
+    ) -> Dict[str, Any]:
+        """动态扫描页面 DOM，从上往下查找第一个主图仍为空的变体卡片"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).find_next_unassigned_variation_card(
+                dimension, start_idx, skip_indices
             )
         )
 

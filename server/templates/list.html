@@ -102,7 +102,7 @@
             <th style="width:90px; text-align:center;">变体数</th>
             <th style="width:80px; text-align:center;">维护人</th>
             <th style="width:140px;">维护时间</th>
-            <th style="width:170px; text-align:center;">操作</th>
+            <th style="width:230px; text-align:center;">操作</th>
           </tr>
         </thead>
         <tbody id="productListTableBody">
@@ -150,6 +150,9 @@
                 {{ p.updated_at or p.created_at }}
               </td>
               <td style="text-align:center; white-space:nowrap;">
+                <a href="/entry?id={{ p.id }}" class="btn btn-primary btn-sm" style="padding:4px 8px; font-size:0.8rem; margin-right:4px; text-decoration:none; display:inline-flex; align-items:center; gap:2px;">
+                  ✏️ 编辑
+                </a>
                 <button type="button" class="btn btn-outline btn-sm" onclick="viewProductDetail({{ p.id }})" style="padding:4px 8px; font-size:0.8rem; margin-right:4px;">
                   👁️ 查看详情
                 </button>
@@ -202,6 +205,9 @@
 
     <div class="custom-modal-footer">
       <button class="btn btn-outline" onclick="closeProductDetailModal()">关闭</button>
+      <a id="modalEditBtn" href="#" class="btn btn-primary" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
+        ✏️ 编辑商品
+      </a>
       <button id="modalPublishBtn" class="btn btn-success">🚀 自动化上件店小秘</button>
     </div>
   </div>
@@ -429,6 +435,11 @@ async function viewProductDetail(productId) {
 
     const publishBtn = document.getElementById("modalPublishBtn");
     publishBtn.onclick = (e) => triggerPublish(productId, e);
+
+    const editBtn = document.getElementById("modalEditBtn");
+    if (editBtn) {
+      editBtn.href = `/entry?id=${productId}`;
+    }
 
     // 渲染详情 HTML
     let html = `
@@ -1152,6 +1163,9 @@ function renderProductTableRows(products) {
           ${p.updated_at || p.created_at || '-'}
         </td>
         <td style="text-align:center; white-space:nowrap;">
+          <a href="/entry?id=${p.id}" class="btn btn-primary btn-sm" style="padding:4px 8px; font-size:0.8rem; margin-right:4px; text-decoration:none; display:inline-flex; align-items:center; gap:2px;">
+            ✏️ 编辑
+          </a>
           <button type="button" class="btn btn-outline btn-sm" onclick="viewProductDetail(${p.id})" style="padding:4px 8px; font-size:0.8rem; margin-right:4px;">
             👁️ 查看详情
           </button>

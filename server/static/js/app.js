@@ -20,6 +20,8 @@ const state = {
   variations: []
 };
 window.state = state;
+let editingProductId = null;
+window.editingProductId = null;
 
 // ============================================================================
 // Helper Functions & Global Floating Tooltip
@@ -60,8 +62,10 @@ async function loadSystemSettings() {
 
           // 绑定切换店铺事件监听
           storeSel.onchange = onStoreAccountChanged;
-          // 初次加载触发自动带入品牌、Parent SKU、型号、型号名称
-          await onStoreAccountChanged();
+          // 初次加载：若为新建模式触发自动带入品牌、Parent SKU、型号；若为编辑模式则由已有数据回填
+          if (!editingProductId) {
+            await onStoreAccountChanged();
+          }
         }
       }
     }
@@ -77,6 +81,7 @@ async function loadSystemSettings() {
  * 3. 请求接口自动生成 Parent SKU (用户名+第几个品) 和 モデル名 (品牌+该品牌第几个品)
  */
 async function onStoreAccountChanged() {
+  if (window.isLoadingProductForEdit) return;
   const storeSel = document.getElementById("storeAccountSelect");
   const brandInp = document.getElementById("brandInput");
   const modelNumInp = document.getElementById("modelNumberInput");
@@ -685,7 +690,7 @@ function getValidSizes() {
   return state.sizeInputs.map(s => (s || "").trim()).filter(Boolean);
 }
 
-function updateColorBoxes() {
+function updateColorBoxes(skipMatrix = false) {
   const container = document.getElementById("colorBoxesGrid");
   if (!container) return;
   container.innerHTML = "";
@@ -715,10 +720,18 @@ function updateColorBoxes() {
     container.appendChild(item);
   });
 
-  updatePreviewsAndMatrix();
+  const validColors = getValidColors();
+  const colorPreview = document.getElementById("colorJoinedPreview");
+  if (colorPreview) {
+    colorPreview.innerText = validColors.length > 0 ? validColors.join("-") : "未输入";
+  }
+
+  if (!skipMatrix && !window.isLoadingProductForEdit) {
+    updatePreviewsAndMatrix();
+  }
 }
 
-function updateSizeBoxes() {
+function updateSizeBoxes(skipMatrix = false) {
   const container = document.getElementById("sizeBoxesGrid");
   if (!container) return;
   container.innerHTML = "";
@@ -748,10 +761,18 @@ function updateSizeBoxes() {
     container.appendChild(item);
   });
 
-  updatePreviewsAndMatrix();
+  const validSizes = getValidSizes();
+  const sizePreview = document.getElementById("sizeJoinedPreview");
+  if (sizePreview) {
+    sizePreview.innerText = validSizes.length > 0 ? validSizes.join("-") : "未输入";
+  }
+
+  if (!skipMatrix && !window.isLoadingProductForEdit) {
+    updatePreviewsAndMatrix();
+  }
 }
 
-function updatePreviewsAndMatrix() {
+function updatePreviewsAndMatrix(skipMatrix = false) {
   const validColors = getValidColors();
   const validSizes = getValidSizes();
 
@@ -766,7 +787,9 @@ function updatePreviewsAndMatrix() {
   }
 
   renderAttrImageCards();
-  autoGenerateMatrix();
+  if (!skipMatrix && !window.isLoadingProductForEdit) {
+    autoGenerateMatrix();
+  }
 }
 
 function initAttributeBoxManagers() {
@@ -885,6 +908,7 @@ function removeAttrImg(e, attrKey) {
 // Variation Matrix Auto Calculation & Table Rendering
 // ============================================================================
 async function autoGenerateMatrix() {
+  if (window.isLoadingProductForEdit) return;
   const tbody = document.getElementById("matrixTableBody");
   if (!tbody) return;
 
@@ -1469,18 +1493,23 @@ async function saveProduct(publishImmediately = false) {
   };
 
   try {
-    showToast("正在保存商品数据到本地数据库并自动归档文件...");
-    const res = await fetch("/api/products", {
-      method: "POST",
+    const isEdit = (editingProductId !== null && editingProductId !== undefined);
+    const apiUrl = isEdit ? `/api/products/${editingProductId}` : "/api/products";
+    const method = isEdit ? "PUT" : "POST";
+    const actionDesc = isEdit ? "修改" : "保存";
+
+    showToast(`正在${actionDesc}商品数据到本地数据库并自动归档文件...`);
+    const res = await fetch(apiUrl, {
+      method: method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
     const result = await res.json();
     if (result.code === 0) {
-      const productId = result.data.id;
-      showToast(`✅ 商品保存成功！正在跳转商品管理列表...`);
+      const productId = (result.data && result.data.id) ? result.data.id : (editingProductId || 1);
+      showToast(`✅ 商品${actionDesc}成功！正在跳转商品管理列表...`);
 
-      // 录入商品点击保存后，提交成功自动跳转到商品列表页面并按需自动调起上件
+      // 录入/编辑商品提交成功后，自动跳转到商品列表页面并按需自动调起上件
       setTimeout(() => {
         if (publishImmediately) {
           window.location.href = `/list?publish=${productId}`;
@@ -1489,10 +1518,195 @@ async function saveProduct(publishImmediately = false) {
         }
       }, 600);
     } else {
-      showToast(`保存失败: ${result.msg}`, "error");
+      showToast(`${actionDesc}失败: ${result.msg}`, "error");
     }
   } catch (err) {
     showToast(`系统异常: ${err.message}`, "error");
+  }
+}
+
+/**
+ * 编辑模式：加载已有商品的全部数据并自动回填至表单各卡片与状态树
+ */
+async function loadProductForEdit(productId) {
+  window.isLoadingProductForEdit = true;
+  try {
+    const banner = document.getElementById("editModeBanner");
+    const hint = document.getElementById("editModeHintText");
+    if (banner) banner.style.display = "block";
+    if (hint) hint.textContent = `正在加载商品 #${productId} 结构化数据...`;
+
+    const res = await fetch(`/api/products/${productId}`);
+    const result = await res.json();
+    if (result.code !== 0 || !result.data) {
+      showToast(`加载商品数据失败: ${result.msg || '商品不存在'}`, "error");
+      if (hint) hint.textContent = `❌ 商品 #${productId} 加载失败`;
+      return;
+    }
+
+    const p = result.data;
+    if (hint) {
+      hint.textContent = `商品 ID: #${p.id} | Parent SKU: ${p.parent_sku || p.sku || '-'} | 标题: ${p.title || '-'}`;
+    }
+
+    // 动态调整保存按钮文案
+    const saveBtn = document.getElementById("saveProductBtn");
+    if (saveBtn) saveBtn.textContent = "💾 保存修改并更新数据库";
+    const pubBtn = document.getElementById("publishProductBtn");
+    if (pubBtn) pubBtn.textContent = "🚀 保存修改并一键上件到店小秘";
+
+    // 1. 店铺与基础配置
+    const storeSel = document.getElementById("storeAccountSelect");
+    if (storeSel && p.store_account) {
+      storeSel.value = p.store_account;
+    }
+    const brandInp = document.getElementById("brandInput");
+    if (brandInp) brandInp.value = p.brand || "";
+
+    const titleInp = document.getElementById("titleInput");
+    if (titleInp) titleInp.value = p.title || "";
+
+    const saleType = p.sale_type || "variation";
+    const saleRadio = document.querySelector(`input[name='saleTypeRadio'][value='${saleType}']`);
+    if (saleRadio) saleRadio.checked = true;
+
+    // 2. 产品信息
+    const parentSkuInp = document.getElementById("parentSkuInput");
+    if (parentSkuInp) parentSkuInp.value = p.parent_sku || p.sku || "";
+    const baseSkuInp = document.getElementById("baseSkuInput");
+    if (baseSkuInp) baseSkuInp.value = p.parent_sku || p.sku || "";
+
+    // 3. 产品属性
+    const modelNumInp = document.getElementById("modelNumberInput");
+    if (modelNumInp) modelNumInp.value = p.model_number || "";
+    const modelNameInp = document.getElementById("modelNameInput");
+    if (modelNameInp) modelNameInp.value = p.model_name || "";
+
+    const itemLenInp = document.getElementById("itemLengthInput");
+    if (itemLenInp) itemLenInp.value = p.item_length || "";
+    const itemWidthInp = document.getElementById("itemWidthInput");
+    if (itemWidthInp) itemWidthInp.value = p.item_width || "";
+    const itemHeightInp = document.getElementById("itemHeightInput");
+    if (itemHeightInp) itemHeightInp.value = p.item_height || "";
+    const itemDimUnitSel = document.getElementById("itemDimUnitSelect");
+    if (itemDimUnitSel && (p.item_dim_unit || p.item_dimension_unit)) {
+      itemDimUnitSel.value = p.item_dim_unit || p.item_dimension_unit;
+    }
+
+    const pkgLenInp = document.getElementById("pkgLengthInput");
+    if (pkgLenInp) pkgLenInp.value = p.package_length || "";
+    const pkgWidthInp = document.getElementById("pkgWidthInput");
+    if (pkgWidthInp) pkgWidthInp.value = p.package_width || "";
+    const pkgHeightInp = document.getElementById("pkgHeightInput");
+    if (pkgHeightInp) pkgHeightInp.value = p.package_height || "";
+    const pkgDimUnitSel = document.getElementById("pkgDimUnitSelect");
+    if (pkgDimUnitSel && (p.package_dim_unit || p.package_dimension_unit)) {
+      pkgDimUnitSel.value = p.package_dim_unit || p.package_dimension_unit;
+    }
+
+    const pkgWeightInp = document.getElementById("pkgWeightInput");
+    if (pkgWeightInp) pkgWeightInp.value = p.package_weight || "";
+    const pkgWeightUnitSel = document.getElementById("pkgWeightUnitSelect");
+    if (pkgWeightUnitSel && p.package_weight_unit) {
+      pkgWeightUnitSel.value = p.package_weight_unit;
+    }
+
+    // 4. 图片回填
+    state.productMainImage = p.main_image || "";
+    state.productExtraImages = Array.isArray(p.extra_images) ? [...p.extra_images] : [];
+    renderProductGallery();
+
+    // 5. 变体属性设定 (颜色 & 尺寸)
+    const varThemeSel = document.getElementById("variationThemeSelect");
+    if (varThemeSel && p.variation_theme) {
+      varThemeSel.value = p.variation_theme;
+    }
+
+    const colors = Array.isArray(p.color_options) && p.color_options.length > 0 ? p.color_options : (p.attributes?.color || []);
+    const sizes = Array.isArray(p.size_options) && p.size_options.length > 0 ? p.size_options : (p.attributes?.size || []);
+
+    state.colorInputs = colors.length > 0 ? [...colors] : ["", "", "", "", ""];
+    while (state.colorInputs.length < 5) state.colorInputs.push("");
+
+    state.sizeInputs = sizes.length > 0 ? [...sizes] : ["", "", "", "", ""];
+    while (state.sizeInputs.length < 5) state.sizeInputs.push("");
+
+    // 6. 变体图片录入维度与映射
+    state.imageDimension = p.variant_image_dimension || (p.attributes?.color_images ? "color" : (p.attributes?.size_images ? "size" : "color"));
+    const dimRadio = document.querySelector(`input[name='imageDimensionRadio'][value='${state.imageDimension}']`);
+    if (dimRadio) dimRadio.checked = true;
+
+    state.colorImages = {};
+    state.sizeImages = {};
+    const dimImgs = p.variant_dimension_images || p.attributes?.color_images || p.attributes?.size_images || {};
+    if (state.imageDimension === "color") {
+      state.colorImages = { ...dimImgs, ...(p.attributes?.color_images || {}) };
+    } else {
+      state.sizeImages = { ...dimImgs, ...(p.attributes?.size_images || {}) };
+    }
+
+    updateColorBoxes(true);
+    updateSizeBoxes(true);
+
+    // 7. 变体明细矩阵数据精准回填
+    if (Array.isArray(p.variations) && p.variations.length > 0) {
+      state.variations = p.variations.map(v => ({
+        sku: v.sku || "",
+        ean: v.ean || "",
+        color: v.color || "",
+        size: v.size || "",
+        length_cm: v.length_cm || 0,
+        width_cm: v.width_cm || 0,
+        height_cm: v.height_cm || 0,
+        weight: v.weight_kg !== undefined ? v.weight_kg : (v.weight || 0),
+        weight_kg: v.weight_kg !== undefined ? v.weight_kg : (v.weight || 0),
+        purchase_price: v.purchase_price !== undefined ? v.purchase_price : 50.0,
+        profit_coefficient: v.profit_coefficient !== undefined ? v.profit_coefficient : 1.0,
+        selected_channel: v.shipping_channel || v.selected_channel || v.optimal_channel || "",
+        shipping_channel: v.shipping_channel || v.selected_channel || v.optimal_channel || "",
+        optimal_channel: v.optimal_channel || "",
+        optimal_freight: v.optimal_freight || 0,
+        price_jpy: v.price_jpy || 0,
+        quantity: v.quantity !== undefined ? v.quantity : 40,
+        main_image: v.variant_image || v.main_image || "",
+        variant_image: v.variant_image || v.main_image || "",
+        condition: v.condition || "新品",
+        description: v.description || ""
+      }));
+    }
+
+    renderAttrImageCards();
+    renderMatrixTable();
+    syncPackageDimFromMaxVolumeSku();
+
+    // 8. 描述信息
+    const descInp = document.getElementById("descriptionInput");
+    if (descInp) descInp.value = p.description || "";
+
+    const bullets = Array.isArray(p.bullet_points) ? p.bullet_points : [];
+    const trans = Array.isArray(p.chinese_translations) ? p.chinese_translations : [];
+    if (bullets.length > 0) {
+      populateBulletPoints(bullets, trans);
+    }
+
+    // 9. 运输信息
+    const fulfillSel = document.getElementById("fulfillmentChannelSelect");
+    if (fulfillSel && p.fulfillment_channel) {
+      fulfillSel.value = p.fulfillment_channel;
+    }
+
+    // 10. 关键词
+    const searchTermsInp = document.getElementById("searchTermsInput");
+    if (searchTermsInp) {
+      searchTermsInp.value = p.search_terms || "";
+    }
+
+    showToast(`✅ 已成功加载商品 #${productId} 的全部数据，可直接修改！`);
+  } catch (err) {
+    console.error("加载商品编辑数据异常:", err);
+    showToast(`加载商品异常: ${err.message}`, "error");
+  } finally {
+    window.isLoadingProductForEdit = false;
   }
 }
 
@@ -1954,8 +2168,14 @@ function fallbackCopyText(text, notify = true) {
 // ============================================================================
 // Initialization
 // ============================================================================
-document.addEventListener("DOMContentLoaded", () => {
-  loadSystemSettings();
+document.addEventListener("DOMContentLoaded", async () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const editId = urlParams.get("id");
+  if (editId) {
+    editingProductId = parseInt(editId, 10);
+  }
+
+  await loadSystemSettings();
   initGlobalTooltip();
   renderProductGallery();
   initAttributeBoxManagers();
@@ -1963,6 +2183,10 @@ document.addEventListener("DOMContentLoaded", () => {
   initBulletPointsManager();
   initKeywordsManager();
   initAiPromptAssistant();
+
+  if (editingProductId) {
+    await loadProductForEdit(editingProductId);
+  }
 
   const fileInput = document.getElementById("globalFileInput");
   if (fileInput) fileInput.addEventListener("change", handleFileSelect);

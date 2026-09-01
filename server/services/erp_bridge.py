@@ -209,7 +209,7 @@ class ERPBridgeService:
                 # =========================================================================
                 emit_log("⏳ [阶段 5/7] 正在快速填充变体表格数据，并按「图片应用到」策略批量装配变体图片...")
                 
-                # 准备图片配置
+                # 准备图片配置与多源维度图片映射解析
                 img_dimension = product.get("variant_image_dimension") or "color"
                 dim_images_map = product.get("variant_dimension_images") or {}
                 if not dim_images_map and product.get("variant_dimension_images_json"):
@@ -217,6 +217,25 @@ class ERPBridgeService:
                         dim_images_map = json.loads(product["variant_dimension_images_json"])
                     except Exception:
                         pass
+
+                # 兜底 1: 尝试从 attributes.color_images / size_images 获取
+                if not dim_images_map:
+                    attrs = product.get("attributes") or {}
+                    if isinstance(attrs, str):
+                        try:
+                            attrs = json.loads(attrs)
+                        except Exception:
+                            attrs = {}
+                    dim_images_map = (attrs.get("color_images") if img_dimension == "color" else attrs.get("size_images")) or {}
+
+                # 兜底 2: 从变体列表中按维度聚合主图 (同一颜色/尺寸的所有 SKU 提取第一张有效图片)
+                if not dim_images_map:
+                    dim_images_map = {}
+                    for v in product.get("variations", []):
+                        d_val = v.get("color") if img_dimension == "color" else v.get("size")
+                        v_img = v.get("variant_image") or v.get("main_image")
+                        if d_val and v_img and d_val not in dim_images_map:
+                            dim_images_map[d_val] = v_img
 
                 # 解析附图清单 (优先使用父商品 extra_images，若无则自动从变体 extra_images 提取，统一复用)
                 parent_extras = product.get("extra_images") or []
@@ -273,105 +292,169 @@ class ERPBridgeService:
                         )
                         emit_log(f"   • 填写变体行【{col} / {sz}】: SKU={v_sku}, EAN={v_ean}, 价格={v_price} JPY, 库存={v_qty}")
 
-                # 2. 「图片应用到」五步装配策略（已在真实页面逐步验证）:
-                #    ① 第一个 SKU: 上传主图+附图（等待渲染完成）
-                #    ② 第一个 SKU: 附图 ➔ 应用「附图-所有变体」
-                #    ③ 第一个 SKU: 主图 ➔ 按维度应用（颜色→同カラー / 尺寸→同サイズ）
-                #    ④ 下一个无主图的 SKU: 上传主图并按维度应用
-                #    ⑤ 循环直至所有维度主图覆盖完毕
-                #    注意: 顺序必须为主图在前、附图在后（重传主图会清空该卡片附图）
-                has_dim_images = bool(dim_images_map)
-                applied_dim_values = set()   # 已通过「图片应用到」批量覆盖主图的维度值
-                extra_applied = False        # 附图是否已应用至所有变体
-                dim_label = "カラー(颜色)" if img_dimension == "color" else "サイズ(尺寸)"
-                main_apply_type = "main_color" if img_dimension == "color" else "main_size"
-                emit_log(f"     ℹ️ 变体 SKU 图片录入维度判定为: 【{dim_label}】")
+                # 2. 优化后的 SKU 变体图片上传与装配策略 (步骤 1 ➔ 步骤 2 ➔ 步骤 3 ➔ 步骤 4):
+                #    步骤 1：先上传第 1 个 SKU 的附图
+                #    步骤 2：将第 1 个附图，批量应用到所有 SKU (extra_all)
+                #    步骤 3：检查第 2 个 SKU 的附图是否已上传，如果上传则代表附图批量应用成功
+                #    步骤 4：从第 1 个 SKU 开始循环检查主图是否为空：
+                #           - 如果为空，则上传主图（按照变体选项与对应图片配置，颜色或尺寸上传对应主图）
+                #           - 然后批量应用主图到对应的颜色或尺寸的 SKU
+                #           - 检查是否批量上传/应用成功
+                #           - 然后继续遍历到下一个主图为空的 SKU，直到遍历所有 SKU
+                variations = product.get("variations", [])
+                if not variations:
+                    emit_log("⚠️ 未检测到变体列表，跳过变体图片装配")
+                else:
+                    has_dim_images = bool(dim_images_map)
+                    applied_dim_values = set()
+                    extra_applied = False
+                    dim_label = "カラー(颜色)" if img_dimension == "color" else "サイズ(尺寸)"
+                    main_apply_type = "main_color" if img_dimension == "color" else "main_size"
+                    if len(dim_images_map) <= 1:
+                        main_apply_type = "main_all"
+                    emit_log(f"     ℹ️ 变体 SKU 图片录入维度判定为: 【{dim_label}】，配置有效主图 {len(dim_images_map)} 张")
 
-                for var in product.get("variations", []):
-                    col = var.get("color", "")
-                    sz = var.get("size", "")
+                    first_card = variations[0]
+                    # 获取店小秘页面中实际渲染的变体卡片列表 (保证与店小秘 DOM 顺序严格一致)
+                    dxm_cards = engine.get_dianxiaomi_variation_cards()
+                    if not dxm_cards:
+                        dxm_cards = [{"idx": i, "color": v.get("color", ""), "size": v.get("size", ""), "text": ""} for i, v in enumerate(variations)]
+                    
+                    first_dxm = dxm_cards[0]
+                    first_col = first_dxm.get("color") or first_card.get("color", "")
+                    first_sz = first_dxm.get("size") or first_card.get("size", "")
+                    first_dim_val = first_col if img_dimension == "color" else first_sz
+                    
+                    first_crit = {}
+                    if first_col:
+                        first_crit["颜色"] = first_col
+                    if first_sz:
+                        first_crit["尺寸"] = first_sz
 
-                    filter_crit = {}
-                    if col:
-                        filter_crit["颜色"] = col
-                    if sz:
-                        filter_crit["尺寸"] = sz
-                    if not filter_crit:
-                        continue
+                    # =========================================================================
+                    # 步骤 1：先上传第 1 个 SKU 的附图（按店小秘第 1 个卡片）
+                    # =========================================================================
+                    if parent_extra_abs_files:
+                        emit_log(f"   [步骤 1/4] 正在为店小秘第 1 个 SKU【{first_col} / {first_sz}】上传附图 ({len(parent_extra_abs_files)} 张)...")
+                        extra_up_ok = False
+                        for up_att in range(2):
+                            extra_up_ok = engine.upload_variation_image(first_crit, parent_extra_abs_files, "extra", timeout_ms=60000)
+                            if extra_up_ok and engine.verify_variation_image_uploaded(first_crit, "extra", len(parent_extra_abs_files)):
+                                extra_up_ok = True
+                                break
+                            time.sleep(0.5)
+                        emit_log(f"      ➔ {'✅ 第 1 个 SKU 附图上传并校验成功' if extra_up_ok else '⚠️ 第 1 个 SKU 附图上传未通过校验'}")
 
-                    dim_val = col if img_dimension == "color" else sz
-
-                    # 该维度主图是否已被批量应用覆盖（步骤⑤的"下一个没有主图的sku"判定）
-                    covered = has_dim_images and dim_val in applied_dim_values
-                    if covered:
-                        continue
-
-                    # 确定变体主图 (按颜色/按尺寸维度映射，或独立变体图)
-                    v_main_img_path = ""
-                    if has_dim_images and dim_val and dim_val in dim_images_map:
-                        v_main_img_path = dim_images_map[dim_val]
-                    elif var.get("variant_image"):
-                        v_main_img_path = var.get("variant_image")
-                    elif var.get("main_image"):
-                        v_main_img_path = var.get("main_image")
-
-                    abs_main = ""
-                    if v_main_img_path:
-                        resolved = FileService.resolve_image_path(v_main_img_path)
-                        if resolved and os.path.exists(resolved):
-                            abs_main = resolved
-
-                    # ①/④ 上传该 SKU 主图（等待上传完成；已存在时幂等跳过）
-                    main_ok = False
-                    if abs_main:
-                        main_ok = engine.upload_variation_image(
-                            filter_criteria=filter_crit,
-                            image_path=abs_main,
-                            image_type="main",
-                            timeout_ms=30000
-                        )
-                        emit_log(f"     ➔ {'✅' if main_ok else '⚠️ 上传超时'} 变体主图【{col} / {sz}】: {v_main_img_path}")
-
-                    # ① 附图上传（仅第一个 SKU，等待上传完成）
-                    if not extra_applied and parent_extra_abs_files:
-                        extra_ok = engine.upload_variation_image(
-                            filter_criteria=filter_crit,
-                            image_path=parent_extra_abs_files,
-                            image_type="extra",
-                            timeout_ms=60000
-                        )
-                        emit_log(f"     ➔ {'✅' if extra_ok else '⚠️ 上传超时'} 附图【{col} / {sz}】({len(parent_extra_abs_files)} 张)")
-                        # ② 附图 ➔ 所有变体（执行批量应用，并在页面校验成功后再往下继续）
-                        extra_apply_ok = False
-                        for attempt in range(3):
-                            emit_log(f"     ➔ [第 {attempt+1}/3 次] 正在执行【附图 ➔ 所有变体】批量应用并等待页面校验...")
-                            if engine.apply_variation_image(filter_criteria=filter_crit, apply_type="extra_all", timeout_ms=15000, verify_success=True):
-                                extra_apply_ok = True
+                        # =========================================================================
+                        # 步骤 2 & 步骤 3：将第 1 个附图批量应用所有 SKU，并检查第 2 个 SKU 的附图是否已上传生效
+                        # =========================================================================
+                        emit_log("   [步骤 2/4 & 3/4] 正在执行【附图 ➔ 所有变体】批量应用，并检查第 2 个 SKU 附图生效状态...")
+                        for att in range(2):
+                            if engine.apply_variation_image(first_crit, "extra_all", timeout_ms=15000, verify_success=True, log_callback=emit_log):
+                                extra_applied = True
                                 break
                             time.sleep(1.0)
-                        if extra_apply_ok:
-                            emit_log("     ➔ ✅ 已检验确认：全量变体附图已全部批量应用并同步成功！")
-                            extra_applied = True
+                        
+                        if extra_applied:
+                            emit_log("      ➔ ✅ 附图批量应用成功（第 2 个 SKU 附图已确认就绪）！")
                         else:
-                            emit_log("     ⚠️ 附图应用至【附图-所有变体】未通过页面校验，留待下一个变体重试")
+                            emit_log("      ⚠️ 附图批量应用未通过校验")
+                    else:
+                        emit_log("   [步骤 1~3/4] ℹ️ 未配置商品附图，跳过附图上传与批量应用")
 
-                    # ③/⑤ 主图按维度批量应用（执行批量应用，并在页面校验成功后再往下继续）
-                    if main_ok and has_dim_images and dim_val:
-                        main_apply_ok = False
-                        for attempt in range(3):
-                            emit_log(f"     ➔ [第 {attempt+1}/3 次] 正在执行【主图 ➔ 同{dim_label}的变种】批量应用并等待页面校验...")
-                            if engine.apply_variation_image(filter_criteria=filter_crit, apply_type=main_apply_type, timeout_ms=15000, verify_success=True):
-                                main_apply_ok = True
-                                break
-                            time.sleep(1.0)
-                        if main_apply_ok:
-                            emit_log(f"     ➔ ✅ 已检验确认：同【{dim_val}】的所有变体主图已全部批量应用并同步成功！")
-                            applied_dim_values.add(dim_val)
+                    # =========================================================================
+                    # 步骤 4：按照店小秘中的 SKU 顺序逐个遍历主图：
+                    #        - 打印当前是店小秘中第几个 SKU、主图是否已上传
+                    #        - 若已上传则直接跳过
+                    #        - 若未上传，打印执行上传，然后打印上传后的结果
+                    #        - 上传成功后执行批量应用（不检查批量结果），然后进行下一条处理
+                    # =========================================================================
+                    total_skus = len(dxm_cards)
+                    emit_log(f"\n   [步骤 4/4] 正在按店小秘页面顺序逐个遍历所有 SKU (共 {total_skus} 个) 主图状态，按【{dim_label}】上传并批量应用...")
+                    
+                    for card_idx, card_info in enumerate(dxm_cards):
+                        current_sku_num = card_idx + 1
+                        target_col = card_info.get("color") or ""
+                        target_sz = card_info.get("size") or ""
+
+                        matched_var = next((v for v in variations if (not target_col or v.get("color") == target_col) and (not target_sz or v.get("size") == target_sz)), None)
+                        if not matched_var and card_idx < len(variations):
+                            matched_var = variations[card_idx]
+                        if not target_col and matched_var:
+                            target_col = matched_var.get("color", "")
+                        if not target_sz and matched_var:
+                            target_sz = matched_var.get("size", "")
+
+                        target_sku_code = matched_var.get("sku", "") if matched_var else ""
+                        target_dim_val = target_col if img_dimension == "color" else target_sz
+
+                        target_crit = {}
+                        if target_col:
+                            target_crit["颜色"] = target_col
+                        if target_sz:
+                            target_crit["尺寸"] = target_sz
+
+                        emit_log(f"\n   -------------------------------------------------------------")
+                        emit_log(f"   📌 [店小秘 SKU {current_sku_num}/{total_skus}] 变体属性: 【颜色={target_col or '-'} / 尺寸={target_sz or '-'}】(SKU: {target_sku_code or '-'})")
+
+                        # 检查当前卡片是否已上传主图
+                        is_uploaded = engine.is_variation_card_main_uploaded(filter_criteria=target_crit, card_idx=card_idx)
+                        
+                        if is_uploaded:
+                            emit_log(f"      ➔ 当前主图状态: 【已上传】（已存在/同{dim_label}批量应用已同步）➔ 直接跳过，处理下一个 SKU")
+                            continue
                         else:
-                            emit_log(f"     ⚠️ 主图应用【同{dim_label}的变种】连续 3 次未通过页面校验，跳过该维度")
-                    time.sleep(0.3)
+                            emit_log(f"      ➔ 当前主图状态: 【未上传】➔ 准备执行上传...")
 
-                emit_log(f"✅ 变体图片装配完成：主图覆盖 {len(applied_dim_values)} 个【{dim_label}】维度值，附图已应用至所有变体！")
+                        t_main_path = dim_images_map.get(target_dim_val) or (matched_var.get("variant_image") if matched_var else "") or (matched_var.get("main_image") if matched_var else "") or ""
+                        t_abs_main = FileService.resolve_image_path(t_main_path) if t_main_path else ""
+
+                        if not t_abs_main or not os.path.exists(t_abs_main):
+                            # 尝试使用商品主图兜底
+                            if product.get("main_image"):
+                                p_main_abs = FileService.resolve_image_path(product["main_image"])
+                                if p_main_abs and os.path.exists(p_main_abs):
+                                    t_abs_main = p_main_abs
+
+                        if t_abs_main and os.path.exists(t_abs_main):
+                            # ① 执行上传
+                            img_filename = os.path.basename(t_abs_main)
+                            emit_log(f"      ➔ 执行上传: 正在上传对应【{dim_label}: {target_dim_val}】的主图文件: {img_filename} ...")
+                            t_up_ok = False
+                            for up_att in range(2):
+                                t_up_ok = engine.upload_variation_image(target_crit, t_abs_main, "main", timeout_ms=30000)
+                                if t_up_ok and engine.verify_variation_image_uploaded(target_crit, "main", 1):
+                                    t_up_ok = True
+                                    break
+                                time.sleep(0.5)
+
+                            # 打印上传后的结果
+                            if t_up_ok:
+                                emit_log(f"      ➔ 上传后的结果: ✅ 上传成功")
+                                # ② 执行批量应用，不检查批量结果
+                                emit_log(f"      ➔ 执行批量应用: 正在批量应用【主图 ➔ 同{dim_label}的变种】(不检查批量结果)...")
+                                engine.apply_variation_image(target_crit, main_apply_type, timeout_ms=10000, verify_success=False, log_callback=emit_log)
+                                emit_log(f"      ➔ 批量应用已执行完毕 ➔ 进行下一条处理")
+                                if target_dim_val:
+                                    applied_dim_values.add(target_dim_val)
+                            else:
+                                emit_log(f"      ➔ 上传后的结果: ❌ 上传失败（未通过校验）➔ 进行下一条处理")
+                        else:
+                            emit_log(f"      ➔ 执行上传: ⚠️ 未找到对应的主图文件（{t_main_path}）➔ 跳过并进行下一条处理")
+                        time.sleep(0.3)
+
+                    # 3. 最终变体图片装配完整度体检报告与逐卡片清单输出
+                    summary = engine.verify_all_variation_images_summary()
+                    total_c = summary.get("total", len(variations))
+                    with_m = summary.get("withMain", len(applied_dim_values))
+                    with_e = summary.get("withExtra", total_c if extra_applied else 0)
+                    emit_log(f"\n📊 [变体图片装配完整度检查] 全部变体卡片共 {total_c} 个：已装配主图 {with_m}/{total_c}，已装配附图 {with_e}/{total_c}")
+                    emit_log("   📋 全变体图片最终装配明细:")
+                    for c in summary.get("cards", []):
+                        c_spec = c.get("text", "").replace("变种属性:", "").replace("图片应用到", "").strip()
+                        m_status = "✅" if c.get("mainCount", 0) > 0 else "❌"
+                        e_status = "✅" if c.get("extraCount", 0) > 0 else "❌"
+                        emit_log(f"      • SKU #{c.get('idx', 0):02d}【{c_spec}】: 主图 {c.get('mainCount', 0)} 张 ({m_status}) | 附图 {c.get('extraCount', 0)} 张 ({e_status})")
 
             # =========================================================================
             # 阶段 6：五点描述、长描述、配送渠道、搜索词、尺寸与重量（产品图片暂时注释）

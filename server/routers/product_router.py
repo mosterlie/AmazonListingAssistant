@@ -45,6 +45,15 @@ async def create_product(data: ProductCreateSchema):
     return {"code": 0, "msg": "商品录入成功", "data": product}
 
 
+@router.put("/{product_id}", summary="更新修改商品与变体信息")
+async def update_product(product_id: int, data: ProductCreateSchema):
+    """更新修改已有商品及变体完整信息"""
+    product = ProductService.update_product(product_id, data)
+    if not product:
+        raise HTTPException(status_code=404, detail=f"ID 为 {product_id} 的商品不存在")
+    return {"code": 0, "msg": "商品更新成功", "data": product}
+
+
 @router.get("/by-parent-sku/{parent_sku}", summary="按 Parent SKU 获取商品完整数据（用于录入页面导入回填）")
 async def get_product_by_parent_sku(parent_sku: str):
     """按 Parent SKU 查询商品父节点及全部变体，用于录入工作台导入已保存商品数据"""

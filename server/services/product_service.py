@@ -376,6 +376,254 @@ class ProductService:
             conn.close()
 
     @staticmethod
+    def update_product(product_id: int, data: ProductCreateSchema) -> Optional[Dict[str, Any]]:
+        """更新已有商品及变体数据，保持主键 ID 稳定，更新子变体与关联映射数据"""
+        # 1. 先执行本地文件导出归档，生成标准化的导出相对路径
+        export_res = ProductService.export_and_prepare_product_files(data)
+        saved_main_image = export_res["main_image"] or data.main_image or ""
+        saved_extra_images = export_res["extra_images"] if export_res["extra_images"] else (data.extra_images or [])
+        saved_dim_images = export_res["variant_dimension_images"] if export_res["variant_dimension_images"] else (
+            data.variant_dimension_images or data.attributes.get("color_images") or data.attributes.get("size_images") or {}
+        )
+        saved_var_images = export_res["variation_images"]
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        try:
+            # 检查父商品是否存在
+            cursor.execute("SELECT * FROM product_items WHERE id = ? AND is_parent = 1", (product_id,))
+            p_row = cursor.fetchone()
+            if not p_row:
+                cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
+                if not cursor.fetchone():
+                    return None
+
+            old_parent = dict(p_row) if p_row else {}
+            old_parent_sku = (old_parent.get("parent_sku") or old_parent.get("sku") or "").strip()
+
+            parent_sku = (data.parent_sku or "").strip() or old_parent_sku or "PARENT-SKU"
+            color_opts = data.color_options if data.color_options else data.attributes.get("color", [])
+            size_opts = data.size_options if data.size_options else data.attributes.get("size", [])
+            var_dim = data.variant_image_dimension or ("color" if data.attributes.get("color_images") else "size")
+
+            # 1.1 清理历史子变体 (is_parent = 0)
+            if old_parent_sku:
+                cursor.execute("DELETE FROM product_items WHERE parent_sku = ? AND is_parent = 0", (old_parent_sku,))
+            if parent_sku != old_parent_sku:
+                cursor.execute("DELETE FROM product_items WHERE parent_sku = ? AND is_parent = 0", (parent_sku,))
+
+            # 1.2 更新父商品记录 (is_parent = 1)
+            if p_row:
+                cursor.execute("""
+                UPDATE product_items SET
+                    parent_sku = ?,
+                    sku = ?,
+                    store_account = ?,
+                    brand = ?,
+                    title = ?,
+                    sale_type = ?,
+                    model_number = ?,
+                    model_name = ?,
+                    item_length = ?,
+                    item_width = ?,
+                    item_height = ?,
+                    item_dim_unit = ?,
+                    package_length = ?,
+                    package_width = ?,
+                    package_height = ?,
+                    package_dim_unit = ?,
+                    package_weight = ?,
+                    package_weight_unit = ?,
+                    main_image = ?,
+                    extra_images_json = ?,
+                    variation_theme = ?,
+                    color_options_json = ?,
+                    size_options_json = ?,
+                    variant_image_dimension = ?,
+                    variant_dimension_images_json = ?,
+                    description = ?,
+                    bullet_points_json = ?,
+                    chinese_translations_json = ?,
+                    fulfillment_channel = ?,
+                    search_terms = ?,
+                    created_by = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """, (
+                    parent_sku, parent_sku,
+                    data.store_account or "", data.brand or "", data.title or "", data.sale_type or "variation",
+                    data.model_number or "", data.model_name or "",
+                    float(data.item_length or 0.0), float(data.item_width or 0.0), float(data.item_height or 0.0), data.item_dimension_unit or "cm",
+                    float(data.package_length or 0.0), float(data.package_width or 0.0), float(data.package_height or 0.0), data.package_dimension_unit or "cm",
+                    float(data.package_weight or 0.0), data.package_weight_unit or "kg",
+                    saved_main_image, json.dumps(saved_extra_images, ensure_ascii=False),
+                    data.variation_theme or "", json.dumps(color_opts, ensure_ascii=False), json.dumps(size_opts, ensure_ascii=False),
+                    var_dim, json.dumps(saved_dim_images, ensure_ascii=False),
+                    data.description or "", json.dumps(data.bullet_points or [], ensure_ascii=False), json.dumps(data.chinese_translations or [], ensure_ascii=False),
+                    data.fulfillment_channel or "FBM", data.search_terms or "",
+                    data.created_by or old_parent.get("created_by") or "admin",
+                    product_id
+                ))
+            else:
+                cursor.execute("""
+                INSERT INTO product_items (
+                    id, is_parent, parent_sku, sku,
+                    store_account, brand, title, sale_type,
+                    model_number, model_name,
+                    item_length, item_width, item_height, item_dim_unit,
+                    package_length, package_width, package_height, package_dim_unit,
+                    package_weight, package_weight_unit,
+                    main_image, extra_images_json,
+                    variation_theme, color_options_json, size_options_json,
+                    variant_image_dimension, variant_dimension_images_json,
+                    description, bullet_points_json, chinese_translations_json,
+                    fulfillment_channel, search_terms,
+                    status, created_by, created_at, updated_at
+                ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, (
+                    product_id, parent_sku, parent_sku,
+                    data.store_account or "", data.brand or "", data.title or "", data.sale_type or "variation",
+                    data.model_number or "", data.model_name or "",
+                    float(data.item_length or 0.0), float(data.item_width or 0.0), float(data.item_height or 0.0), data.item_dimension_unit or "cm",
+                    float(data.package_length or 0.0), float(data.package_width or 0.0), float(data.package_height or 0.0), data.package_dimension_unit or "cm",
+                    float(data.package_weight or 0.0), data.package_weight_unit or "kg",
+                    saved_main_image, json.dumps(saved_extra_images, ensure_ascii=False),
+                    data.variation_theme or "", json.dumps(color_opts, ensure_ascii=False), json.dumps(size_opts, ensure_ascii=False),
+                    var_dim, json.dumps(saved_dim_images, ensure_ascii=False),
+                    data.description or "", json.dumps(data.bullet_points or [], ensure_ascii=False), json.dumps(data.chinese_translations or [], ensure_ascii=False),
+                    data.fulfillment_channel or "FBM", data.search_terms or "",
+                    data.created_by or "admin"
+                ))
+
+            # 1.3 插入更新后的子变体记录 (is_parent = 0) 与映射关系
+            for idx, v in enumerate(data.variations):
+                v_sku = (v.sku or "").strip()
+                v_ean = (v.ean or "").strip()
+                v_weight = float(v.weight_kg if v.weight_kg is not None else (v.weight or 0.0))
+                v_img = saved_var_images[idx] if idx < len(saved_var_images) and saved_var_images[idx] else (v.variant_image or v.main_image or "")
+                v_channel = v.shipping_channel or v.optimal_channel or ""
+
+                cursor.execute("""
+                INSERT INTO product_items (
+                    is_parent, parent_sku, sku,
+                    store_account, brand,
+                    variant_image, color, size,
+                    length_cm, width_cm, height_cm, weight_kg,
+                    purchase_price, profit_coefficient, shipping_channel,
+                    price_jpy, quantity, ean,
+                    status, created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, (
+                    0, parent_sku, v_sku,
+                    data.store_account or "", data.brand or "",
+                    v_img, v.color or "", v.size or "",
+                    float(v.length_cm or 0.0), float(v.width_cm or 0.0), float(v.height_cm or 0.0), v_weight,
+                    float(v.purchase_price or 0.0), float(v.profit_coefficient or 1.0), v_channel,
+                    float(v.price_jpy or 0.0), int(v.quantity or 0), v_ean,
+                    "ready", data.created_by or "admin"
+                ))
+
+                if v_sku and v_ean:
+                    cursor.execute("""
+                    INSERT INTO sku_ean_mappings (sku, ean, parent_sku, store_account, created_by, created_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(sku) DO UPDATE SET
+                        ean = excluded.ean,
+                        parent_sku = excluded.parent_sku,
+                        store_account = excluded.store_account,
+                        created_by = excluded.created_by,
+                        created_at = CURRENT_TIMESTAMP;
+                    """, (v_sku, v_ean, parent_sku, data.store_account or "", data.created_by or "admin"))
+
+            # 1.4 同步更新历史兼容表 products 与 product_variations
+            cursor.execute("""
+            UPDATE products SET
+                store_account = ?, site = ?, parent_sku = ?, manufacturer = ?,
+                product_id_type = ?, product_id_value = ?, title = ?, brand = ?,
+                category_name = ?, category_type = ?, model_number = ?, model_name = ?,
+                item_length = ?, item_width = ?, item_height = ?, item_dimension_unit = ?,
+                package_length = ?, package_width = ?, package_height = ?, package_dimension_unit = ?,
+                package_weight = ?, package_weight_unit = ?, main_image = ?, extra_images_json = ?,
+                sale_type = ?, variation_theme = ?, attributes_json = ?, bullet_points_json = ?,
+                description = ?, search_terms = ?, fulfillment_channel = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, (
+                data.store_account,
+                data.site,
+                parent_sku,
+                data.manufacturer or "",
+                data.product_id_type,
+                data.product_id_value or "",
+                data.title,
+                data.brand or "",
+                data.category_name or "",
+                data.category_type or "",
+                data.model_number or "",
+                data.model_name or "",
+                data.item_length or 0.0,
+                data.item_width or 0.0,
+                data.item_height or 0.0,
+                data.item_dimension_unit or "cm",
+                data.package_length or 0.0,
+                data.package_width or 0.0,
+                data.package_height or 0.0,
+                data.package_dimension_unit or "cm",
+                data.package_weight or 0.0,
+                data.package_weight_unit or "kg",
+                saved_main_image,
+                json.dumps(saved_extra_images, ensure_ascii=False),
+                data.sale_type,
+                data.variation_theme,
+                json.dumps(data.attributes, ensure_ascii=False),
+                json.dumps(data.bullet_points or [], ensure_ascii=False),
+                data.description or "",
+                data.search_terms or "",
+                data.fulfillment_channel or "FBM",
+                product_id
+            ))
+
+            cursor.execute("DELETE FROM product_variations WHERE product_id = ?", (product_id,))
+            for idx, v in enumerate(data.variations):
+                v_img = saved_var_images[idx] if idx < len(saved_var_images) and saved_var_images[idx] else (v.variant_image or v.main_image or "")
+                cursor.execute("""
+                INSERT INTO product_variations (
+                    product_id, sku, ean, color, size,
+                    condition, description, price_jpy, quantity,
+                    sale_price_jpy, length_cm, width_cm, height_cm, weight,
+                    purchase_price, profit_coefficient, optimal_channel, optimal_freight,
+                    main_image, swatch_image, extra_images_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    product_id,
+                    v.sku,
+                    v.ean or "",
+                    v.color or "",
+                    v.size or "",
+                    v.condition or "新品",
+                    v.description or "",
+                    v.price_jpy or 0.0,
+                    v.quantity or 0,
+                    v.sale_price_jpy or 0.0,
+                    v.length_cm or 0.0,
+                    v.width_cm or 0.0,
+                    v.height_cm or 0.0,
+                    v.weight or 0.0,
+                    v.purchase_price or 50.0,
+                    v.profit_coefficient or 1.0,
+                    v.optimal_channel or "",
+                    v.optimal_freight or 0.0,
+                    v_img,
+                    v.swatch_image or "",
+                    json.dumps(v.extra_images or [], ensure_ascii=False)
+                ))
+
+            conn.commit()
+            return ProductService.get_product_by_id(product_id)
+        finally:
+            conn.close()
+
+    @staticmethod
     def export_product_files(product_id: int, data: ProductCreateSchema):
         """
         当商品保存后，在配置的地址下创建产品名称文件夹，并将图片与信息归档：
