@@ -107,104 +107,7 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_mapping_ean ON sku_ean_mappings(ean);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_mapping_parent_sku ON sku_ean_mappings(parent_sku);")
 
-    # 1. 商品主表 (历史表向下兼容)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        store_account TEXT NOT NULL,
-        site TEXT NOT NULL DEFAULT '日本',
-        product_id_type TEXT DEFAULT 'EAN',
-        product_id_value TEXT DEFAULT '',
-        title TEXT NOT NULL,
-        brand TEXT DEFAULT '',
-        category_name TEXT DEFAULT '',
-        category_type TEXT DEFAULT '',
-        sale_type TEXT DEFAULT 'variation',
-        variation_theme TEXT DEFAULT 'カラー/サイズ(颜色/尺寸)',
-        attributes_json TEXT DEFAULT '{}',
-        bullet_points_json TEXT DEFAULT '[]',
-        description TEXT DEFAULT '',
-        status TEXT DEFAULT 'draft',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-    """)
-
-    # 2. 变体明细表
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS product_variations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        product_id INTEGER NOT NULL,
-        sku TEXT NOT NULL,
-        ean TEXT DEFAULT '',
-        color TEXT DEFAULT '',
-        size TEXT DEFAULT '',
-        condition TEXT DEFAULT '新品',
-        description TEXT DEFAULT '',
-        price_jpy REAL DEFAULT 0,
-        quantity INTEGER DEFAULT 0,
-        sale_price_jpy REAL DEFAULT 0,
-        length_cm REAL DEFAULT 0,
-        width_cm REAL DEFAULT 0,
-        height_cm REAL DEFAULT 0,
-        weight REAL DEFAULT 0,
-        purchase_price REAL DEFAULT 50.0,
-        profit_coefficient REAL DEFAULT 1.0,
-        optimal_channel TEXT DEFAULT '',
-        optimal_freight REAL DEFAULT 0,
-        main_image TEXT DEFAULT '',
-        swatch_image TEXT DEFAULT '',
-        extra_images_json TEXT DEFAULT '[]',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE
-    );
-    """)
-
-    # 动态检查并添加 products 新增字段 (向下兼容)
-    cursor.execute("PRAGMA table_info(products);")
-    existing_product_cols = [col["name"] for col in cursor.fetchall()]
-    new_product_cols = [
-        ("parent_sku", "TEXT DEFAULT ''"),
-        ("manufacturer", "TEXT DEFAULT ''"),
-        ("model_number", "TEXT DEFAULT ''"),
-        ("model_name", "TEXT DEFAULT ''"),
-        ("item_length", "REAL DEFAULT 0"),
-        ("item_width", "REAL DEFAULT 0"),
-        ("item_height", "REAL DEFAULT 0"),
-        ("item_dimension_unit", "TEXT DEFAULT 'cm'"),
-        ("package_length", "REAL DEFAULT 0"),
-        ("package_width", "REAL DEFAULT 0"),
-        ("package_height", "REAL DEFAULT 0"),
-        ("package_dimension_unit", "TEXT DEFAULT 'cm'"),
-        ("package_weight", "REAL DEFAULT 0"),
-        ("package_weight_unit", "TEXT DEFAULT 'kg'"),
-        ("main_image", "TEXT DEFAULT ''"),
-        ("extra_images_json", "TEXT DEFAULT '[]'"),
-        ("search_terms", "TEXT DEFAULT ''"),
-        ("fulfillment_channel", "TEXT DEFAULT 'FBM'")
-    ]
-    for col_name, col_type in new_product_cols:
-        if col_name not in existing_product_cols:
-            cursor.execute(f"ALTER TABLE products ADD COLUMN {col_name} {col_type};")
-
-    # 动态检查并添加 product_variations 新增字段 (向下兼容)
-    cursor.execute("PRAGMA table_info(product_variations);")
-    existing_cols = [col["name"] for col in cursor.fetchall()]
-    new_cols = [
-        ("length_cm", "REAL DEFAULT 0"),
-        ("width_cm", "REAL DEFAULT 0"),
-        ("height_cm", "REAL DEFAULT 0"),
-        ("weight", "REAL DEFAULT 0"),
-        ("purchase_price", "REAL DEFAULT 50.0"),
-        ("profit_coefficient", "REAL DEFAULT 1.0"),
-        ("optimal_channel", "TEXT DEFAULT ''"),
-        ("optimal_freight", "REAL DEFAULT 0")
-    ]
-    for col_name, col_type in new_cols:
-        if col_name not in existing_cols:
-            cursor.execute(f"ALTER TABLE product_variations ADD COLUMN {col_name} {col_type};")
-
-    # 3. 自动化上件任务日志表
+    # 1. 自动化上件任务日志表
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS publish_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -212,11 +115,11 @@ def init_db():
         status TEXT NOT NULL,
         log_content TEXT DEFAULT '',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE CASCADE
+        FOREIGN KEY (product_id) REFERENCES product_items (id) ON DELETE CASCADE
     );
     """)
 
-    # 4. 系统全局配置表 (店铺列表、快递费与计价参数、本地归档存储目录等)
+    # 2. 系统全局配置表 (店铺列表、快递费与计价参数、本地归档存储目录等)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS system_settings (
         key TEXT PRIMARY KEY,

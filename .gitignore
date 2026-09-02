@@ -31,8 +31,10 @@ Thumbs.db
 *.log
 logs/
 
-# Uploaded files (user data, not code)
+# Uploaded files and DB backups (user data, not code)
 data/uploads/
+data/*.backup_*
+
 
 # Environment variables
 .env

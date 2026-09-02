@@ -155,22 +155,13 @@ class TaskService:
             product_parent_sku = ""
             product_main_image = ""
 
-            # 尝试从 product_items (is_parent = 1) 查询
+            # 从 product_items (is_parent = 1) 查询
             cursor.execute("""
             SELECT id, title, parent_sku, main_image 
             FROM product_items 
             WHERE id = ? AND is_parent = 1;
             """, (product_id,))
             p_row = cursor.fetchone()
-
-            # 兼容从 products 历史表查询
-            if not p_row:
-                cursor.execute("""
-                SELECT id, title, parent_sku, main_image 
-                FROM products 
-                WHERE id = ?;
-                """, (product_id,))
-                p_row = cursor.fetchone()
 
             if not p_row:
                 raise ValueError("所选关联商品不存在或已被删除！")
@@ -273,7 +264,6 @@ class TaskService:
         cursor = conn.cursor()
 
         try:
-            # 优先从 product_items (is_parent = 1) 查询
             cursor.execute("""
             SELECT id, title, parent_sku, store_account, main_image, created_at
             FROM product_items
@@ -281,15 +271,6 @@ class TaskService:
             ORDER BY id DESC;
             """)
             rows = cursor.fetchall()
-            if rows:
-                return [dict(r) for r in rows]
-
-            # 兼容从 products 历史表查询
-            cursor.execute("""
-            SELECT id, title, parent_sku, store_account, main_image, created_at
-            FROM products
-            ORDER BY id DESC;
-            """)
-            return [dict(r) for r in cursor.fetchall()]
+            return [dict(r) for r in rows]
         finally:
             conn.close()

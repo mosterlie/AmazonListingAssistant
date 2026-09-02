@@ -184,7 +184,7 @@ class ProductService:
         }
 
     @staticmethod
-    def create_product(data: ProductCreateSchema) -> Dict[str, Any]:
+    def create_product(data: ProductCreateSchema, created_by: str = "") -> Dict[str, Any]:
         """创建或保存商品数据到数据库 (支持 product_items 单表层级结构与 sku_ean_mappings，存储导出后的相对路径)"""
         # 1. 先执行本地文件导出归档，生成标准化的导出相对路径
         export_res = ProductService.export_and_prepare_product_files(data)
@@ -206,7 +206,29 @@ class ProductService:
         cursor = conn.cursor()
 
         try:
-            parent_sku = (data.parent_sku or "").strip() or "PARENT-SKU"
+            # 维护人：以登录账号为准 (前端未传时回退请求体或 admin)
+            creator = (created_by or data.created_by or "admin").strip() or "admin"
+
+            parent_sku = (data.parent_sku or "").strip()
+            if not parent_sku:
+                # 默认规则：Parent SKU = 登录账号 + 该账号创建的第几个品 (数字)
+                cursor.execute(
+                    "SELECT COUNT(*) FROM product_items WHERE is_parent = 1 AND created_by = ?",
+                    (creator,)
+                )
+                seq = cursor.fetchone()[0] + 1
+                parent_sku = f"{creator}{seq}"
+                # 防止编号撞车，自动顺延
+                while True:
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM product_items WHERE parent_sku = ? OR sku = ?",
+                        (parent_sku, parent_sku)
+                    )
+                    if cursor.fetchone()[0] == 0:
+                        break
+                    seq += 1
+                    parent_sku = f"{creator}{seq}"
+
             color_opts = data.color_options if data.color_options else data.attributes.get("color", [])
             size_opts = data.size_options if data.size_options else data.attributes.get("size", [])
 
@@ -244,7 +266,7 @@ class ProductService:
                 var_dim, json.dumps(saved_dim_images, ensure_ascii=False),
                 data.description or "", json.dumps(data.bullet_points or [], ensure_ascii=False), json.dumps(data.chinese_translations or [], ensure_ascii=False),
                 data.fulfillment_channel or "FBM", data.search_terms or "",
-                "ready", data.created_by or "admin"
+                "ready", creator
             ))
             parent_item_id = cursor.lastrowid
 
@@ -273,7 +295,7 @@ class ProductService:
                     float(v.length_cm or 0.0), float(v.width_cm or 0.0), float(v.height_cm or 0.0), v_weight,
                     float(v.purchase_price or 0.0), float(v.profit_coefficient or 1.0), v_channel,
                     float(v.price_jpy or 0.0), int(v.quantity or 0), v_ean,
-                    "ready", data.created_by or "admin"
+                    "ready", creator
                 ))
 
                 # 插入/更新到 sku_ean_mappings 映射流水表
@@ -287,93 +309,7 @@ class ProductService:
                         store_account = excluded.store_account,
                         created_by = excluded.created_by,
                         created_at = CURRENT_TIMESTAMP;
-                    """, (v_sku, v_ean, parent_sku, data.store_account or "", data.created_by or "admin"))
-
-            # -------------------------------------------------------------
-            # 2. 向下兼容插入 products / product_variations 表 (供历史功能与上件模块调用)
-            # -------------------------------------------------------------
-            cursor.execute("""
-            INSERT INTO products (
-                store_account, site, parent_sku, manufacturer,
-                product_id_type, product_id_value,
-                title, brand, category_name, category_type,
-                model_number, model_name,
-                item_length, item_width, item_height, item_dimension_unit,
-                package_length, package_width, package_height, package_dimension_unit,
-                package_weight, package_weight_unit,
-                main_image, extra_images_json,
-                sale_type, variation_theme, attributes_json,
-                bullet_points_json, description, search_terms, fulfillment_channel, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                data.store_account,
-                data.site,
-                parent_sku,
-                data.manufacturer or "",
-                data.product_id_type,
-                data.product_id_value or "",
-                data.title,
-                data.brand or "",
-                data.category_name or "",
-                data.category_type or "",
-                data.model_number or "",
-                data.model_name or "",
-                data.item_length or 0.0,
-                data.item_width or 0.0,
-                data.item_height or 0.0,
-                data.item_dimension_unit or "cm",
-                data.package_length or 0.0,
-                data.package_width or 0.0,
-                data.package_height or 0.0,
-                data.package_dimension_unit or "cm",
-                data.package_weight or 0.0,
-                data.package_weight_unit or "kg",
-                saved_main_image,
-                json.dumps(saved_extra_images, ensure_ascii=False),
-                data.sale_type,
-                data.variation_theme,
-                json.dumps(data.attributes, ensure_ascii=False),
-                json.dumps(data.bullet_points or [], ensure_ascii=False),
-                data.description or "",
-                data.search_terms or "",
-                data.fulfillment_channel or "FBM",
-                "ready"
-            ))
-            legacy_product_id = cursor.lastrowid
-
-            for idx, v in enumerate(data.variations):
-                v_img = saved_var_images[idx] if idx < len(saved_var_images) and saved_var_images[idx] else (v.variant_image or v.main_image or "")
-                cursor.execute("""
-                INSERT INTO product_variations (
-                    product_id, sku, ean, color, size,
-                    condition, description, price_jpy, quantity,
-                    sale_price_jpy, length_cm, width_cm, height_cm, weight,
-                    purchase_price, profit_coefficient, optimal_channel, optimal_freight,
-                    main_image, swatch_image, extra_images_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    legacy_product_id,
-                    v.sku,
-                    v.ean or "",
-                    v.color or "",
-                    v.size or "",
-                    v.condition or "新品",
-                    v.description or "",
-                    v.price_jpy or 0.0,
-                    v.quantity or 0,
-                    v.sale_price_jpy or 0.0,
-                    v.length_cm or 0.0,
-                    v.width_cm or 0.0,
-                    v.height_cm or 0.0,
-                    v.weight or 0.0,
-                    v.purchase_price or 50.0,
-                    v.profit_coefficient or 1.0,
-                    v.optimal_channel or "",
-                    v.optimal_freight or 0.0,
-                    v_img,
-                    v.swatch_image or "",
-                    json.dumps(v.extra_images or [], ensure_ascii=False)
-                ))
+                    """, (v_sku, v_ean, parent_sku, data.store_account or "", creator))
 
             conn.commit()
             return ProductService.get_product_by_id(parent_item_id)
@@ -547,88 +483,6 @@ class ProductService:
                         created_at = CURRENT_TIMESTAMP;
                     """, (v_sku, v_ean, parent_sku, data.store_account or "", data.created_by or "admin"))
 
-            # 1.4 同步更新历史兼容表 products 与 product_variations
-            cursor.execute("""
-            UPDATE products SET
-                store_account = ?, site = ?, parent_sku = ?, manufacturer = ?,
-                product_id_type = ?, product_id_value = ?, title = ?, brand = ?,
-                category_name = ?, category_type = ?, model_number = ?, model_name = ?,
-                item_length = ?, item_width = ?, item_height = ?, item_dimension_unit = ?,
-                package_length = ?, package_width = ?, package_height = ?, package_dimension_unit = ?,
-                package_weight = ?, package_weight_unit = ?, main_image = ?, extra_images_json = ?,
-                sale_type = ?, variation_theme = ?, attributes_json = ?, bullet_points_json = ?,
-                description = ?, search_terms = ?, fulfillment_channel = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-            """, (
-                data.store_account,
-                data.site,
-                parent_sku,
-                data.manufacturer or "",
-                data.product_id_type,
-                data.product_id_value or "",
-                data.title,
-                data.brand or "",
-                data.category_name or "",
-                data.category_type or "",
-                data.model_number or "",
-                data.model_name or "",
-                data.item_length or 0.0,
-                data.item_width or 0.0,
-                data.item_height or 0.0,
-                data.item_dimension_unit or "cm",
-                data.package_length or 0.0,
-                data.package_width or 0.0,
-                data.package_height or 0.0,
-                data.package_dimension_unit or "cm",
-                data.package_weight or 0.0,
-                data.package_weight_unit or "kg",
-                saved_main_image,
-                json.dumps(saved_extra_images, ensure_ascii=False),
-                data.sale_type,
-                data.variation_theme,
-                json.dumps(data.attributes, ensure_ascii=False),
-                json.dumps(data.bullet_points or [], ensure_ascii=False),
-                data.description or "",
-                data.search_terms or "",
-                data.fulfillment_channel or "FBM",
-                product_id
-            ))
-
-            cursor.execute("DELETE FROM product_variations WHERE product_id = ?", (product_id,))
-            for idx, v in enumerate(data.variations):
-                v_img = saved_var_images[idx] if idx < len(saved_var_images) and saved_var_images[idx] else (v.variant_image or v.main_image or "")
-                cursor.execute("""
-                INSERT INTO product_variations (
-                    product_id, sku, ean, color, size,
-                    condition, description, price_jpy, quantity,
-                    sale_price_jpy, length_cm, width_cm, height_cm, weight,
-                    purchase_price, profit_coefficient, optimal_channel, optimal_freight,
-                    main_image, swatch_image, extra_images_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    product_id,
-                    v.sku,
-                    v.ean or "",
-                    v.color or "",
-                    v.size or "",
-                    v.condition or "新品",
-                    v.description or "",
-                    v.price_jpy or 0.0,
-                    v.quantity or 0,
-                    v.sale_price_jpy or 0.0,
-                    v.length_cm or 0.0,
-                    v.width_cm or 0.0,
-                    v.height_cm or 0.0,
-                    v.weight or 0.0,
-                    v.purchase_price or 50.0,
-                    v.profit_coefficient or 1.0,
-                    v.optimal_channel or "",
-                    v.optimal_freight or 0.0,
-                    v_img,
-                    v.swatch_image or "",
-                    json.dumps(v.extra_images or [], ensure_ascii=False)
-                ))
-
             conn.commit()
             return ProductService.get_product_by_id(product_id)
         finally:
@@ -764,30 +618,7 @@ class ProductService:
 
                 return product
 
-            # 2. 兼容历史 products 表
-            cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-            p_row = cursor.fetchone()
-            if not p_row:
-                return None
-
-            product = dict(p_row)
-            product["attributes"] = json.loads(product.get("attributes_json") or "{}")
-            product["bullet_points"] = json.loads(product.get("bullet_points_json") or "[]")
-            product["extra_images"] = json.loads(product.get("extra_images_json") or "[]")
-            product["search_terms"] = product.get("search_terms") or ""
-            product["fulfillment_channel"] = product.get("fulfillment_channel") or "FBM"
-
-            cursor.execute("SELECT * FROM product_variations WHERE product_id = ? ORDER BY id ASC", (product_id,))
-            v_rows = cursor.fetchall()
-            variations = []
-            for v in v_rows:
-                v_dict = dict(v)
-                v_dict["extra_images"] = json.loads(v_dict.get("extra_images_json") or "[]")
-                variations.append(v_dict)
-
-            product["variations"] = variations
-            product["variation_count"] = len(variations)
-            return product
+            return None
         finally:
             conn.close()
 
@@ -927,7 +758,6 @@ class ProductService:
         cursor = conn.cursor()
         try:
             cursor.execute("UPDATE product_items SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (status, product_id))
-            cursor.execute("UPDATE products SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (status, product_id))
             if log_content:
                 cursor.execute("INSERT INTO publish_logs (product_id, status, log_content) VALUES (?, ?, ?)", (product_id, status, log_content))
             conn.commit()

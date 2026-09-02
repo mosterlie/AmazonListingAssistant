@@ -39,9 +39,11 @@ async def get_product_filter_options():
 
 
 @router.post("", summary="保存/创建商品与变体信息")
-async def create_product(data: ProductCreateSchema):
-    """保存商品完整信息至本地数据库"""
-    product = ProductService.create_product(data)
+async def create_product(data: ProductCreateSchema, request: Request):
+    """保存商品完整信息至本地数据库，维护人取当前登录账号"""
+    user = get_current_user_from_request(request)
+    username = user.get("username", "admin") if user else "admin"
+    product = ProductService.create_product(data, created_by=username)
     return {"code": 0, "msg": "商品录入成功", "data": product}
 
 

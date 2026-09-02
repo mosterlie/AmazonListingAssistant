@@ -537,6 +537,11 @@ async function handleEditTaskSubmit(e) {
 // ============================================================================
 // 模态弹窗 4: 点击关联商品查看完整商品详情
 // ============================================================================
+function closeProductDetailModal() {
+  const modal = document.getElementById("productDetailModal");
+  if (modal) modal.style.display = "none";
+}
+
 async function viewProductDetail(productId) {
   closeDispatchModal();
   closeSubmitDeliverableModal();
