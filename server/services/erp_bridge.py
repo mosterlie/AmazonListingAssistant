@@ -51,7 +51,17 @@ class ERPBridgeService:
         except Exception:
             pass
 
-        engine = BrowserEngine(port=9222)
+        # 读取系统管理页配置的 Chrome 9222 用户数据目录 (留空则使用系统默认)
+        chrome_user_dir = None
+        try:
+            from server.database import get_setting
+            _dir = (get_setting("chrome_user_data_dir", "") or "").strip()
+            if _dir:
+                chrome_user_dir = _dir
+                emit_log(f"⚙️ 使用系统配置的 Chrome 用户数据目录: {_dir}")
+        except Exception:
+            pass
+        engine = BrowserEngine(port=9222, user_data_dir=chrome_user_dir) if chrome_user_dir else BrowserEngine(port=9222)
 
         if not engine.is_running():
             emit_log("🌐 端口 9222 尚未开启，正在自动启动专属 CDP Chrome 浏览器...")

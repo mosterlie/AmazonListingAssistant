@@ -17,7 +17,8 @@ const settingsState = {
     rel_main: "main",
     rel_sku: "sku"
   },
-  session_expire_hours: 1.0
+  session_expire_hours: 1.0,
+  chrome_user_data_dir: ""
 };
 
 function showToast(msg, type = "success") {
@@ -57,6 +58,7 @@ async function loadSettings() {
         settingsState.storagePaths = { ...result.data.storage_paths };
       }
       settingsState.session_expire_hours = result.data.session_expire_hours !== undefined ? parseFloat(result.data.session_expire_hours) : 1.0;
+      settingsState.chrome_user_data_dir = result.data.chrome_user_data_dir || "";
 
       populateForm();
     }
@@ -80,6 +82,7 @@ function populateForm() {
   const previewRelMain = document.getElementById("previewRelMain");
   const previewRelSku = document.getElementById("previewRelSku");
   const sessionExpInp = document.getElementById("sessionExpireHoursInput");
+  const chromeDirInp = document.getElementById("chromeUserDataDirInput");
 
   if (taxInp) taxInp.value = settingsState.pricingConfig.tax_rate;
   if (exInp) exInp.value = settingsState.pricingConfig.exchange_rate;
@@ -100,6 +103,8 @@ function populateForm() {
     if (previewRelSku) previewRelSku.innerText = `${relSkuInp.value}/`;
   }
   
+  if (chromeDirInp) chromeDirInp.value = settingsState.chrome_user_data_dir || "";
+
   const isNever = (settingsState.session_expire_hours !== undefined && parseFloat(settingsState.session_expire_hours) <= 0);
   const neverChk = document.getElementById("sessionNeverExpireCheckbox");
   const badge = document.getElementById("sessionBadge");
@@ -308,7 +313,8 @@ async function saveSettings() {
       rel_main: relMain,
       rel_sku: relSku
     },
-    session_expire_hours: sessionExp
+    session_expire_hours: sessionExp,
+    chrome_user_data_dir: (document.getElementById("chromeUserDataDirInput")?.value || "").trim()
   };
 
   try {
@@ -325,6 +331,9 @@ async function saveSettings() {
       }
       if (result.data.session_expire_hours !== undefined) {
         settingsState.session_expire_hours = result.data.session_expire_hours;
+      }
+      if (result.data.chrome_user_data_dir !== undefined) {
+        settingsState.chrome_user_data_dir = result.data.chrome_user_data_dir;
       }
       const isNever = (parseFloat(settingsState.session_expire_hours) <= 0);
       showToast(`🎉 系统管理配置（店铺、计价、归档目录、Session【${isNever ? '♾️ 永久有效' : settingsState.session_expire_hours + 'h'}】）已成功保存！`);

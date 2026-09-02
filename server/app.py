@@ -59,6 +59,22 @@ app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
+
+# ──────────────────────────────────────────────────────────────
+# HTML 页面禁用浏览器缓存: 防止模板页(引用旧版本号 JS)被缓存,
+# 导致前端旧逻辑提交缺失新字段 (如系统设置新增项保存不上)
+# ──────────────────────────────────────────────────────────────
+@app.middleware("http")
+async def no_cache_html(request, call_next):
+    response = await call_next(request)
+    ctype = response.headers.get("content-type", "")
+    if ctype.startswith("text/html"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 # 3. 注册 REST API 路由
 app.include_router(auth_router.router)
 app.include_router(user_router.router)

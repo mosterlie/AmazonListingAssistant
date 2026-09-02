@@ -3,14 +3,14 @@
 {% block title %}系统管理与全局配置{% endblock %}
 
 {% block content %}
-<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; position:sticky; top:64px; z-index:90; background:var(--bg-main); padding:10px 12px; margin-left:-12px; margin-right:-12px; border-radius:0 0 var(--radius-sm) var(--radius-sm); box-shadow:0 2px 8px rgba(15,23,42,0.06);">
   <div>
     <h1 style="font-size:1.4rem; font-weight:700; color:var(--text-main); margin:0;">⚙️ 系统管理与全局参数配置</h1>
     <p style="color:var(--text-muted); font-size:0.88rem; margin:4px 0 0 0;">
       集中维护店铺账号列表、Calcfee 物流税率、日元汇率及售价推导系数，修改后全局实时联动生效。
     </p>
   </div>
-  <div style="display:flex; gap:10px;">
+  <div style="display:flex; gap:10px; flex-shrink:0;">
     <button class="btn btn-outline" id="resetDefaultsBtn" type="button">🔄 恢复默认值</button>
     <button class="btn btn-primary" id="saveSettingsBtn" type="button">💾 保存系统配置</button>
   </div>
@@ -248,5 +248,28 @@
   </div>
 </div>
 
-<script src="/static/js/settings.js?v=20260902_session_v2"></script>
+<!-- 5. 自动化上件配置 (Chrome 9222 用户数据目录) -->
+<div class="form-card">
+  <div class="card-header">
+    <div class="card-title">
+      <div class="card-title-icon">5</div>
+      <span>自动化上件配置 (Chrome 9222 用户数据目录)</span>
+    </div>
+    <span class="tag-badge" style="background:#e0f2fe; color:#0369a1; border-color:#bae6fd;">上件时自动生效</span>
+  </div>
+  <div class="card-body">
+    <div class="form-group">
+      <label class="form-label">
+        🌐 Chrome 自动化专属用户数据目录
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(绝对路径，留空使用系统默认)</span>
+      </label>
+      <input type="text" class="form-input" id="chromeUserDataDirInput" value="" placeholder="如: D:\ChromeDebugUser">
+      <small style="color:var(--text-muted); font-size:0.78rem;">
+        网页端执行「🚀 上件」时，将使用此目录启动 Chrome 9222 调试实例并自动上传至店小秘。修改后<b>需重启 Chrome 9222</b> 才能生效。
+      </small>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/settings.js?v=20260903_chrome_dir_v3"></script>
 {% endblock %}

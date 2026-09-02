@@ -37,6 +37,7 @@ class SystemSettingsSchema(BaseModel):
     pricing_config: PricingConfigSchema = Field(default_factory=PricingConfigSchema, description="物流与计价核心参数")
     storage_paths: StoragePathsSchema = Field(default_factory=StoragePathsSchema, description="本地归档存储目录")
     session_expire_hours: Optional[float] = Field(1.0, description="登录 Session 有效时长 (小时，默认 1.0h)")
+    chrome_user_data_dir: Optional[str] = Field("", description="Chrome 9222 自动化专属用户数据目录 (留空使用系统默认)")
 
 
 def normalize_store_accounts(raw_stores: Any) -> List[Dict[str, Any]]:
@@ -114,6 +115,7 @@ async def get_system_settings():
         rel_main = get_setting("storage_rel_main", "main")
         rel_sku = get_setting("storage_rel_sku", "sku")
         session_exp = float(get_setting("session_expire_hours", 1.0))
+        chrome_dir = get_setting("chrome_user_data_dir", "")
 
         return {
             "code": 0,
@@ -132,7 +134,8 @@ async def get_system_settings():
                     "rel_main": rel_main,
                     "rel_sku": rel_sku
                 },
-                "session_expire_hours": session_exp
+                "session_expire_hours": session_exp,
+                "chrome_user_data_dir": chrome_dir
             }
         }
     except Exception as e:
@@ -175,6 +178,10 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         session_exp = max(0.0, min(720.0, session_exp))
         set_setting("session_expire_hours", session_exp)
 
+        # 5. 保存 Chrome 9222 自动化用户数据目录 (留空使用系统默认)
+        chrome_dir = (payload.chrome_user_data_dir or "").strip()
+        set_setting("chrome_user_data_dir", chrome_dir)
+
         # 同步刷新内存全局参数
         GLOBAL_PRICING_CONFIG.update(pricing_dict)
 
@@ -190,7 +197,8 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
                     "rel_main": rel_main,
                     "rel_sku": rel_sku
                 },
-                "session_expire_hours": session_exp
+                "session_expire_hours": session_exp,
+                "chrome_user_data_dir": chrome_dir
             }
         }
     except Exception as e:
