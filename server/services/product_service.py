@@ -94,17 +94,22 @@ class ProductService:
         except Exception as e:
             print(f"⚠️ 创建本地归档目录失败: {e}")
 
+        def safe_copy(src_path, dest_path):
+            if not src_path or not os.path.exists(src_path):
+                return
+            try:
+                if os.path.abspath(src_path) != os.path.abspath(dest_path):
+                    shutil.copy2(src_path, dest_path)
+            except Exception as e:
+                print(f"⚠️ 复制文件失败: {e}")
+
         # 1. 导出主图
         exported_main = ""
         if data.main_image and data.main_image.strip():
             src_main = FileService.resolve_image_path(data.main_image)
             ext = os.path.splitext(data.main_image)[1].lower() or ".jpg"
             dest_main = os.path.join(main_dir, f"main{ext}")
-            if src_main and os.path.exists(src_main):
-                try:
-                    shutil.copy2(src_main, dest_main)
-                except Exception as e:
-                    print(f"⚠️ 复制主图失败: {e}")
+            safe_copy(src_main, dest_main)
             exported_main = f"{clean_title}/{rel_main}/main{ext}"
 
         # 2. 导出附图
@@ -115,19 +120,21 @@ class ProductService:
                     src_extra = FileService.resolve_image_path(img_path)
                     ext = os.path.splitext(img_path)[1].lower() or ".jpg"
                     dest_extra = os.path.join(main_dir, f"pt{idx:02d}{ext}")
-                    if src_extra and os.path.exists(src_extra):
-                        try:
-                            shutil.copy2(src_extra, dest_extra)
-                        except Exception as e:
-                            print(f"⚠️ 复制附图失败: {e}")
+                    safe_copy(src_extra, dest_extra)
                     exported_extra.append(f"{clean_title}/{rel_main}/pt{idx:02d}{ext}")
 
         # 3. 导出 Card 6 属性维度映射图片
         exported_dim_images = {}
+        var_dim = (data.variant_image_dimension or "").strip().lower()
+        if not var_dim:
+            if data.attributes.get("size_images") and not data.attributes.get("color_images"):
+                var_dim = "size"
+            else:
+                var_dim = "color"
+
         dim_imgs = data.variant_dimension_images if data.variant_dimension_images else (
-            data.attributes.get("color_images") or data.attributes.get("size_images") or {}
+            data.attributes.get("size_images") if var_dim == "size" else (data.attributes.get("color_images") or {})
         )
-        var_dim = data.variant_image_dimension or ("color" if data.attributes.get("color_images") else "size")
         prefix = "颜色" if var_dim == "color" else "尺寸"
 
         if isinstance(dim_imgs, dict):
@@ -137,11 +144,7 @@ class ProductService:
                     ext = os.path.splitext(str(img_path))[1].lower() or ".jpg"
                     clean_val = re.sub(r'[\\/*?:"<>|]', '_', str(attr_val)).strip()
                     dest_dim = os.path.join(sku_dir, f"{prefix}-{clean_val}{ext}")
-                    if src_dim and os.path.exists(src_dim):
-                        try:
-                            shutil.copy2(src_dim, dest_dim)
-                        except Exception as e:
-                            print(f"⚠️ 复制维度图片失败: {e}")
+                    safe_copy(src_dim, dest_dim)
                     exported_dim_images[str(attr_val)] = f"{clean_title}/{rel_sku}/{prefix}-{clean_val}{ext}"
 
         # 4. 导出各个子变体图片
@@ -160,11 +163,7 @@ class ProductService:
                     ext = os.path.splitext(v_img)[1].lower() or ".jpg"
                     clean_sku = re.sub(r'[\\/*?:"<>|]', '_', str(v.sku)).strip() or f"var_{idx+1}"
                     dest_v = os.path.join(sku_dir, f"{clean_sku}{ext}")
-                    if src_v and os.path.exists(src_v):
-                        try:
-                            shutil.copy2(src_v, dest_v)
-                        except Exception as e:
-                            print(f"⚠️ 复制变体图片失败: {e}")
+                    safe_copy(src_v, dest_v)
                     rel_v_img = f"{clean_title}/{rel_sku}/{clean_sku}{ext}"
             exported_variation_images.append(rel_v_img)
 
@@ -191,8 +190,15 @@ class ProductService:
         export_res = ProductService.export_and_prepare_product_files(data)
         saved_main_image = export_res["main_image"] or data.main_image or ""
         saved_extra_images = export_res["extra_images"] if export_res["extra_images"] else (data.extra_images or [])
+        var_dim = (data.variant_image_dimension or "").strip().lower()
+        if not var_dim:
+            if data.attributes.get("size_images") and not data.attributes.get("color_images"):
+                var_dim = "size"
+            else:
+                var_dim = "color"
+
         saved_dim_images = export_res["variant_dimension_images"] if export_res["variant_dimension_images"] else (
-            data.variant_dimension_images or data.attributes.get("color_images") or data.attributes.get("size_images") or {}
+            data.variant_dimension_images or (data.attributes.get("size_images") if var_dim == "size" else (data.attributes.get("color_images") or {}))
         )
         saved_var_images = export_res["variation_images"]
 
@@ -203,7 +209,6 @@ class ProductService:
             parent_sku = (data.parent_sku or "").strip() or "PARENT-SKU"
             color_opts = data.color_options if data.color_options else data.attributes.get("color", [])
             size_opts = data.size_options if data.size_options else data.attributes.get("size", [])
-            var_dim = data.variant_image_dimension or ("color" if data.attributes.get("color_images") else "size")
 
             # -------------------------------------------------------------
             # 1. 写入精简版单表 product_items
@@ -382,8 +387,15 @@ class ProductService:
         export_res = ProductService.export_and_prepare_product_files(data)
         saved_main_image = export_res["main_image"] or data.main_image or ""
         saved_extra_images = export_res["extra_images"] if export_res["extra_images"] else (data.extra_images or [])
+        var_dim = (data.variant_image_dimension or "").strip().lower()
+        if not var_dim:
+            if data.attributes.get("size_images") and not data.attributes.get("color_images"):
+                var_dim = "size"
+            else:
+                var_dim = "color"
+
         saved_dim_images = export_res["variant_dimension_images"] if export_res["variant_dimension_images"] else (
-            data.variant_dimension_images or data.attributes.get("color_images") or data.attributes.get("size_images") or {}
+            data.variant_dimension_images or (data.attributes.get("size_images") if var_dim == "size" else (data.attributes.get("color_images") or {}))
         )
         saved_var_images = export_res["variation_images"]
 
@@ -405,7 +417,6 @@ class ProductService:
             parent_sku = (data.parent_sku or "").strip() or old_parent_sku or "PARENT-SKU"
             color_opts = data.color_options if data.color_options else data.attributes.get("color", [])
             size_opts = data.size_options if data.size_options else data.attributes.get("size", [])
-            var_dim = data.variant_image_dimension or ("color" if data.attributes.get("color_images") else "size")
 
             # 1.1 清理历史子变体 (is_parent = 0)
             if old_parent_sku:

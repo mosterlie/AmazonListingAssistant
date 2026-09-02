@@ -16,7 +16,8 @@ const settingsState = {
     win: "D:\\products",
     rel_main: "main",
     rel_sku: "sku"
-  }
+  },
+  session_expire_hours: 1.0
 };
 
 function showToast(msg, type = "success") {
@@ -35,13 +36,28 @@ async function loadSettings() {
     const res = await fetch("/api/settings");
     const result = await res.json();
     if (result.code === 0 && result.data) {
-      settingsState.storeAccounts = result.data.store_accounts || ["金梧汇辰", "店小秘通用测试"];
+      const rawStores = result.data.store_accounts || [
+        { store_name: "金梧汇辰", brand_name: "JINWU", is_default: true },
+        { store_name: "店小秘通用测试", brand_name: "DXM", is_default: false }
+      ];
+      settingsState.storeAccounts = rawStores.map((st, i) => {
+        const sName = typeof st === "string" ? st : (st.store_name || st.store || "");
+        const bName = typeof st === "string" ? st : (st.brand_name || st.brand || sName);
+        const isDef = typeof st === "object" ? !!st.is_default : (i === 0);
+        return { store_name: sName, brand_name: bName, is_default: isDef };
+      });
+      if (settingsState.storeAccounts.length > 0 && !settingsState.storeAccounts.some(s => s.is_default)) {
+        settingsState.storeAccounts[0].is_default = true;
+      }
+
       if (result.data.pricing_config) {
         settingsState.pricingConfig = { ...result.data.pricing_config };
       }
       if (result.data.storage_paths) {
         settingsState.storagePaths = { ...result.data.storage_paths };
       }
+      settingsState.session_expire_hours = result.data.session_expire_hours !== undefined ? parseFloat(result.data.session_expire_hours) : 1.0;
+
       populateForm();
     }
   } catch (err) {
@@ -63,6 +79,7 @@ function populateForm() {
   const relSkuInp = document.getElementById("storageRelSkuInput");
   const previewRelMain = document.getElementById("previewRelMain");
   const previewRelSku = document.getElementById("previewRelSku");
+  const sessionExpInp = document.getElementById("sessionExpireHoursInput");
 
   if (taxInp) taxInp.value = settingsState.pricingConfig.tax_rate;
   if (exInp) exInp.value = settingsState.pricingConfig.exchange_rate;
@@ -82,10 +99,63 @@ function populateForm() {
     relSkuInp.value = settingsState.storagePaths.rel_sku || "sku";
     if (previewRelSku) previewRelSku.innerText = `${relSkuInp.value}/`;
   }
+  
+  const isNever = (settingsState.session_expire_hours !== undefined && parseFloat(settingsState.session_expire_hours) <= 0);
+  const neverChk = document.getElementById("sessionNeverExpireCheckbox");
+  const badge = document.getElementById("sessionBadge");
+  if (sessionExpInp) {
+    sessionExpInp.value = isNever ? 0 : (settingsState.session_expire_hours || 1.0);
+    sessionExpInp.disabled = isNever;
+  }
+  if (neverChk) {
+    neverChk.checked = isNever;
+  }
+  if (badge) {
+    if (isNever) {
+      badge.innerText = "♾️ 永久有效 (永不过期)";
+      badge.style.background = "#dcfce7";
+      badge.style.color = "#15803d";
+      badge.style.borderColor = "#86efac";
+    } else {
+      badge.innerText = `${settingsState.session_expire_hours || 1.0}h 过期自动防护`;
+      badge.style.background = "#f1f5f9";
+      badge.style.color = "#475569";
+      badge.style.borderColor = "#cbd5e1";
+    }
+  }
+}
+
+function setSessionPreset(hours) {
+  const sessionExpInp = document.getElementById("sessionExpireHoursInput");
+  const neverChk = document.getElementById("sessionNeverExpireCheckbox");
+  const badge = document.getElementById("sessionBadge");
+  const isNever = (hours <= 0);
+
+  if (sessionExpInp) {
+    sessionExpInp.value = isNever ? 0 : hours;
+    sessionExpInp.disabled = isNever;
+  }
+  if (neverChk) {
+    neverChk.checked = isNever;
+  }
+  if (badge) {
+    if (isNever) {
+      badge.innerText = "♾️ 永久有效 (永不过期)";
+      badge.style.background = "#dcfce7";
+      badge.style.color = "#15803d";
+      badge.style.borderColor = "#86efac";
+    } else {
+      badge.innerText = `${hours}h 过期自动防护`;
+      badge.style.background = "#f1f5f9";
+      badge.style.color = "#475569";
+      badge.style.borderColor = "#cbd5e1";
+    }
+  }
+  showToast(`已选择预设：${isNever ? "♾️ 永久有效 (永不过期)" : hours + " 小时"}（请点击右上角保存配置）`);
 }
 
 // ============================================================================
-// Store Accounts & Brands Management (1-to-1 required)
+// Store Accounts & Brands Management (1-to-1 required + Default Single Choice)
 // ============================================================================
 function renderStoreTable() {
   const tbody = document.getElementById("storeTableBody");
@@ -96,17 +166,37 @@ function renderStoreTable() {
   if (badge) badge.innerText = `${settingsState.storeAccounts.length} 个店铺`;
 
   if (settingsState.storeAccounts.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:var(--text-muted);">暂无店铺配置，请在下方添加</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-muted);">暂无店铺配置，请在下方添加</td></tr>`;
     return;
+  }
+
+  // 确保有且仅有一个 is_default
+  const hasDef = settingsState.storeAccounts.some(s => s.is_default);
+  if (!hasDef && settingsState.storeAccounts.length > 0) {
+    settingsState.storeAccounts[0].is_default = true;
   }
 
   settingsState.storeAccounts.forEach((item, idx) => {
     const sName = typeof item === "string" ? item : (item.store_name || item.store || "");
     const bName = typeof item === "string" ? item : (item.brand_name || item.brand || sName);
+    const isDef = !!item.is_default;
     const tr = document.createElement("tr");
+    if (isDef) {
+      tr.style.background = "#f0fdf4";
+    }
+
     tr.innerHTML = `
       <td style="text-align:center; font-weight:600; color:#64748b;">${idx + 1}</td>
-      <td style="font-weight:600; color:#0f172a;">🏬 ${sName}</td>
+      <td style="text-align:center;">
+        <label style="cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:4px; margin:0;" title="${isDef ? '当前默认店铺' : '点击设为默认店铺'}">
+          <input type="radio" name="defaultStoreRadio" value="${idx}" ${isDef ? "checked" : ""} onchange="setDefaultStore(${idx})" style="accent-color:var(--primary); cursor:pointer; width:16px; height:16px;">
+          ${isDef ? '<span class="tag-badge" style="background:#dcfce7; color:#15803d; font-weight:700; border-color:#86efac; font-size:0.72rem; padding:1px 6px;">默认</span>' : '<span style="font-size:0.75rem; color:#94a3b8;">设为默认</span>'}
+        </label>
+      </td>
+      <td style="font-weight:600; color:#0f172a;">
+        🏬 ${sName}
+        ${isDef ? '<span style="color:#16a34a; font-size:0.8rem; margin-left:6px;" title="录入商品时默认排在第一项并自动选中">⭐ (默认展示)</span>' : ''}
+      </td>
       <td><span class="tag-badge" style="background:#fef3c7; color:#92400e; font-weight:700; border-color:#fde68a;">🏷️ ${bName}</span></td>
       <td style="text-align:center;">
         <button class="btn btn-outline btn-sm" style="color:var(--danger); border-color:#fecaca; padding:3px 8px; font-size:0.75rem;" onclick="removeStore(${idx})" title="删除该店铺与品牌">🗑️ 删除</button>
@@ -114,6 +204,16 @@ function renderStoreTable() {
     `;
     tbody.appendChild(tr);
   });
+}
+
+function setDefaultStore(idx) {
+  if (idx < 0 || idx >= settingsState.storeAccounts.length) return;
+  settingsState.storeAccounts.forEach((st, i) => {
+    st.is_default = (i === idx);
+  });
+  renderStoreTable();
+  const defStore = settingsState.storeAccounts[idx];
+  showToast(`已将【${defStore.store_name}】设为默认店铺（请点击右上角保存系统配置）`);
 }
 
 function addStore() {
@@ -140,19 +240,31 @@ function addStore() {
     return;
   }
 
-  settingsState.storeAccounts.push({ store_name: sVal, brand_name: bVal });
+  const isFirst = settingsState.storeAccounts.length === 0;
+  settingsState.storeAccounts.push({
+    store_name: sVal,
+    brand_name: bVal,
+    is_default: isFirst
+  });
+
   storeInp.value = "";
   brandInp.value = "";
   renderStoreTable();
-  showToast(`已添加店铺【${sVal}】及其品牌【${bVal}】（请点击右上角保存配置）`);
+  showToast(`已添加店铺【${sVal}】及其品牌【${bVal}】（可在上方列表中单选设为默认店铺）`);
 }
 
 function removeStore(idx) {
   const removed = settingsState.storeAccounts[idx];
   const sName = typeof removed === "string" ? removed : (removed.store_name || removed.store);
+  const wasDefault = typeof removed === "object" ? !!removed.is_default : false;
+
   settingsState.storeAccounts.splice(idx, 1);
+  if (wasDefault && settingsState.storeAccounts.length > 0) {
+    settingsState.storeAccounts[0].is_default = true;
+  }
+
   renderStoreTable();
-  showToast(`已移除店铺【${sName}】（请记得点击右上角保存）`);
+  showToast(`已移除店铺【${sName}】（请记得点击右上角保存配置）`);
 }
 
 // ============================================================================
@@ -167,6 +279,15 @@ async function saveSettings() {
   const winPath = (document.getElementById("storagePathWinInput")?.value || "D:\\products").trim();
   const relMain = (document.getElementById("storageRelMainInput")?.value || "main").trim();
   const relSku = (document.getElementById("storageRelSkuInput")?.value || "sku").trim();
+  const neverChk = document.getElementById("sessionNeverExpireCheckbox");
+  let sessionExp = 1.0;
+  if (neverChk && neverChk.checked) {
+    sessionExp = 0;
+  } else {
+    const rawVal = document.getElementById("sessionExpireHoursInput")?.value;
+    sessionExp = (rawVal !== undefined && rawVal !== "") ? parseFloat(rawVal) : 1.0;
+    if (isNaN(sessionExp) || sessionExp < 0) sessionExp = 0;
+  }
 
   if (settingsState.storeAccounts.length === 0) {
     showToast("至少需要配置一个店铺账号！", "error");
@@ -186,7 +307,8 @@ async function saveSettings() {
       win: winPath,
       rel_main: relMain,
       rel_sku: relSku
-    }
+    },
+    session_expire_hours: sessionExp
   };
 
   try {
@@ -201,7 +323,11 @@ async function saveSettings() {
       if (result.data.storage_paths) {
         settingsState.storagePaths = result.data.storage_paths;
       }
-      showToast("🎉 系统管理配置（店铺、计价、绝对/相对归档目录）已成功保存！");
+      if (result.data.session_expire_hours !== undefined) {
+        settingsState.session_expire_hours = result.data.session_expire_hours;
+      }
+      const isNever = (parseFloat(settingsState.session_expire_hours) <= 0);
+      showToast(`🎉 系统管理配置（店铺、计价、归档目录、Session【${isNever ? '♾️ 永久有效' : settingsState.session_expire_hours + 'h'}】）已成功保存！`);
     } else {
       showToast(`保存失败: ${result.msg}`, "error");
     }
@@ -212,7 +338,10 @@ async function saveSettings() {
 
 function resetDefaults() {
   if (confirm("确定要恢复全部默认设置吗？")) {
-    settingsState.storeAccounts = ["金梧汇辰", "店小秘通用测试"];
+    settingsState.storeAccounts = [
+      { store_name: "金梧汇辰", brand_name: "JINWU", is_default: true },
+      { store_name: "店小秘通用测试", brand_name: "DXM", is_default: false }
+    ];
     settingsState.pricingConfig = {
       tax_rate: 0.17,
       exchange_rate: 23.0,
@@ -225,6 +354,7 @@ function resetDefaults() {
       rel_main: "main",
       rel_sku: "sku"
     };
+    settingsState.session_expire_hours = 1.0;
     populateForm();
     showToast("已重置为默认值，请点击保存生效！");
   }
@@ -270,6 +400,52 @@ document.addEventListener("DOMContentLoaded", () => {
   if (relSkuInp && previewRelSku) {
     relSkuInp.addEventListener("input", (e) => {
       previewRelSku.innerText = `${e.target.value || "sku"}/`;
+    });
+  }
+
+  const neverChk = document.getElementById("sessionNeverExpireCheckbox");
+  const sessionExpInp = document.getElementById("sessionExpireHoursInput");
+  const badge = document.getElementById("sessionBadge");
+  if (neverChk && sessionExpInp) {
+    neverChk.addEventListener("change", (e) => {
+      if (e.target.checked) {
+        sessionExpInp.value = 0;
+        sessionExpInp.disabled = true;
+        if (badge) {
+          badge.innerText = "♾️ 永久有效 (永不过期)";
+          badge.style.background = "#dcfce7";
+          badge.style.color = "#15803d";
+          badge.style.borderColor = "#86efac";
+        }
+      } else {
+        sessionExpInp.value = 1.0;
+        sessionExpInp.disabled = false;
+        if (badge) {
+          badge.innerText = "1.0h 过期自动防护";
+          badge.style.background = "#f1f5f9";
+          badge.style.color = "#475569";
+          badge.style.borderColor = "#cbd5e1";
+        }
+      }
+    });
+
+    sessionExpInp.addEventListener("input", (e) => {
+      const val = parseFloat(e.target.value);
+      const isZero = (isNaN(val) || val <= 0);
+      if (neverChk) neverChk.checked = isZero;
+      if (badge) {
+        if (isZero) {
+          badge.innerText = "♾️ 永久有效 (永不过期)";
+          badge.style.background = "#dcfce7";
+          badge.style.color = "#15803d";
+          badge.style.borderColor = "#86efac";
+        } else {
+          badge.innerText = `${val}h 过期自动防护`;
+          badge.style.background = "#f1f5f9";
+          badge.style.color = "#475569";
+          badge.style.borderColor = "#cbd5e1";
+        }
+      }
     });
   }
 

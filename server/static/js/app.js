@@ -52,13 +52,25 @@ async function loadSystemSettings() {
       if (result.data.store_accounts && Array.isArray(result.data.store_accounts)) {
         const storeSel = document.getElementById("storeAccountSelect");
         if (storeSel) {
-          const currentVal = storeSel.value;
-          storeSel.innerHTML = result.data.store_accounts.map(st => {
+          const defaultStore = result.data.store_accounts.find(st => typeof st === "object" && st.is_default) || result.data.store_accounts[0];
+          const defaultStoreName = defaultStore ? (typeof defaultStore === "string" ? defaultStore : (defaultStore.store_name || defaultStore.store)) : "";
+
+          storeSel.innerHTML = result.data.store_accounts.map((st, idx) => {
             const sName = typeof st === "string" ? st : (st.store_name || st.store || "");
             const bName = typeof st === "string" ? st : (st.brand_name || st.brand || sName);
-            const isSelected = sName === currentVal ? "selected" : "";
-            return `<option value="${sName}" data-brand="${bName}" ${isSelected}>${sName} (品牌: ${bName})</option>`;
+            const isDef = (typeof st === "object" && st.is_default) || (idx === 0 && !result.data.store_accounts.some(x => x.is_default));
+
+            // 新增商品模式：必须严格默认选中设定的默认店铺
+            // 编辑商品模式：先保留占位，稍后由 loadProductForEdit() 精准回填
+            const isSelected = (!editingProductId && isDef);
+            const labelSuffix = isDef ? " ⭐[默认]" : "";
+            return `<option value="${sName}" data-brand="${bName}" data-default="${isDef ? 'true' : 'false'}" ${isSelected ? "selected" : ""}>${sName}${labelSuffix}</option>`;
           }).join("");
+
+          // 在新建模式下明确设置 value 确保 select 控件立即处于选中状态
+          if (!editingProductId && defaultStoreName) {
+            storeSel.value = defaultStoreName;
+          }
 
           // 绑定切换店铺事件监听
           storeSel.onchange = onStoreAccountChanged;
@@ -1402,7 +1414,7 @@ async function saveProduct(publishImmediately = false) {
   const validSizes = getValidSizes();
   const colorJoined = validColors.join("-");
   const sizeJoined = validSizes.join("-");
-  const imgDim = document.querySelector("input[name='imageDimension']:checked")?.value || "color";
+  const imgDim = document.querySelector("input[name='imageDimensionRadio']:checked")?.value || state.imageDimension || "color";
   const varDimImages = imgDim === "size" ? state.sizeImages : state.colorImages;
 
   // 同步变体明细表中所有输入框与下拉选择框的最新值
@@ -1481,8 +1493,8 @@ async function saveProduct(publishImmediately = false) {
       size: validSizes,
       color_joined: colorJoined,
       size_joined: sizeJoined,
-      color_images: state.colorImages,
-      size_images: state.sizeImages
+      color_images: imgDim === "color" ? state.colorImages : {},
+      size_images: imgDim === "size" ? state.sizeImages : {}
     },
     bullet_points,
     chinese_translations,
@@ -1632,13 +1644,14 @@ async function loadProductForEdit(productId) {
     while (state.sizeInputs.length < 5) state.sizeInputs.push("");
 
     // 6. 变体图片录入维度与映射
-    state.imageDimension = p.variant_image_dimension || (p.attributes?.color_images ? "color" : (p.attributes?.size_images ? "size" : "color"));
+    const hasSizeImgs = p.attributes?.size_images && Object.keys(p.attributes.size_images).length > 0;
+    state.imageDimension = p.variant_image_dimension || (hasSizeImgs ? "size" : "color");
     const dimRadio = document.querySelector(`input[name='imageDimensionRadio'][value='${state.imageDimension}']`);
     if (dimRadio) dimRadio.checked = true;
 
     state.colorImages = {};
     state.sizeImages = {};
-    const dimImgs = p.variant_dimension_images || p.attributes?.color_images || p.attributes?.size_images || {};
+    const dimImgs = p.variant_dimension_images || (state.imageDimension === "size" ? (p.attributes?.size_images || {}) : (p.attributes?.color_images || {}));
     if (state.imageDimension === "color") {
       state.colorImages = { ...dimImgs, ...(p.attributes?.color_images || {}) };
     } else {

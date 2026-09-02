@@ -269,6 +269,12 @@ def init_db():
         cursor.execute("INSERT INTO system_settings (key, value_json) VALUES (?, ?);", 
                        ("storage_rel_sku", json.dumps("sku", ensure_ascii=False)))
 
+    # 初始化默认 Session 有效期 (小时，默认 1.0h)
+    cursor.execute("SELECT value_json FROM system_settings WHERE key = 'session_expire_hours';")
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO system_settings (key, value_json) VALUES (?, ?);", 
+                       ("session_expire_hours", json.dumps(1.0, ensure_ascii=False)))
+
     # 5. 用户表 (RBAC 角色鉴权: admin / user)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (

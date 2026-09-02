@@ -17,14 +17,14 @@ async def login(data: UserLoginSchema, response: Response):
         if not user:
             return {"code": 401, "msg": "用户名或密码错误，请核对后重试！", "data": None}
 
-        # 创建 Session Token
-        token = AuthService.create_session(user["id"], days_valid=7)
+        # 创建 Session Token (读取配置的过期时长，默认 1h)
+        token, expires_at, max_age = AuthService.create_session(user["id"])
 
         # 设置安全的 HTTP-only Cookie
         response.set_cookie(
             key="session_token",
             value=token,
-            max_age=7 * 24 * 3600,
+            max_age=max_age,
             httponly=True,
             samesite="lax",
             secure=False  # 本地开发环境为 False
@@ -37,7 +37,9 @@ async def login(data: UserLoginSchema, response: Response):
                 "id": user["id"],
                 "username": user["username"],
                 "role": user["role"],
-                "display_name": user["display_name"]
+                "display_name": user["display_name"],
+                "expires_at": expires_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "max_age_seconds": max_age
             }
         }
     except ValueError as ve:

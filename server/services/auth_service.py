@@ -6,7 +6,7 @@ import secrets
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 
-from server.database import get_db_connection
+from server.database import get_db_connection, get_setting
 from server.models.user_schemas import UserCreateSchema, UserUpdateSchema
 
 
@@ -57,40 +57,110 @@ class AuthService:
         return user
 
     @staticmethod
-    def create_session(user_id: int, days_valid: int = 7) -> str:
-        """为用户创建有效 Session Token 并持久化到数据库"""
+    def get_session_expire_hours() -> float:
+        """
+        从系统配置获取 Session 有效时长 (小时)
+        若 <= 0 则表示永久有效 (永不过期)
+        """
+        try:
+            val = get_setting("session_expire_hours", 1.0)
+            val_f = float(val)
+            return val_f if val_f >= 0 else 0.0
+        except Exception:
+            return 1.0
+
+    @staticmethod
+    def create_session(user_id: int, hours_valid: Optional[float] = None) -> tuple[str, datetime, int]:
+        """
+        为用户创建有效 Session Token 并持久化到数据库
+        若 hours_valid <= 0 则设为永久有效 (100 年有效期)
+        返回: (token, expires_at_datetime, max_age_seconds)
+        """
+        if hours_valid is None:
+            hours_valid = AuthService.get_session_expire_hours()
+        hours_valid = float(hours_valid)
+
+        is_permanent = (hours_valid <= 0)
         token = secrets.token_urlsafe(32)
-        expires_at = datetime.utcnow() + timedelta(days=days_valid)
+
+        if is_permanent:
+            # 永久有效：设置 100 年后过期，Cookie 设置 10 年 (315360000 秒)
+            expires_at = datetime.utcnow() + timedelta(days=36500)
+            max_age_seconds = 315360000
+        else:
+            hours_valid = max(0.01, hours_valid)
+            expires_at = datetime.utcnow() + timedelta(hours=hours_valid)
+            max_age_seconds = int(hours_valid * 3600)
+
+        expires_at_str = expires_at.strftime("%Y-%m-%d %H:%M:%S")
 
         conn = get_db_connection()
         cursor = conn.cursor()
+        
+        # 自动清理已过期的旧 session
+        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("DELETE FROM user_sessions WHERE expires_at < ?;", (now_str,))
+
         cursor.execute("""
         INSERT INTO user_sessions (token, user_id, expires_at)
         VALUES (?, ?, ?);
-        """, (token, user_id, expires_at.strftime("%Y-%m-%d %H:%M:%S")))
+        """, (token, user_id, expires_at_str))
         conn.commit()
         conn.close()
-        return token
+        return token, expires_at, max_age_seconds
 
     @staticmethod
     def get_user_by_session_token(token: str) -> Optional[Dict[str, Any]]:
-        """根据 Session Token 获取对应的用户信息"""
+        """根据 Session Token 获取对应的用户信息（严格核验是否过期，支持永久有效与动态配置）"""
         if not token:
             return None
 
+        now_dt = datetime.utcnow()
+        now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-        SELECT u.id, u.username, u.role, u.display_name, u.status, u.created_at, s.expires_at
+        SELECT u.id, u.username, u.role, u.display_name, u.status, u.created_at, s.created_at AS session_created_at, s.expires_at
         FROM user_sessions s
         JOIN users u ON s.user_id = u.id
         WHERE s.token = ?;
         """, (token,))
         row = cursor.fetchone()
-        conn.close()
 
         if not row:
+            conn.close()
             return None
+
+        is_expired = False
+        curr_expire_hours = AuthService.get_session_expire_hours()
+
+        # 若当前全局设置为永久有效 (<= 0)，则永不过期
+        if curr_expire_hours <= 0:
+            is_expired = False
+        else:
+            # 1. 检查数据库记录的过期时间
+            expires_at_str = row["expires_at"]
+            if expires_at_str and str(expires_at_str) < now_str:
+                is_expired = True
+
+            # 2. 动态对比当前最新配置的有效时长 (实时生效，即便修改配置也无需重新登录立即对齐)
+            session_created_str = row["session_created_at"]
+            if not is_expired and session_created_str:
+                try:
+                    created_dt = datetime.strptime(str(session_created_str)[:19], "%Y-%m-%d %H:%M:%S")
+                    if (now_dt - created_dt).total_seconds() > (curr_expire_hours * 3600):
+                        is_expired = True
+                except Exception:
+                    pass
+
+        if is_expired:
+            # 及时从数据库删除过期 session
+            cursor.execute("DELETE FROM user_sessions WHERE token = ?;", (token,))
+            conn.commit()
+            conn.close()
+            return None
+
+        conn.close()
 
         user = dict(row)
         # 检查账号状态

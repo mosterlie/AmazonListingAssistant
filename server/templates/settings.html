@@ -27,7 +27,7 @@
   </div>
   <div class="card-body">
     <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;">
-      每个店铺必须 1 对 1 绑定一个品牌。商品录入时选择店铺后将自动带出对应品牌，并联动生成型号与型号名称。
+      每个店铺必须 1 对 1 绑定一个品牌。可指定其中一个为<b>【⭐ 默认店铺】</b>（全局唯一单选）。在商品录入时，默认店铺将自动排在下拉列表<b>第一项并默认选中</b>，联动生成型号与 Parent SKU。
     </p>
 
     <!-- 当前店铺与品牌表格 -->
@@ -35,7 +35,8 @@
       <table class="matrix-table" style="width:100%; font-size:0.86rem; margin-bottom:0;">
         <thead>
           <tr style="background:#f8fafc;">
-            <th style="width:50px; text-align:center;">#</th>
+            <th style="width:45px; text-align:center;">#</th>
+            <th style="width:90px; text-align:center;" title="只能设置一个默认店铺">⭐ 默认</th>
             <th>🏬 店铺账号名称 (Store Account)</th>
             <th>🏷️ 绑定品牌 (Brand 1对1必填)</th>
             <th style="width:90px; text-align:center;">操作</th>
@@ -203,5 +204,49 @@
   </div>
 </div>
 
-<script src="/static/js/settings.js?v=20260830_10"></script>
+<!-- 4. 用户登录与会话安全配置 (Session) -->
+<div class="form-card">
+  <div class="card-header">
+    <div class="card-title">
+      <div class="card-title-icon">4</div>
+      <span>用户登录与会话安全配置 (Session)</span>
+    </div>
+    <span class="tag-badge" id="sessionBadge" style="background:#f1f5f9; color:#475569; border-color:#cbd5e1;">默认 1h 过期自动防护</span>
+  </div>
+  <div class="card-body">
+    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;">
+      配置用户登录系统后的 Session 会话有效期。支持自定义时长或直接勾选<b>【♾️ 永久有效（永不过期）】</b>。
+    </p>
+
+    <div class="grid-2" style="align-items:flex-start;">
+      <div class="form-group">
+        <label class="form-label required">
+          ⏱️ 登录 Session 有效期 (小时)
+          <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(填 0 表示永久有效，默认 1.0 小时)</span>
+        </label>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <input type="number" step="0.5" min="0" max="720" class="form-input" id="sessionExpireHoursInput" value="1.0" placeholder="0 表示永久有效" style="width:140px;">
+          <label class="radio-label" style="font-size:0.84rem; font-weight:700; cursor:pointer; color:#0f172a; margin:0; padding:7px 12px; background:#f8fafc; border:1px solid #cbd5e1; border-radius:var(--radius-sm);">
+            <input type="checkbox" id="sessionNeverExpireCheckbox" style="accent-color:var(--primary); cursor:pointer; width:16px; height:16px;">
+            <span style="margin-left:4px;">♾️ 永久有效 (永不过期)</span>
+          </label>
+        </div>
+        <small style="color:var(--text-muted); font-size:0.78rem;">勾选“永久有效”或填 0 时，登录凭证将长期保持有效，永不自动踢出。</small>
+      </div>
+
+      <!-- 快捷预设时长按钮 -->
+      <div class="form-group">
+        <label class="form-label" style="color:var(--text-muted);">⚡ 快捷预设时长</label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(1)">1 小时 (默认)</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(24)">24 小时 (1天)</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(168)">7 天</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(0)" style="color:#16a34a; border-color:#86efac; font-weight:700;">♾️ 永久有效</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/settings.js?v=20260902_session_v2"></script>
 {% endblock %}

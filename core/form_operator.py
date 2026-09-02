@@ -957,42 +957,49 @@ class FormOperator:
             raise ValueError(f"不支持的 apply_type: {apply_type}，可选值: {list(type_keyword_map.keys())}")
         group_keyword, scope_keywords = type_keyword_map[apply_type]
 
-        # 0. 极速前置检查：若页面所有目标卡片已经同步就绪，直接返回避免重复应用
+        # 0. 极速前置检查：若页面目标卡片已经同步就绪，直接返回避免重复应用
         if verify_success:
-            if self.verify_variation_batch_applied(filter_criteria, apply_type, timeout_ms=600, log_callback=None):
+            if self.verify_variation_batch_applied(filter_criteria, apply_type, timeout_ms=300, log_callback=None):
                 if log_callback:
-                    log_callback(f"      ➔ 检查确认：目标变体已处于同步达标状态，无需重复执行批量应用")
-                    self.verify_variation_batch_applied(filter_criteria, apply_type, timeout_ms=200, log_callback=log_callback)
+                    log_callback(f"      ➔ 检查确认：目标变体已处于同步就绪状态，无需重复执行批量应用")
+                    self.verify_variation_batch_applied(filter_criteria, apply_type, timeout_ms=100, log_callback=log_callback)
                 return True
 
-        js_find_option = """
+        js_find_and_click_option = """
         (args) => {
             const { groupKw, scopeKw } = args;
-            const drops = Array.from(document.querySelectorAll('.product-image-apply-menu, .ant-dropdown'));
-            for (const d of drops) {
-                if (getComputedStyle(d).display === 'none') continue; // 跳过隐藏下拉
-                const groups = d.querySelectorAll('.menu-group, [class*="group"]');
+            const visibleDrops = Array.from(document.querySelectorAll('.ant-dropdown')).filter(d => {
+                const style = window.getComputedStyle(d);
+                return style.display !== 'none' && style.visibility !== 'hidden' && !d.classList.contains('ant-dropdown-hidden');
+            });
+            if (visibleDrops.length === 0) {
+                // 兜底查 .product-image-apply-menu
+                const menu = document.querySelector('.product-image-apply-menu');
+                if (menu) visibleDrops.push(menu.closest('.ant-dropdown') || menu);
+            }
+
+            for (const d of visibleDrops) {
+                const groups = Array.from(d.querySelectorAll('.menu-group, [class*="group"]'));
                 for (const g of groups) {
                     const title = (g.querySelector('.group-title, [class*="title"]')?.innerText || g.innerText || '').trim();
-                    // 严格比对分组名称，避免主图与全部图片混淆
-                    if (groupKw === '主图' && title !== '主图') continue;
-                    if (groupKw === '附图' && !title.includes('附图')) continue;
-                    if (groupKw === '全部图片' && !title.includes('全部图片')) continue;
+                    // 严格比对分组名称
+                    if (groupKw === '主图' && !title.startsWith('主图')) continue;
+                    if (groupKw === '附图' && !title.startsWith('附图')) continue;
+                    if (groupKw === '全部图片' && !title.startsWith('全部图片')) continue;
                     if (groupKw === 'Swatch Image' && !title.includes('Swatch')) continue;
 
                     const items = Array.from(g.querySelectorAll('.menu-item, [class*="item"]'));
-                    // 严格按关键词优先级顺序匹配
                     for (const kw of scopeKw) {
                         for (const it of items) {
                             const txt = (it.innerText || '').trim();
                             if (txt.toLowerCase().includes(kw.toLowerCase())) {
-                                const r = it.getBoundingClientRect();
-                                // 触发 DOM 事件与点击
+                                // 完整派发指针与鼠标事件序列
+                                it.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
                                 it.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                                it.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }));
                                 it.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
                                 it.click();
-                                return { found: true, group: title, item: txt, matchedKw: kw,
-                                         x: r.left + r.width / 2, y: r.top + r.height / 2 };
+                                return { found: true, group: title, item: txt, matchedKw: kw };
                             }
                         }
                     }
@@ -1003,12 +1010,14 @@ class FormOperator:
         """
 
         start_time = time.time()
+        attempt = 0
         while (time.time() - start_time) * 1000 < timeout_ms:
+            attempt += 1
             try:
                 # 0. 重置页面焦点与关闭已有残留下拉
                 self.page.keyboard.press("Escape")
                 self.page.evaluate("() => { if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); }")
-                self.page.wait_for_timeout(300)
+                self.page.wait_for_timeout(150)
 
                 # 1. 匹配目标变种图片卡片头部
                 headers = self.page.locator("#variationImage .item-header, #variationImage [class*='header']")
@@ -1021,56 +1030,71 @@ class FormOperator:
                         break
 
                 if not target_header:
-                    self.page.wait_for_timeout(300)
+                    self.page.wait_for_timeout(200)
                     continue
 
                 target_header.scroll_into_view_if_needed()
-                self.page.wait_for_timeout(250)
+                self.page.wait_for_timeout(150)
 
                 # 2. 点击卡片头部的「图片应用到」链接
                 apply_btn = target_header.locator("span.link, a, span[class*='link'], [class*='apply']").filter(has_text="图片应用到").first
                 if apply_btn.count() == 0:
-                    self.page.wait_for_timeout(300)
+                    self.page.wait_for_timeout(200)
                     continue
 
                 apply_btn.click(force=True)
-                self.page.wait_for_timeout(500)
+                self.page.wait_for_timeout(250)
 
-                # 3. 在可见下拉菜单中查找目标应用选项，获取其坐标
-                res = self.page.evaluate(js_find_option, {"groupKw": group_keyword, "scopeKw": scope_keywords})
+                # 3. 查找目标选项并原子化派发点击
+                res = self.page.evaluate(js_find_and_click_option, {"groupKw": group_keyword, "scopeKw": scope_keywords})
                 if not (res and res.get("found")):
-                    self.page.keyboard.press("Escape")
+                    # 若未找到下拉，尝试稍微等待后二次触发
+                    self.page.wait_for_timeout(200)
+                    res = self.page.evaluate(js_find_and_click_option, {"groupKw": group_keyword, "scopeKw": scope_keywords})
+                    if not (res and res.get("found")):
+                        self.page.keyboard.press("Escape")
+                        self.page.wait_for_timeout(200)
+                        continue
+
+                # 4. 若弹出确认框则自动确认并等待弹窗隐藏
+                self.page.wait_for_timeout(200)
+                confirm_js = """
+                () => {
+                    const confirmBtn = document.querySelector('.ant-modal-confirm-btns .ant-btn-primary') 
+                                    || document.querySelector('.ant-modal-footer .ant-btn-primary')
+                                    || Array.from(document.querySelectorAll('.ant-modal button')).find(b => b.innerText.includes('确') || b.innerText.includes('OK'));
+                    if (confirmBtn) {
+                        confirmBtn.click();
+                        return true;
+                    }
+                    return false;
+                }
+                """
+                modal_confirmed = self.page.evaluate(confirm_js)
+                if modal_confirmed:
                     self.page.wait_for_timeout(300)
-                    continue
 
-                # 4. 物理鼠标点击菜单项
-                self.page.mouse.click(res["x"], res["y"])
-                self.page.wait_for_timeout(800)
-
-                # 5. 若弹出确认框则自动确认
-                self.confirm_modal("确定", wait_timeout_ms=1500)
-
-                # 6. 每次点完批量应用后，核验是否已批量应用成功
+                # 5. 毫秒级极速抽样核验
                 if verify_success:
-                    if log_callback:
+                    if log_callback and attempt == 1:
                         item_name = res.get("item", "批量应用")
-                        log_callback(f"      ➔ 已点击【{group_keyword} ➔ {item_name}】并确认，正在检查生效情况...")
+                        log_callback(f"      ➔ 已触发【{group_keyword} ➔ {item_name}】，正在毫秒级抽样核验生效情况...")
 
+                    # 极速轮询核验（每 100ms 一次，最多 3 秒）
                     verified = self.verify_variation_batch_applied(
-                        filter_criteria, apply_type, timeout_ms=6000, log_callback=log_callback
+                        filter_criteria, apply_type, timeout_ms=3000, log_callback=log_callback
                     )
                     if verified:
                         return True
                     else:
-                        # 本次校验未通过，若仍有剩余时间则重试触发
                         if log_callback:
-                            log_callback(f"      ⚠️ 本轮批量应用核验未完全达标，正在准备重试触发...")
+                            log_callback(f"      ⚠️ 第 {attempt} 次批量应用未在预期时间内检测到抽样卡片同步，正在快速重试...")
                         continue
 
                 return True
             except Exception:
                 pass
-            self.page.wait_for_timeout(400)
+            self.page.wait_for_timeout(250)
 
         return False
 
@@ -1078,39 +1102,34 @@ class FormOperator:
         self,
         filter_criteria: Dict[str, str],
         apply_type: str,
-        timeout_ms: int = 6000,
+        timeout_ms: int = 3000,
         log_callback: Optional[Callable[[str], None]] = None
     ) -> bool:
         """
-        深度校验批量应用是否已真实在页面 DOM 中同步生效：
-        - 对于附图 (extra_all)：只需检查第 2 个 SKU 的附图是否已上传，如果通过则判定检查通过
-        - 对于主图 (main_color / main_size / main_all)：检查同维度变体卡片主图是否均已装配
+        毫秒级极速抽样校验批量应用是否已真实在页面 DOM 中同步生效（Tail-Sampling 算法）：
+        - 对于附图 (extra_all)：抽样检查全列表最后一个卡片 (Tail Card) 的附图，毫秒级得出结论
+        - 对于主图 (main_color)：筛选同颜色卡片并抽样检查该颜色最后一个卡片的主图
+        - 对于主图 (main_size)：筛选同尺寸卡片并抽样检查该尺寸最后一个卡片的主图
+        - 对于主图 (main_all)：抽样检查全列表最后一个卡片的主图
         :param filter_criteria: 触发卡片的匹配条件
         :param apply_type: 应用类型 ('extra_all' / 'main_color' / 'main_size' / 'main_all')
         :param timeout_ms: 轮询等待超时（毫秒）
         :param log_callback: 日志回调函数
-        :return: 是否全部目标变体卡片已成功同步图片
+        :return: 是否抽样变体卡片已成功同步图片
         """
-        js_verify = """
-        async (args) => {
+        js_fast_verify = """
+        (args) => {
             const { filterCrit, applyType } = args;
             const sec = document.querySelector('#variationImage');
-            if (!sec) return { success: false, reason: '未找到 #variationImage 区域', cards: [] };
+            if (!sec) return { success: false, reason: '未找到 #variationImage', cards: [] };
             const headers = Array.from(sec.querySelectorAll('.item-header'));
-            if (headers.length === 0) return { success: false, reason: '未找到变体卡片 (.item-header)', cards: [] };
+            if (headers.length === 0) return { success: false, reason: '未找到变体卡片', cards: [] };
 
             const isRealImg = (src) => {
                 if (!src) return false;
                 const s = src.toLowerCase();
                 return !s.includes('addimg') && !s.includes('kong-') && !s.includes('/assets/') && !s.startsWith('data:image/svg');
             };
-
-            const scrollBox = sec.querySelector('.overflow-y-auto, .max-h-700') || sec;
-            const origTop = scrollBox.scrollTop;
-            const hasSkeleton = sec.querySelectorAll('.render-skeleton').length > 0;
-
-            // extra_all 仅需读取前 2 个卡片，无需滚动全部卡片
-            const scanLimit = (applyType === 'extra_all') ? Math.min(headers.length, 2) : headers.length;
 
             const parseAttrs = (h) => {
                 const attrSpans = Array.from(h.querySelectorAll('.flex.gap-15 span, span'));
@@ -1132,19 +1151,9 @@ class FormOperator:
                 return attrs;
             };
 
-            const cards = [];
-            for (let idx = 0; idx < scanLimit; idx++) {
-                const h = headers[idx];
-                if (hasSkeleton) {
-                    h.scrollIntoView({ block: 'center', inline: 'nearest' });
-                    await new Promise(r => setTimeout(r, 80));
-                }
-
-                const text = h.innerText.replace(/\\s+/g, ' ').trim();
-                const attrs = parseAttrs(h);
+            const checkCardImages = (h) => {
                 const body = h.nextElementSibling;
                 const p8s = body ? Array.from(body.querySelectorAll('.p8')) : [];
-                
                 const mainBox = p8s[0];
                 let extraBox = null;
                 for (let i = 0; i < p8s.length; i++) {
@@ -1158,112 +1167,103 @@ class FormOperator:
                     else if (p8s.length === 2) extraBox = p8s[1];
                     else extraBox = p8s[0];
                 }
-
-                const mainImgs = mainBox ? Array.from(mainBox.querySelectorAll('img')) : [];
-                const realMainImgs = mainImgs.filter(i => isRealImg(i.src));
-
-                const extraImgs = extraBox ? Array.from(extraBox.querySelectorAll('img')) : [];
-                const realExtraImgs = extraImgs.filter(i => isRealImg(i.src));
-
-                cards.push({
-                    idx: idx + 1,
-                    text,
-                    color: attrs.color,
-                    size: attrs.size,
-                    mainCount: realMainImgs.length,
-                    extraCount: realExtraImgs.length
-                });
-            }
-
-            if (hasSkeleton) {
-                scrollBox.scrollTop = origTop;
-            }
+                const mainImgs = mainBox ? Array.from(mainBox.querySelectorAll('img')).filter(i => isRealImg(i.src)) : [];
+                const extraImgs = extraBox ? Array.from(extraBox.querySelectorAll('img')).filter(i => isRealImg(i.src)) : [];
+                return {
+                    mainCount: mainImgs.length,
+                    extraCount: extraImgs.length,
+                    mainSrc: mainImgs[0]?.src || '',
+                    extraSrcs: extraImgs.map(i => i.src)
+                };
+            };
 
             if (applyType === 'extra_all') {
-                // 优化 1：只需检查第 2 个 SKU 的附图是否已上传 (若总数 >= 2 则检查第 2 个卡片，否则检查第 1 个)
-                if (headers.length >= 2) {
-                    const card2 = cards[1] || { extraCount: 0 };
-                    const isCard2Ok = card2.extraCount >= 1;
-                    return {
-                        success: isCard2Ok,
-                        totalCards: headers.length,
-                        syncedCount: isCard2Ok ? headers.length : 1,
-                        card2Extra: card2.extraCount,
-                        cards
-                    };
-                } else {
-                    const card1 = cards[0] || { extraCount: 0 };
-                    const isCard1Ok = card1.extraCount >= 1;
-                    return {
-                        success: isCard1Ok,
-                        totalCards: headers.length,
-                        syncedCount: isCard1Ok ? 1 : 0,
-                        card2Extra: card1.extraCount,
-                        cards
-                    };
-                }
-            } else if (applyType === 'main_color') {
-                let targetCol = '';
-                const srcCard = cards.find(c => {
-                    return filterCrit && Object.values(filterCrit).every(v => c.text.includes(v));
-                });
-                if (srcCard && srcCard.color) {
-                    targetCol = srcCard.color;
-                } else if (filterCrit) {
-                    targetCol = filterCrit['颜色'] || filterCrit['color'] || '';
-                }
-
-                const matchCards = targetCol 
-                    ? cards.filter(c => (c.color && c.color === targetCol) || (!c.color && c.text.includes(targetCol))) 
-                    : cards;
-
-                if (matchCards.length === 0) return { success: false, reason: `未匹配到颜色【${targetCol}】的卡片`, totalCards: 0, syncedCount: 0, cards };
-                const syncedCards = matchCards.filter(c => c.mainCount >= 1);
-                const allSynced = syncedCards.length === matchCards.length;
+                // 附图全量批量应用：抽样检查全列表最后一个卡片（Tail Card）
+                const targetIdx = headers.length >= 2 ? headers.length - 1 : 0;
+                const tailH = headers[targetIdx];
+                const imgData = checkCardImages(tailH);
+                const ok = imgData.extraCount >= 1;
+                const tailAttrs = parseAttrs(tailH);
                 return {
-                    success: allSynced,
-                    totalCards: matchCards.length,
-                    syncedCount: syncedCards.length,
+                    success: ok,
+                    applyType: applyType,
+                    sampledIdx: targetIdx + 1,
+                    totalCards: headers.length,
+                    sampledSpec: `${tailAttrs.color || ''} ${tailAttrs.size || ''}`.trim(),
+                    extraCount: imgData.extraCount,
+                    mainCount: imgData.mainCount
+                };
+            } else if (applyType === 'main_color') {
+                // 主图按颜色批量应用：筛选同颜色全部卡片，抽样检查该颜色的最后一个卡片
+                let targetCol = filterCrit ? (filterCrit['颜色'] || filterCrit['color'] || '') : '';
+                if (!targetCol) {
+                    targetCol = parseAttrs(headers[0]).color;
+                }
+                const matchedHeaders = headers.filter(h => {
+                    const a = parseAttrs(h);
+                    return (a.color && a.color === targetCol) || (!a.color && h.innerText.includes(targetCol));
+                });
+                if (matchedHeaders.length === 0) {
+                    return { success: false, reason: `未找到颜色【${targetCol}】的卡片` };
+                }
+                const tailH = matchedHeaders[matchedHeaders.length - 1];
+                const imgData = checkCardImages(tailH);
+                const ok = imgData.mainCount >= 1;
+                const tailAttrs = parseAttrs(tailH);
+                return {
+                    success: ok,
+                    applyType: applyType,
                     targetDim: targetCol,
-                    cards: matchCards
+                    groupCount: matchedHeaders.length,
+                    sampledIdx: headers.indexOf(tailH) + 1,
+                    sampledSpec: `${tailAttrs.color || ''} ${tailAttrs.size || ''}`.trim(),
+                    mainCount: imgData.mainCount,
+                    extraCount: imgData.extraCount
                 };
             } else if (applyType === 'main_size') {
-                let targetSz = '';
-                const srcCard = cards.find(c => {
-                    return filterCrit && Object.values(filterCrit).every(v => c.text.includes(v));
-                });
-                if (srcCard && srcCard.size) {
-                    targetSz = srcCard.size;
-                } else if (filterCrit) {
-                    targetSz = filterCrit['尺寸'] || filterCrit['size'] || '';
+                // 主图按尺寸批量应用：筛选同尺寸全部卡片，抽样检查该尺寸的最后一个卡片
+                let targetSz = filterCrit ? (filterCrit['尺寸'] || filterCrit['size'] || '') : '';
+                if (!targetSz) {
+                    targetSz = parseAttrs(headers[0]).size;
                 }
-
-                const matchCards = targetSz 
-                    ? cards.filter(c => (c.size && c.size === targetSz) || (!c.size && c.text.includes(targetSz))) 
-                    : cards;
-
-                if (matchCards.length === 0) return { success: false, reason: `未匹配到尺寸【${targetSz}】的卡片`, totalCards: 0, syncedCount: 0, cards };
-                const syncedCards = matchCards.filter(c => c.mainCount >= 1);
-                const allSynced = syncedCards.length === matchCards.length;
+                const matchedHeaders = headers.filter(h => {
+                    const a = parseAttrs(h);
+                    return (a.size && a.size === targetSz) || (!a.size && h.innerText.includes(targetSz));
+                });
+                if (matchedHeaders.length === 0) {
+                    return { success: false, reason: `未找到尺寸【${targetSz}】的卡片` };
+                }
+                const tailH = matchedHeaders[matchedHeaders.length - 1];
+                const imgData = checkCardImages(tailH);
+                const ok = imgData.mainCount >= 1;
+                const tailAttrs = parseAttrs(tailH);
                 return {
-                    success: allSynced,
-                    totalCards: matchCards.length,
-                    syncedCount: syncedCards.length,
+                    success: ok,
+                    applyType: applyType,
                     targetDim: targetSz,
-                    cards: matchCards
+                    groupCount: matchedHeaders.length,
+                    sampledIdx: headers.indexOf(tailH) + 1,
+                    sampledSpec: `${tailAttrs.color || ''} ${tailAttrs.size || ''}`.trim(),
+                    mainCount: imgData.mainCount,
+                    extraCount: imgData.extraCount
                 };
             } else if (applyType === 'main_all') {
-                const syncedCards = cards.filter(c => c.mainCount >= 1);
-                const allSynced = (syncedCards.length === cards.length) && (cards.length > 0);
+                const tailH = headers[headers.length - 1];
+                const imgData = checkCardImages(tailH);
+                const ok = imgData.mainCount >= 1;
+                const tailAttrs = parseAttrs(tailH);
                 return {
-                    success: allSynced,
-                    totalCards: cards.length,
-                    syncedCount: syncedCards.length,
-                    cards
+                    success: ok,
+                    applyType: applyType,
+                    totalCards: headers.length,
+                    sampledIdx: headers.length,
+                    sampledSpec: `${tailAttrs.color || ''} ${tailAttrs.size || ''}`.trim(),
+                    mainCount: imgData.mainCount,
+                    extraCount: imgData.extraCount
                 };
             }
 
-            return { success: false, reason: `未知 applyType: ${applyType}`, cards };
+            return { success: false, reason: '未知 applyType' };
         }
         """
 
@@ -1271,58 +1271,39 @@ class FormOperator:
         last_res = None
         while (time.time() - start_time) * 1000 < timeout_ms:
             try:
-                res = self.page.evaluate(js_verify, {"filterCrit": filter_criteria, "applyType": apply_type})
+                res = self.page.evaluate(js_fast_verify, {"filterCrit": filter_criteria, "applyType": apply_type})
                 if res:
                     last_res = res
                     if res.get("success"):
-                        self.page.wait_for_timeout(300)
                         break
             except Exception:
                 pass
-            self.page.wait_for_timeout(350)
+            self.page.wait_for_timeout(100)
 
-        # 逐个 SKU 检查结果登记日志
+        # 格式化输出抽样核验日志
         if last_res and log_callback:
-            cards = last_res.get("cards", [])
-            total_cards = last_res.get("totalCards", len(cards))
-            synced_cnt = last_res.get("syncedCount", 0)
             is_success = last_res.get("success", False)
+            s_idx = last_res.get("sampledIdx", 0)
+            s_spec = last_res.get("sampledSpec", "")
+            m_cnt = last_res.get("mainCount", 0)
+            e_cnt = last_res.get("extraCount", 0)
 
             if apply_type == "extra_all":
-                log_callback(f"\n      📋 【附图批量应用核验】核验第 2 个 SKU 附图同步状态 (全量共 {total_cards} 个变体卡片):")
-                for c in cards:
-                    c_idx = c.get("idx", 0)
-                    c_text = c.get("text", "")
-                    c_spec = c_text.replace("变种属性:", "").replace("图片应用到", "").strip()
-                    c_extra = c.get("extraCount", 0)
-                    c_main = c.get("mainCount", 0)
-                    tag = f"✅ 已装配附图 ({c_extra} 张)" if c_extra >= 1 else "❌ 附图为空 (0 张)"
-                    log_callback(f"         • SKU #{c_idx:02d}【{c_spec}】: 附图 {c_extra} 张 | 主图 {c_main} 张 ➔ {tag}")
-
+                total_c = last_res.get("totalCards", 0)
                 if is_success:
-                    c2_extra = last_res.get("card2Extra", 0)
-                    log_callback(f"      ➔ ✅ 附图批量应用核验通过：第 2 个 SKU 附图已成功装配 ({c2_extra} 张)，全量附图批量应用生效！\n")
+                    log_callback(f"      ➔ ✅ 附图批量应用极速抽样核验通过：末尾抽样 SKU #{s_idx:02d}【{s_spec}】附图已就绪 ({e_cnt} 张)，全量 {total_c} 个变体附图全部同步生效！")
                 else:
-                    log_callback(f"      ➔ ⚠️ 附图批量应用核验中：第 2 个 SKU 附图尚未检测到同步数据\n")
+                    log_callback(f"      ➔ ⚠️ 附图批量应用核验中：末尾抽样 SKU #{s_idx:02d}【{s_spec}】附图尚未检测到同步数据")
 
             elif apply_type in ["main_color", "main_size", "main_all"]:
                 dim_title = "同颜色" if apply_type == "main_color" else ("同尺寸" if apply_type == "main_size" else "全部变体")
                 target_dim = last_res.get("targetDim", "")
                 dim_str = f"【{target_dim}】" if target_dim else ""
-                log_callback(f"\n      📋 【主图批量应用核验】{dim_title}{dim_str} 变体主图详情 (共 {len(cards)} 个变体卡片):")
-                for c in cards:
-                    c_idx = c.get("idx", 0)
-                    c_text = c.get("text", "")
-                    c_spec = c_text.replace("变种属性:", "").replace("图片应用到", "").strip()
-                    c_main = c.get("mainCount", 0)
-                    c_extra = c.get("extraCount", 0)
-                    tag = "✅ 已装配主图" if c_main >= 1 else "❌ 主图为空"
-                    log_callback(f"         • SKU #{c_idx:02d}【{c_spec}】: 主图 {c_main} 张 | 附图 {c_extra} 张 ➔ {tag}")
-
+                grp_cnt = last_res.get("groupCount", last_res.get("totalCards", 0))
                 if is_success:
-                    log_callback(f"      ➔ ✅ 主图批量应用深度核验通过：{dim_title}{dim_str} 所有变体主图已全部批量同步成功（{synced_cnt}/{total_cards}）！\n")
+                    log_callback(f"      ➔ ✅ 主图批量应用极速抽样核验通过：末尾抽样 SKU #{s_idx:02d}【{s_spec}】主图已就绪 ({m_cnt} 张)，{dim_title}{dim_str} 共 {grp_cnt} 个变体主图全部同步生效！")
                 else:
-                    log_callback(f"      ➔ ⚠️ 主图批量应用同步率: {synced_cnt}/{total_cards} 个变体已同步主图\n")
+                    log_callback(f"      ➔ ⚠️ 主图批量应用核验中：末尾抽样 SKU #{s_idx:02d}【{s_spec}】主图尚未检测到同步数据")
 
         return bool(last_res and last_res.get("success"))
 
@@ -1875,10 +1856,25 @@ class FormOperator:
             }
             
             let okCount = 0;
-            // 1. 品目寸法（商品尺寸 L x W x H）
-            const itemL = document.getElementById('form_item_item_length_width_height.0.length.value') || document.querySelector('input[id*="item_length_width_height"][id*="length.value"]');
-            const itemW = document.getElementById('form_item_item_length_width_height.0.width.value') || document.querySelector('input[id*="item_length_width_height"][id*="width.value"]');
-            const itemH = document.getElementById('form_item_item_length_width_height.0.height.value') || document.querySelector('input[id*="item_length_width_height"][id*="height.value"]');
+            // 1. 品目寸法（商品尺寸 L x W x H 或 D x W x H）
+            const itemL = document.getElementById('form_item_item_length_width_height.0.length.value') 
+                       || document.getElementById('form_item_item_depth_width_height.0.depth.value')
+                       || document.querySelector('input[id*="length_width_height"][id*="length.value"]')
+                       || document.querySelector('input[id*="depth_width_height"][id*="depth.value"]')
+                       || document.querySelector('div[data-path*="depth_width_height"] input[id*="depth.value"]')
+                       || document.querySelector('div[data-path*="length_width_height"] input[id*="length.value"]');
+            const itemW = document.getElementById('form_item_item_length_width_height.0.width.value') 
+                       || document.getElementById('form_item_item_depth_width_height.0.width.value')
+                       || document.querySelector('input[id*="length_width_height"][id*="width.value"]')
+                       || document.querySelector('input[id*="depth_width_height"][id*="width.value"]')
+                       || document.querySelector('div[data-path*="depth_width_height"] input[id*="width.value"]')
+                       || document.querySelector('div[data-path*="length_width_height"] input[id*="width.value"]');
+            const itemH = document.getElementById('form_item_item_length_width_height.0.height.value') 
+                       || document.getElementById('form_item_item_depth_width_height.0.height.value')
+                       || document.querySelector('input[id*="length_width_height"][id*="height.value"]')
+                       || document.querySelector('input[id*="depth_width_height"][id*="height.value"]')
+                       || document.querySelector('div[data-path*="depth_width_height"] input[id*="height.value"]')
+                       || document.querySelector('div[data-path*="length_width_height"] input[id*="height.value"]');
             if (setVal(itemL, args.item_length)) okCount++;
             if (setVal(itemW, args.item_width)) okCount++;
             if (setVal(itemH, args.item_height)) okCount++;

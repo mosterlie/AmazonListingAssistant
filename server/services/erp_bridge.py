@@ -431,10 +431,13 @@ class ERPBridgeService:
                             # 打印上传后的结果
                             if t_up_ok:
                                 emit_log(f"      ➔ 上传后的结果: ✅ 上传成功")
-                                # ② 执行批量应用，不检查批量结果
-                                emit_log(f"      ➔ 执行批量应用: 正在批量应用【主图 ➔ 同{dim_label}的变种】(不检查批量结果)...")
-                                engine.apply_variation_image(target_crit, main_apply_type, timeout_ms=10000, verify_success=False, log_callback=emit_log)
-                                emit_log(f"      ➔ 批量应用已执行完毕 ➔ 进行下一条处理")
+                                # ② 执行批量应用，启用毫秒级极速抽样校验
+                                emit_log(f"      ➔ 执行批量应用: 正在批量应用【主图 ➔ 同{dim_label}的变种】...")
+                                apply_ok = engine.apply_variation_image(target_crit, main_apply_type, timeout_ms=8000, verify_success=True, log_callback=emit_log)
+                                if apply_ok:
+                                    emit_log(f"      ➔ 批量应用已执行生效 ➔ 进行下一条处理")
+                                else:
+                                    emit_log(f"      ➔ 批量应用执行完成 ➔ 进行下一条处理")
                                 if target_dim_val:
                                     applied_dim_values.add(target_dim_val)
                             else:
