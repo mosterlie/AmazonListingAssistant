@@ -58,32 +58,65 @@ async function loadUserOptions() {
 }
 
 /**
- * 加载系统中已录入的商品列表（供成果关联选择）
+ * 加载系统中已录入的商品列表（供成果关联选择，仅含未被其它任务关联的商品）
+ * @param {number|null} taskId 当前任务 ID（放行该任务已关联的商品，便于重新登记）
  */
-async function loadProductOptions() {
+async function loadProductOptions(taskId = null) {
   try {
-    const res = await fetch("/api/tasks/products/options");
+    let url = "/api/tasks/products/options";
+    if (taskId) url += `?task_id=${taskId}`;
+    const res = await fetch(url);
     const json = await res.json();
     if (json.code === 0 && Array.isArray(json.data)) {
       taskState.products = json.data;
-
-      const prodSelect = document.getElementById("deliverableProductSelect");
-      if (prodSelect) {
-        let opts = `<option value="">-- 请选择关联的已录入商品 (必选) --</option>`;
-        opts += json.data.map(p => {
-          const skuTxt = p.parent_sku ? `[${p.parent_sku}]` : "";
-          const storeTxt = p.store_account ? `(${p.store_account})` : "";
-          const titleTxt = p.title ? p.title.slice(0, 45) : "未命名商品";
-          return `<option value="${p.id}" data-sku="${p.parent_sku || ''}" data-title="${p.title || ''}" data-image="${p.main_image || ''}" data-store="${p.store_account || ''}">
-            #${p.id} ${skuTxt} ${titleTxt} ${storeTxt}
-          </option>`;
-        }).join("");
-        prodSelect.innerHTML = opts;
-      }
+      renderProductOptions(json.data);
     }
   } catch (err) {
     console.error("加载商品选项列表失败:", err);
   }
+}
+
+/**
+ * 渲染商品下拉选项
+ */
+function renderProductOptions(products) {
+  const prodSelect = document.getElementById("deliverableProductSelect");
+  if (!prodSelect) return;
+  const prevVal = prodSelect.value;
+
+  let opts = `<option value="">-- 请选择关联的已录入商品 (必选) --</option>`;
+  opts += products.map(p => {
+    const skuTxt = p.parent_sku ? `[${p.parent_sku}]` : "";
+    const storeTxt = p.store_account ? `(${p.store_account})` : "";
+    const titleTxt = p.title ? p.title.slice(0, 45) : "未命名商品";
+    return `<option value="${p.id}" data-sku="${p.parent_sku || ''}" data-title="${p.title || ''}" data-image="${p.main_image || ''}" data-store="${p.store_account || ''}">
+      #${p.id} ${skuTxt} ${titleTxt} ${storeTxt}
+    </option>`;
+  }).join("");
+  prodSelect.innerHTML = opts;
+
+  // 恢复之前选中的项（若仍存在于筛选结果中）
+  if (prevVal && products.some(p => String(p.id) === prevVal)) {
+    prodSelect.value = prevVal;
+  }
+}
+
+/**
+ * 按 SKU / 标题关键词筛选商品下拉选项（服务端检索 + 本地兜底过滤）
+ */
+function filterProductOptionsBySku(keyword) {
+  const all = taskState.products || [];
+  const kw = (keyword || "").trim().toLowerCase();
+  if (!kw) {
+    renderProductOptions(all);
+    return;
+  }
+  const filtered = all.filter(p =>
+    String(p.id).includes(kw) ||
+    (p.parent_sku || "").toLowerCase().includes(kw) ||
+    (p.title || "").toLowerCase().includes(kw)
+  );
+  renderProductOptions(filtered);
 }
 
 /**
@@ -247,8 +280,8 @@ function renderTaskTable(tasks) {
         </button>
         ${isAdmin ? `
           <div style="display:flex; gap:4px; width:100%;">
-            <button class="btn btn-outline btn-sm" onclick="openEditTaskModal(${t.id})" style="padding:2px 6px; font-size:0.72rem; flex:1;">✏️ 编辑</button>
-            <button class="btn btn-outline btn-sm" onclick="handleDeleteTask(${t.id})" style="padding:2px 6px; font-size:0.72rem; flex:1; color:#ef4444; border-color:#fca5a5;">🗑️ 删除</button>
+            <button class="btn btn-outline btn-sm" onclick="openEditTaskModal(${t.id})" style="padding:3px 8px; font-size:0.75rem; flex:1;">✏️ 编辑</button>
+            <button class="btn btn-outline btn-sm" onclick="handleDeleteTask(${t.id})" style="padding:3px 8px; font-size:0.75rem; flex:1; color:#ef4444; border-color:#fca5a5;">🗑️ 删除</button>
           </div>
         ` : ''}
       </div>
@@ -364,11 +397,19 @@ function openSubmitDeliverableModal(taskId) {
   document.getElementById("submitInstructionsText").innerText = task.instructions || "(无特殊要求)";
 
   document.getElementById("deliverableResultUrlInput").value = task.result_url || "";
+
+  // 重新加载商品选项 (仅未被其它任务关联的商品；本任务已关联的商品仍可选)，并清空 SKU 筛选
+  const skuFilter = document.getElementById("deliverableProductSkuFilter");
+  if (skuFilter) skuFilter.value = "";
   const prodSelect = document.getElementById("deliverableProductSelect");
-  if (prodSelect) {
-    prodSelect.value = (task.product_id && task.product_id > 0) ? String(task.product_id) : "";
-    handleProductSelectChange(prodSelect);
-  }
+  if (prodSelect) prodSelect.value = "";
+
+  loadProductOptions(task.id).then(() => {
+    if (prodSelect && task.product_id && task.product_id > 0) {
+      prodSelect.value = String(task.product_id);
+      handleProductSelectChange(prodSelect);
+    }
+  });
 
   const modal = document.getElementById("submitDeliverableModal");
   if (modal) modal.style.display = "flex";
@@ -453,7 +494,7 @@ async function handleSubmitDeliverable(e) {
     alert(`请求异常: ${err.message}`);
   } finally {
     btn.disabled = false;
-    btn.innerText = "💾 确认登记并保存";
+    btn.innerText = "保存";
   }
 }
 
@@ -530,7 +571,7 @@ async function handleEditTaskSubmit(e) {
     alert(`请求异常: ${err.message}`);
   } finally {
     btn.disabled = false;
-    btn.innerText = "💾 保存修改";
+    btn.innerText = "保存";
   }
 }
 

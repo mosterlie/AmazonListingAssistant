@@ -83,6 +83,65 @@ async def preview_image_alias(path: str = Query(..., description="图片相对�
     raise HTTPException(status_code=404, detail=f"Image not found: {path}")
 
 
+# ──────────────────────────────────────────────────────────────
+# db_agent 透传路由: 让异地桌面上件助手复用现有 SakuraFrp 隧道 (8000),
+# 无需为 db_agent 8765 单独开隧道。鉴权由 db_agent 的 X-DB-Token 校验。
+# ──────────────────────────────────────────────────────────────
+import urllib.request as _urlreq
+import urllib.error as _urlerr
+from starlette.responses import Response
+from fastapi.concurrency import run_in_threadpool
+
+DB_AGENT_BASE = "http://127.0.0.1:8765"
+
+
+def _db_agent_call(method: str, path: str, token: str, query: str = "", body: bytes = b""):
+    """转发请求到本机 db_agent, 原样返回响应 (含二进制文件与错误 JSON)"""
+    if not token:
+        raise HTTPException(status_code=401, detail="缺少 X-DB-Token 请求头")
+    url = f"{DB_AGENT_BASE}{path}" + (f"?{query}" if query else "")
+    headers = {"X-DB-Token": token}
+    data = None
+    if method == "POST":
+        headers["Content-Type"] = "application/json"
+        data = body
+    req = _urlreq.Request(url, data=data, headers=headers, method=method)
+    try:
+        with _urlreq.urlopen(req, timeout=60) as resp:
+            return Response(content=resp.read(), status_code=resp.status,
+                            media_type=resp.headers.get("Content-Type", "application/json"))
+    except _urlerr.HTTPError as e:
+        return Response(content=e.read(), status_code=e.code, media_type="application/json")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"db_agent 服务不可达: {e}")
+
+
+@app.get("/ping", summary="db_agent 透传: 连接测试")
+async def db_agent_ping(request: Request):
+    return await run_in_threadpool(
+        _db_agent_call, "GET", "/ping", request.headers.get("X-DB-Token", ""), request.url.query)
+
+
+@app.get("/file", summary="db_agent 透传: 图片文件下载")
+async def db_agent_file(request: Request):
+    return await run_in_threadpool(
+        _db_agent_call, "GET", "/file", request.headers.get("X-DB-Token", ""), request.url.query)
+
+
+@app.post("/query", summary="db_agent 透传: 只读 SQL 查询")
+async def db_agent_query(request: Request):
+    body = await request.body()
+    return await run_in_threadpool(
+        _db_agent_call, "POST", "/query", request.headers.get("X-DB-Token", ""), request.url.query, body)
+
+
+@app.post("/execute", summary="db_agent 透传: 写入 SQL 执行")
+async def db_agent_execute(request: Request):
+    body = await request.body()
+    return await run_in_threadpool(
+        _db_agent_call, "POST", "/execute", request.headers.get("X-DB-Token", ""), request.url.query, body)
+
+
 # 4. 辅助鉴权函数
 def get_page_auth_user(request: Request, require_admin: bool = False):
     """

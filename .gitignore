@@ -55,3 +55,6 @@ htmlcov/
 
 # Scratch & temporary test scripts
 scratch/
+
+# Local runtime config (desktop app)
+desktop_config.json

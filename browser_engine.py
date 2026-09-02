@@ -30,9 +30,10 @@ class BrowserEngine:
     浏览器自动化与高精度 DOM 解析统一引擎
     """
 
-    def __init__(self, port: int = config.DEFAULT_CDP_PORT, user_data_dir: str = config.USER_DATA_DIR):
+    def __init__(self, port: int = config.DEFAULT_CDP_PORT, user_data_dir: str = ""):
+        # user_data_dir 惰性解析: 支持桌面程序在运行时修改 config.USER_DATA_DIR
         self.port = port
-        self.user_data_dir = user_data_dir
+        self.user_data_dir = user_data_dir or config.USER_DATA_DIR
         self.manager = BrowserManager(port=self.port, user_data_dir=self.user_data_dir)
 
     def launch_browser(self, target_url: str = "about:blank") -> Tuple[bool, str]:
@@ -160,6 +161,12 @@ class BrowserEngine:
         """在弹出的模态对话框中点击确认按钮（如 '确定', '确认'）"""
         return self.manager.run_on_browser_thread(
             lambda: FormOperator(page or self.manager._get_active_page_impl()).confirm_modal(button_text, wait_timeout_ms)
+        )
+
+    def close_all_popups(self, max_rounds: int = 3) -> int:
+        """关闭店小秘页面自动弹窗 (公告/活动类浮层), 返回关闭数量"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(self.manager._get_active_page_impl()).close_all_popups(max_rounds)
         )
 
     def select_store_account(self, store_account: str = "金梧汇辰", expected_site: str = "日本", timeout_ms: int = 15000, page: Optional[Page] = None) -> bool:

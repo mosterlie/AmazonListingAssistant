@@ -29,6 +29,71 @@ except (ImportError, ValueError):
             from tab_matcher import TabInfo, TabMatcher
 
 
+# ---------------------------------------------------------------------------
+# Playwright Node 驱动进程登记表: 记录本进程内所有已启动的 playwright 驱动 PID,
+# 用于上件异常卡死后的僵尸进程清理 (Node.js JavaScript Runtime 残留问题)
+# ---------------------------------------------------------------------------
+_DRIVER_PIDS: set = set()
+_DRIVER_LOCK = threading.Lock()
+
+
+def _get_driver_pid(playwright) -> Optional[int]:
+    """从 playwright 实例提取底层 Node 驱动进程 PID"""
+    try:
+        return playwright._connection._transport._proc.pid
+    except Exception:
+        return None
+
+
+def _register_driver_pid(playwright):
+    pid = _get_driver_pid(playwright)
+    if pid:
+        with _DRIVER_LOCK:
+            _DRIVER_PIDS.add(pid)
+
+
+def _unregister_driver_pid(playwright):
+    pid = _get_driver_pid(playwright)
+    if pid:
+        with _DRIVER_LOCK:
+            _DRIVER_PIDS.discard(pid)
+
+
+def _kill_driver_proc(playwright):
+    """强杀 playwright Node 驱动进程树 (解除工作线程卡死)"""
+    pid = _get_driver_pid(playwright)
+    _unregister_driver_pid(playwright)
+    if not pid:
+        return
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/F", "/PID", str(pid), "/T"],
+                           capture_output=True, timeout=5)
+        else:
+            subprocess.run(["kill", "-9", str(pid)],
+                           capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+
+def cleanup_stale_drivers():
+    """清理本进程内所有遗留的 Playwright Node 驱动进程 (上次上件卡死残留)"""
+    with _DRIVER_LOCK:
+        pids = list(_DRIVER_PIDS)
+        _DRIVER_PIDS.clear()
+    for pid in pids:
+        try:
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/F", "/PID", str(pid), "/T"],
+                               capture_output=True, timeout=5)
+            else:
+                subprocess.run(["kill", "-9", str(pid)],
+                               capture_output=True, timeout=5)
+        except Exception:
+            pass
+    return len(pids)
+
+
 class BrowserManager:
     """
     负责启动 Chrome/Edge 实例、探测 CDP 端口、管理 Playwright 连接与标签页识别。
@@ -51,6 +116,7 @@ class BrowserManager:
         """Playwright 专属常驻工作线程循环"""
         try:
             self.playwright = sync_playwright().start()
+            _register_driver_pid(self.playwright)
         except Exception as e:
             print(f"[BrowserManager] Playwright init failed: {e}", file=sys.stderr)
 
@@ -185,6 +251,7 @@ class BrowserManager:
         try:
             if not self.playwright:
                 self.playwright = sync_playwright().start()
+                _register_driver_pid(self.playwright)
 
             if self.browser and self.browser.is_connected():
                 if activate:
@@ -393,6 +460,34 @@ class BrowserManager:
             if self.browser:
                 self.browser.close()
             if self.playwright:
+                _unregister_driver_pid(self.playwright)
                 self.playwright.stop()
         except Exception:
             pass
+
+    def hard_reset(self):
+        """工作线程卡死时的暴力恢复: 杀掉 Playwright Node 驱动进程并重建调度线程"""
+        old_pw = self.playwright
+        old_queue = self._task_queue
+        self.playwright = None
+        self.browser = None
+        self.context = None
+        if old_pw is not None:
+            _kill_driver_proc(old_pw)
+        try:
+            old_queue.put(None)  # 老线程执行完卡死任务(抛错)后自行退出
+        except Exception:
+            pass
+        self._task_queue = queue.Queue()
+        self._thread = threading.Thread(
+            target=self._worker_loop, daemon=True, name="BrowserWorkerThread-reset"
+        )
+        self._thread.start()
+
+    def is_healthy(self, timeout: float = 5.0) -> bool:
+        """探测调度线程是否还能响应任务 (卡死返回 False)"""
+        try:
+            self.run_on_browser_thread(lambda: True, timeout=timeout)
+            return True
+        except Exception:
+            return False

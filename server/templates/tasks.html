@@ -56,7 +56,7 @@
       <div style="position:relative;">
         <input type="text" class="form-input" id="taskSearchInput" placeholder="搜索标题 / 说明 / 链接 / 关联品..." style="width:240px; padding:6px 12px; font-size:0.82rem;" onkeyup="handleSearchKeyup(event)">
       </div>
-      <button class="btn btn-outline btn-sm" onclick="loadTasksList()">🔍 搜索</button>
+      <button class="btn btn-outline btn-sm" onclick="loadTasksList()" style="display:inline-flex; align-items:center; gap:4px;">🔍 搜索</button>
     </div>
   </div>
 
@@ -170,7 +170,8 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label" style="font-weight:700;">2. 关联的品 (选择系统中已录入的商品) <span style="color:#ef4444;">*</span></label>
+          <label class="form-label" style="font-weight:700;">2. 关联的品 (仅可选择未被其它任务关联的商品) <span style="color:#ef4444;">*</span></label>
+          <input type="text" class="form-input" id="deliverableProductSkuFilter" placeholder="输入 SKU 或标题筛选商品..." style="width:100%; margin-bottom:6px;" oninput="filterProductOptionsBySku(this.value)">
           <select class="form-select" id="deliverableProductSelect" required style="width:100%; padding:8px 10px; font-size:0.86rem;" onchange="handleProductSelectChange(this)">
             <option value="">-- 请选择关联的已录入商品 (必选) --</option>
           </select>
@@ -198,7 +199,7 @@
       </div>
       <div class="custom-modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeSubmitDeliverableModal()">取消</button>
-        <button type="submit" class="btn btn-success" id="submitDeliverableBtn">💾 确认登记并保存</button>
+        <button type="submit" class="btn btn-success" id="submitDeliverableBtn">保存</button>
       </div>
     </form>
   </div>
@@ -243,7 +244,7 @@
       </div>
       <div class="custom-modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeEditTaskModal()">取消</button>
-        <button type="submit" class="btn btn-primary" id="editSubmitBtn">💾 保存修改</button>
+        <button type="submit" class="btn btn-primary" id="editSubmitBtn">保存</button>
       </div>
     </form>
   </div>

@@ -1358,7 +1358,7 @@ function initBatchOperations() {
 // ============================================================================
 // Save Product & Publish to Dianxiaomi
 // ============================================================================
-async function saveProduct(publishImmediately = false) {
+async function saveProduct() {
   const store_account = document.getElementById("storeAccountSelect")?.value;
   const site = "日本";
   const parent_sku = document.getElementById("parentSkuInput")?.value.trim() || "";
@@ -1395,10 +1395,10 @@ async function saveProduct(publishImmediately = false) {
     if (txt) chinese_translations.push(txt);
   });
 
-  // 商品描述：值为 5 点描述的内容
+  // 商品描述：值为 5 点描述的内容 (带序号, 每点一行)
   let description = document.getElementById("descriptionInput")?.value.trim() || "";
   if (!description && bullet_points.length > 0) {
-    description = bullet_points.join("\n\n");
+    description = bullet_points.map((bp, i) => `${i + 1}. ${bp}`).join("\n");
   }
 
   // 关键词 Search Terms：内容为标题信息
@@ -1521,13 +1521,9 @@ async function saveProduct(publishImmediately = false) {
       const productId = (result.data && result.data.id) ? result.data.id : (editingProductId || 1);
       showToast(`✅ 商品${actionDesc}成功！正在跳转商品管理列表...`);
 
-      // 录入/编辑商品提交成功后，自动跳转到商品列表页面并按需自动调起上件
+      // 录入/编辑商品提交成功后，自动跳转到商品列表页面
       setTimeout(() => {
-        if (publishImmediately) {
-          window.location.href = `/list?publish=${productId}`;
-        } else {
-          window.location.href = "/list";
-        }
+        window.location.href = "/list";
       }, 600);
     } else {
       showToast(`${actionDesc}失败: ${result.msg}`, "error");
@@ -1545,7 +1541,7 @@ async function loadProductForEdit(productId) {
   try {
     const banner = document.getElementById("editModeBanner");
     const hint = document.getElementById("editModeHintText");
-    if (banner) banner.style.display = "block";
+    if (banner) banner.style.display = "inline-flex";
     if (hint) hint.textContent = `正在加载商品 #${productId} 结构化数据...`;
 
     const res = await fetch(`/api/products/${productId}`);
@@ -1563,9 +1559,7 @@ async function loadProductForEdit(productId) {
 
     // 动态调整保存按钮文案
     const saveBtn = document.getElementById("saveProductBtn");
-    if (saveBtn) saveBtn.textContent = "💾 保存修改并更新数据库";
-    const pubBtn = document.getElementById("publishProductBtn");
-    if (pubBtn) pubBtn.textContent = "🚀 保存修改并一键上件到店小秘";
+    if (saveBtn) saveBtn.textContent = "保存修改";
 
     // 1. 店铺与基础配置
     const storeSel = document.getElementById("storeAccountSelect");
@@ -2211,8 +2205,5 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (clearAllExtraBtn) clearAllExtraBtn.addEventListener("click", clearAllExtraImages);
 
   const saveBtn = document.getElementById("saveProductBtn");
-  if (saveBtn) saveBtn.addEventListener("click", () => saveProduct(false));
-
-  const publishBtn = document.getElementById("publishProductBtn");
-  if (publishBtn) publishBtn.addEventListener("click", () => saveProduct(true));
+  if (saveBtn) saveBtn.addEventListener("click", () => saveProduct());
 });

@@ -49,9 +49,13 @@ async def list_tasks(
     return {"code": 0, "msg": "查询成功", "data": tasks, "total": len(tasks)}
 
 
-@router.get("/products/options", summary="获取可关联的商品下拉选项列表")
-async def get_product_options(user: dict = Depends(require_auth)):
-    products = TaskService.get_product_options()
+@router.get("/products/options", summary="获取可关联的商品下拉选项列表 (仅未关联商品，支持 SKU 检索)")
+async def get_product_options(
+    task_id: Optional[int] = Query(None, description="当前任务 ID (放行该任务已关联的商品)"),
+    keyword: Optional[str] = Query(None, description="按 Parent SKU / SKU / 标题模糊筛选"),
+    user: dict = Depends(require_auth)
+):
+    products = TaskService.get_product_options(task_id=task_id, keyword=keyword)
     return {"code": 0, "msg": "获取成功", "data": products}
 
 

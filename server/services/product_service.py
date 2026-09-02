@@ -609,12 +609,21 @@ class ProductService:
 
                 # 查询关联的 SKU-EAN 映射表记录
                 cursor.execute("""
-                SELECT * FROM sku_ean_mappings 
-                WHERE parent_sku = ? 
+                SELECT * FROM sku_ean_mappings
+                WHERE parent_sku = ?
                 ORDER BY id ASC
                 """, (parent_sku,))
                 m_rows = cursor.fetchall()
                 product["sku_ean_mappings"] = [dict(m) for m in m_rows]
+
+                # 查询关联该商品的任务列表
+                cursor.execute("""
+                SELECT id, title, status, assigned_to, assigned_to_name, result_url, updated_at
+                FROM tasks
+                WHERE product_id = ?
+                ORDER BY id DESC
+                """, (product_id,))
+                product["linked_tasks"] = [dict(t) for t in cursor.fetchall()]
 
                 return product
 
@@ -682,7 +691,25 @@ class ProductService:
 
             cursor.execute(query, tuple(params))
             rows = cursor.fetchall()
-            return [dict(r) for r in rows]
+            products = [dict(r) for r in rows]
+
+            # 批量查询各商品关联的任务 (tasks.product_id 指向父商品 id)
+            if products:
+                pids = [p["id"] for p in products]
+                placeholders = ",".join("?" for _ in pids)
+                cursor.execute(f"""
+                SELECT id, title, status, assigned_to, assigned_to_name, product_id, updated_at
+                FROM tasks
+                WHERE product_id IN ({placeholders})
+                ORDER BY id DESC
+                """, tuple(pids))
+                tasks_by_pid: Dict[int, List[Dict[str, Any]]] = {}
+                for t in cursor.fetchall():
+                    tasks_by_pid.setdefault(t["product_id"], []).append(dict(t))
+                for p in products:
+                    p["linked_tasks"] = tasks_by_pid.get(p["id"], [])
+
+            return products
         finally:
             conn.close()
 

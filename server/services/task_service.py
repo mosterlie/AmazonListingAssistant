@@ -166,6 +166,15 @@ class TaskService:
             if not p_row:
                 raise ValueError("所选关联商品不存在或已被删除！")
 
+            # 校验该商品是否已被其它任务关联 (同一商品只能被一个任务关联)
+            cursor.execute(
+                "SELECT id, title FROM tasks WHERE product_id = ? AND id != ?;",
+                (product_id, task_id)
+            )
+            other = cursor.fetchone()
+            if other:
+                raise ValueError(f"该商品已被任务 #{other['id']}《{other['title']}》关联，不能重复关联！")
+
             product_title = p_row["title"] or ""
             product_parent_sku = p_row["parent_sku"] or ""
             product_main_image = p_row["main_image"] or ""
@@ -258,18 +267,32 @@ class TaskService:
             conn.close()
 
     @staticmethod
-    def get_product_options() -> List[Dict[str, Any]]:
-        """获取供任务关联选择的已录入商品列表下拉选项"""
+    def get_product_options(task_id: Optional[int] = None, keyword: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        获取供任务关联选择的已录入商品列表下拉选项
+        - 仅返回尚未被任何任务关联的商品 (tasks.product_id 未引用)
+        - task_id 非空时，额外放行该任务当前已关联的商品 (便于重新登记)
+        - keyword 非空时，按 Parent SKU / SKU / 标题模糊过滤
+        """
         conn = get_db_connection()
         cursor = conn.cursor()
 
         try:
-            cursor.execute("""
+            sql = """
             SELECT id, title, parent_sku, store_account, main_image, created_at
             FROM product_items
             WHERE is_parent = 1
-            ORDER BY id DESC;
-            """)
+              AND (id = ? OR id NOT IN (SELECT product_id FROM tasks WHERE product_id IS NOT NULL AND product_id > 0))
+            """
+            params: List[Any] = [task_id if task_id else 0]
+
+            if keyword and keyword.strip():
+                kw = f"%{keyword.strip()}%"
+                sql += " AND (parent_sku LIKE ? OR sku LIKE ? OR title LIKE ?)"
+                params.extend([kw, kw, kw])
+
+            sql += " ORDER BY id DESC;"
+            cursor.execute(sql, params)
             rows = cursor.fetchall()
             return [dict(r) for r in rows]
         finally:

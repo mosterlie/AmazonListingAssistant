@@ -41,6 +41,16 @@ class ERPBridgeService:
                 except Exception:
                     pass
 
+        # 0. 清理上次上件异常卡死后遗留的 Playwright Node 驱动僵尸进程,
+        #    否则旧驱动抱着 CDP 连接, 会导致本次上件"打不开页面"
+        try:
+            from core.browser_manager import cleanup_stale_drivers
+            killed = cleanup_stale_drivers()
+            if killed:
+                emit_log(f"🧹 已清理 {killed} 个上次遗留的浏览器自动化驱动进程 (Node.js 残留)")
+        except Exception:
+            pass
+
         engine = BrowserEngine(port=9222)
 
         if not engine.is_running():
@@ -83,6 +93,14 @@ class ERPBridgeService:
             except Exception as nav_e:
                 print(f"⚠️ 页面跳转提示: {nav_e}")
             time.sleep(1.5)
+            # 0.5 关闭店小秘自动弹窗 (公告/活动/提示浮层), 避免遮挡后续表单操作
+            try:
+                closed_n = engine.close_all_popups()
+                if closed_n:
+                    emit_log(f"🧹 已自动关闭 {closed_n} 个页面弹窗")
+                    time.sleep(0.5)
+            except Exception as pop_e:
+                print(f"⚠️ 弹窗清理提示: {pop_e}")
             active_tab = engine.get_active_tab_info()
             emit_log(f"🎯 已定位前台操作页面: 【{active_tab.title if active_tab else '店小秘--添加亚马逊产品'}】")
 
@@ -500,9 +518,16 @@ class ERPBridgeService:
                 emit_log(f"✅ 五点描述 (Bullet Points {len(bps)} 项) 填入完成！")
                 time.sleep(0.3)
 
-            # 3. 商品长描述 (Description)
+            # 3. 商品长描述 (Description) — 多行描述且无序号时自动按行补 1. 2. 3. 序号
             desc_text = product.get("description", "").strip()
             if desc_text:
+                desc_lines = [ln.strip() for ln in desc_text.split("\n") if ln.strip()]
+                if len(desc_lines) >= 2:
+                    import re as _re
+                    numbered = sum(1 for ln in desc_lines if _re.match(r"^\d+[\.、]", ln))
+                    if numbered < len(desc_lines) - 1:  # 大部分行没有序号才补
+                        desc_text = "\n".join(f"{i}. {ln}" for i, ln in enumerate(desc_lines, 1))
+                        emit_log("ℹ️ 描述多行无序号，已自动添加序号 (1. 2. 3. ...)")
                 engine.fill_description(desc_text)
                 emit_log("✅ 商品详细长描述填入完成！")
                 time.sleep(0.3)
@@ -570,3 +595,18 @@ class ERPBridgeService:
             emit_log(err_msg)
             ProductService.update_product_status(product_id, "failed", "\n".join(logs))
             return {"success": False, "msg": err_msg, "logs": logs}
+        finally:
+            # 自愈: 上件结束后检测调度线程是否卡死 (页面卡住/驱动失联),
+            # 卡死则强杀 Node 驱动并重建线程, 保证下一次上件不再"打不开页面";
+            # 正常则优雅关闭, 避免 Playwright 驱动进程残留
+            try:
+                if engine.manager.is_healthy(timeout=5):
+                    engine.manager.close()
+                else:
+                    emit_log("🧹 检测到浏览器自动化线程卡死，已强制清理残留驱动进程")
+                    engine.manager.hard_reset()
+            except Exception:
+                try:
+                    engine.manager.hard_reset()
+                except Exception:
+                    pass

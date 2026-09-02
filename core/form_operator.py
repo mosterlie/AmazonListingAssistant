@@ -1760,35 +1760,55 @@ class FormOperator:
             return True
 
         try:
-            # 1. 尝试直接填充 textarea
-            desc_area = self.page.locator("textarea[name*='desc'], textarea[placeholder*='描述'], #form_item_description, #description").first
-            if desc_area.count() > 0:
-                desc_area.scroll_into_view_if_needed()
-                desc_area.fill(description_text)
-                desc_area.dispatch_event("input")
-                desc_area.dispatch_event("change")
-                return True
-
-            # 2. 尝试 CKEditor / 富文本 iframe 或 contenteditable
+            # 1. 优先填充富文本编辑器 (店小秘描述为 UEditor/CKEditor 类编辑器, 必须写 HTML 否则换行丢失)
             js_fill = """
             (desc) => {
+                const html = desc.replace(/\\n/g, '<br/>');
+                // UEditor (百度富文本, 店小秘常用)
+                if (window.UE) {
+                    try {
+                        const instances = window.UE.instances || {};
+                        for (const key of Object.keys(instances)) {
+                            const ed = instances[key];
+                            if (ed && ed.setContent) {
+                                ed.setContent(html);
+                                ed.sync && ed.sync();
+                                return true;
+                            }
+                        }
+                    } catch (e) {}
+                }
+                // CKEditor
                 if (window.CKEDITOR) {
                     for (let instance in window.CKEDITOR.instances) {
-                        window.CKEDITOR.instances[instance].setData(desc);
+                        window.CKEDITOR.instances[instance].setData(html);
                         return true;
                     }
                 }
-                const editor = document.querySelector('.cke_editable, .w-e-text, div[contenteditable="true"]');
+                // wangEditor / 原生 contenteditable
+                const editor = document.querySelector('.cke_editable, .w-e-text, div[contenteditable="true"], iframe~div[contenteditable]');
                 if (editor) {
-                    editor.innerHTML = desc.replace(/\\n/g, '<br/>');
+                    editor.innerHTML = html;
                     editor.dispatchEvent(new Event('input', { bubbles: true }));
                     return true;
                 }
                 return false;
             }
             """
-            res = self.page.evaluate(js_fill, description_text)
-            if res:
+            try:
+                res = self.page.evaluate(js_fill, description_text)
+                if res:
+                    return True
+            except Exception:
+                pass
+
+            # 2. 兜底: textarea 直填 (保留 \n 纯文本换行)
+            desc_area = self.page.locator("textarea[name*='desc'], textarea[placeholder*='描述'], #form_item_description, #description").first
+            if desc_area.count() > 0:
+                desc_area.scroll_into_view_if_needed()
+                desc_area.fill(description_text)
+                desc_area.dispatch_event("input")
+                desc_area.dispatch_event("change")
                 return True
         except Exception:
             pass
@@ -2024,5 +2044,67 @@ class FormOperator:
             print(f"⚠️ 点击保存草稿异常: {e}")
 
         return False
+
+    def close_all_popups(self, max_rounds: int = 3) -> int:
+        """
+        关闭店小秘页面上的自动弹窗 (公告/活动/提示类浮层)
+        策略: 在可见浮层容器内寻找关闭控件逐一点击, 多轮清理 + Escape 兜底
+        :return: 成功关闭的弹窗数量
+        """
+        js_close = """
+        () => {
+            const isVisible = (el) => {
+                try {
+                    const s = getComputedStyle(el);
+                    if (s.display === 'none' || s.visibility === 'hidden' || +s.opacity === 0) return false;
+                    const r = el.getBoundingClientRect();
+                    return r.width > 30 && r.height > 15;
+                } catch (e) { return false; }
+            };
+            const OVERLAY_SEL = ".modal, .layui-layer, .el-dialog, .el-dialog__wrapper, .ant-modal, "
+                + "div[class*='dialog'], div[class*='Dialog'], div[class*='popup'], div[class*='Popup'], "
+                + "div[class*='modal'], div[class*='Modal'], div[class*='mask'], div[class*='Mask'], div[class*='notice']";
+            const CLOSE_SEL = [
+                '.modal .close', '[data-dismiss="modal"]', 'button[aria-label="Close"]',
+                '.layui-layer-close', '.el-dialog__headerbtn', '.ant-modal-close',
+                "img[src*='close']", "i[class*='close']", "span[class*='close']",
+                "em[class*='close']", "a[class*='close']", "div[class*='close']",
+                "button[class*='close']", "[class*='closeBtn']", "[class*='close-btn']"
+            ].join(',');
+            let closed = 0;
+            let nodes;
+            try { nodes = document.querySelectorAll(CLOSE_SEL); } catch (e) { return 0; }
+            for (const el of nodes) {
+                try {
+                    if (!isVisible(el)) continue;
+                    const host = el.closest(OVERLAY_SEL);
+                    if (!host || !isVisible(host)) continue;
+                    el.click();
+                    closed++;
+                } catch (e) {}
+            }
+            return closed;
+        }
+        """
+        total = 0
+        for _ in range(max_rounds):
+            try:
+                n = int(self.page.evaluate(js_close) or 0)
+            except Exception:
+                n = 0
+            if not n:
+                break
+            total += n
+            try:
+                self.page.wait_for_timeout(400)
+            except Exception:
+                break
+        # Escape 兜底 (部分弹窗支持键盘关闭)
+        try:
+            self.page.keyboard.press("Escape")
+            self.page.wait_for_timeout(300)
+        except Exception:
+            pass
+        return total
 
 
