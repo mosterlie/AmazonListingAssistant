@@ -18,7 +18,17 @@ const settingsState = {
     rel_sku: "sku"
   },
   session_expire_hours: 1.0,
-  chrome_user_data_dir: ""
+  chrome_user_data_dirs: {
+    mac: "~/ChromeDebugUser",
+    win: "D:\\ChromeDebugUser"
+  },
+  ai_config: {
+    bullets_source: "public",
+    ollama_model: "qwen2.5:1.5b-instruct-q4_K_M",
+    api_base_url: "https://api.deepseek.com",
+    model_name: "deepseek-v4-flash",
+    api_key: ""
+  }
 };
 
 function showToast(msg, type = "success") {
@@ -58,7 +68,12 @@ async function loadSettings() {
         settingsState.storagePaths = { ...result.data.storage_paths };
       }
       settingsState.session_expire_hours = result.data.session_expire_hours !== undefined ? parseFloat(result.data.session_expire_hours) : 1.0;
-      settingsState.chrome_user_data_dir = result.data.chrome_user_data_dir || "";
+      if (result.data.chrome_user_data_dirs) {
+        settingsState.chrome_user_data_dirs = { ...settingsState.chrome_user_data_dirs, ...result.data.chrome_user_data_dirs };
+      }
+      if (result.data.ai_config) {
+        settingsState.ai_config = { ...settingsState.ai_config, ...result.data.ai_config };
+      }
 
       populateForm();
     }
@@ -82,7 +97,8 @@ function populateForm() {
   const previewRelMain = document.getElementById("previewRelMain");
   const previewRelSku = document.getElementById("previewRelSku");
   const sessionExpInp = document.getElementById("sessionExpireHoursInput");
-  const chromeDirInp = document.getElementById("chromeUserDataDirInput");
+  const chromeDirMacInp = document.getElementById("chromeUserDataDirMacInput");
+  const chromeDirWinInp = document.getElementById("chromeUserDataDirWinInput");
 
   if (taxInp) taxInp.value = settingsState.pricingConfig.tax_rate;
   if (exInp) exInp.value = settingsState.pricingConfig.exchange_rate;
@@ -103,7 +119,22 @@ function populateForm() {
     if (previewRelSku) previewRelSku.innerText = `${relSkuInp.value}/`;
   }
   
-  if (chromeDirInp) chromeDirInp.value = settingsState.chrome_user_data_dir || "";
+  if (chromeDirMacInp) chromeDirMacInp.value = settingsState.chrome_user_data_dirs.mac || "~/ChromeDebugUser";
+  if (chromeDirWinInp) chromeDirWinInp.value = settingsState.chrome_user_data_dirs.win || "D:\\ChromeDebugUser";
+
+  const aiLocalRadio = document.getElementById("aiSourceLocal");
+  const aiPublicRadio = document.getElementById("aiSourcePublic");
+  if (aiLocalRadio && aiPublicRadio) {
+    (settingsState.ai_config.bullets_source === "local" ? aiLocalRadio : aiPublicRadio).checked = true;
+  }
+  const aiOllamaInp = document.getElementById("aiOllamaModelInput");
+  if (aiOllamaInp) aiOllamaInp.value = settingsState.ai_config.ollama_model || "qwen2.5:1.5b-instruct-q4_K_M";
+  const aiBaseInp = document.getElementById("aiApiBaseUrlInput");
+  if (aiBaseInp) aiBaseInp.value = settingsState.ai_config.api_base_url || "https://api.deepseek.com";
+  const aiModelInp = document.getElementById("aiModelNameInput");
+  if (aiModelInp) aiModelInp.value = settingsState.ai_config.model_name || "deepseek-v4-flash";
+  const aiKeyInp = document.getElementById("aiApiKeyInput");
+  if (aiKeyInp) aiKeyInp.value = settingsState.ai_config.api_key || "";
 
   const isNever = (settingsState.session_expire_hours !== undefined && parseFloat(settingsState.session_expire_hours) <= 0);
   const neverChk = document.getElementById("sessionNeverExpireCheckbox");
@@ -314,7 +345,17 @@ async function saveSettings() {
       rel_sku: relSku
     },
     session_expire_hours: sessionExp,
-    chrome_user_data_dir: (document.getElementById("chromeUserDataDirInput")?.value || "").trim()
+    chrome_user_data_dirs: {
+      mac: (document.getElementById("chromeUserDataDirMacInput")?.value || "").trim(),
+      win: (document.getElementById("chromeUserDataDirWinInput")?.value || "").trim()
+    },
+    ai_config: {
+      bullets_source: document.getElementById("aiSourceLocal")?.checked ? "local" : "public",
+      ollama_model: (document.getElementById("aiOllamaModelInput")?.value || "qwen2.5:1.5b-instruct-q4_K_M").trim(),
+      api_base_url: (document.getElementById("aiApiBaseUrlInput")?.value || "https://api.deepseek.com").trim(),
+      model_name: (document.getElementById("aiModelNameInput")?.value || "deepseek-v4-flash").trim(),
+      api_key: (document.getElementById("aiApiKeyInput")?.value || "").trim()
+    }
   };
 
   try {
@@ -332,9 +373,14 @@ async function saveSettings() {
       if (result.data.session_expire_hours !== undefined) {
         settingsState.session_expire_hours = result.data.session_expire_hours;
       }
-      if (result.data.chrome_user_data_dir !== undefined) {
-        settingsState.chrome_user_data_dir = result.data.chrome_user_data_dir;
+      if (result.data.chrome_user_data_dirs !== undefined) {
+        settingsState.chrome_user_data_dirs = result.data.chrome_user_data_dirs;
       }
+      if (result.data.ai_config !== undefined) {
+        settingsState.ai_config = result.data.ai_config;
+      }
+      // 状态全部更新后再刷新表单, 避免用旧值覆盖刚保存的选项 (如五点描述生成来源单选框)
+      populateForm();
       const isNever = (parseFloat(settingsState.session_expire_hours) <= 0);
       showToast(`🎉 系统管理配置（店铺、计价、归档目录、Session【${isNever ? '♾️ 永久有效' : settingsState.session_expire_hours + 'h'}】）已成功保存！`);
     } else {
@@ -364,6 +410,14 @@ function resetDefaults() {
       rel_sku: "sku"
     };
     settingsState.session_expire_hours = 1.0;
+    settingsState.chrome_user_data_dirs = { mac: "~/ChromeDebugUser", win: "D:\\ChromeDebugUser" };
+    settingsState.ai_config = {
+      bullets_source: "public",
+      ollama_model: "qwen2.5:1.5b-instruct-q4_K_M",
+      api_base_url: "https://api.deepseek.com",
+      model_name: "deepseek-v4-flash",
+      api_key: ""
+    };
     populateForm();
     showToast("已重置为默认值，请点击保存生效！");
   }

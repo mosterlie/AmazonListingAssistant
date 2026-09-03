@@ -112,12 +112,71 @@ async function onStoreAccountChanged() {
     const result = await res.json();
     if (result.code === 0 && result.data) {
       if (parentSkuInp) parentSkuInp.value = result.data.parent_sku || "";
+      // 记录自动 SKU 基础段 (登录账号+序号), 供商品标识翻译联动拼接后缀
+      window.autoParentSkuBase = result.data.parent_sku || "";
       if (modelNameInp) modelNameInp.value = result.data.model_name || (brandName ? `${brandName}1` : "");
       if (modelNumInp && !modelNumInp.value) modelNumInp.value = result.data.model_number || brandName;
     }
   } catch (e) {
     console.error("获取自动序列号异常:", e);
   }
+}
+
+/**
+ * Parent SKU 与 商品标识翻译联动: 商品标识翻译变更时, SKU 后缀实时更新为 "-英文标识"
+ * 仅在新建模式且 SKU 基础段未被手工改动时生效
+ */
+function bindIdentifierToParentSku() {
+  const idTransInp = document.getElementById("identifierTranslationInput");
+  const parentSkuInp = document.getElementById("parentSkuInput");
+  if (!idTransInp || !parentSkuInp) return;
+
+  idTransInp.addEventListener("input", () => {
+    if (window.isLoadingProductForEdit) return;
+    const base = (window.autoParentSkuBase || "").trim();
+    if (!base) return;
+    const current = parentSkuInp.value.trim();
+    // 仅当 SKU 仍为自动格式 (基础段 或 基础段-后缀) 时联动, 手工改动过则不覆盖
+    if (current !== base && !current.startsWith(base + "-")) return;
+    // 后缀仅保留纯英文字母 (如 Dog-Shaped -> DogShaped)
+    const translation = (idTransInp.value || "").replace(/[^A-Za-z]/g, "");
+    const newSku = translation ? `${base}-${translation}` : base;
+    if (newSku !== current) {
+      parentSkuInp.value = newSku;
+      // 父 SKU 变更后, 同步刷新自动生成的子 SKU 前缀 (父SKU01、父SKU02...)
+      syncChildSkusWithParent(current, newSku);
+    }
+  });
+}
+
+/**
+ * 父 SKU 变更时, 同步刷新自动生成的子 SKU 前缀 (仅覆盖未手工修改过的子 SKU)
+ * 规则: 子 SKU = 父 SKU + "-" + 序号 (如 admin25-DogToilet-01)
+ */
+function syncChildSkusWithParent(oldParent, newParent) {
+  if (!state.variations || state.variations.length === 0) return;
+  let changed = false;
+  state.variations.forEach(v => {
+    if (v.sku_manual) return;
+    const sku = (v.sku || "").trim();
+    if (!sku) return;
+    if (oldParent && (sku.startsWith(oldParent + "-") || sku.startsWith(oldParent))) {
+      const rest = sku.slice(oldParent.length);
+      // 仅同步符合 父SKU(-)序号 格式的子 SKU (兼容新旧格式: -01 / 01)
+      if (/^-?\d{2,}$/.test(rest)) {
+        v.sku = newParent + rest;
+        changed = true;
+      }
+    } else if (!oldParent) {
+      // 无旧父 SKU 时: 剥离任意旧前缀, 按尾部序号重挂新父 SKU
+      const m = sku.match(/^(.+?)(-?\d{2,})$/);
+      if (m) {
+        v.sku = newParent + m[2];
+        changed = true;
+      }
+    }
+  });
+  if (changed) renderMatrixTable();
 }
 
 /**
@@ -934,7 +993,8 @@ async function autoGenerateMatrix() {
     return;
   }
 
-  const baseSku = (document.getElementById("baseSkuInput")?.value || document.getElementById("parentSkuInput")?.value || "SKU").trim().toUpperCase();
+  // 子 SKU 规则: 父 SKU + 两位序号 (父SKU01、父SKU02...), 优先取父 SKU, 其次批量前缀
+  const baseSku = (document.getElementById("parentSkuInput")?.value || document.getElementById("baseSkuInput")?.value || "SKU").trim();
   const basePurchasePrice = parseFloat(document.getElementById("batchPurchasePriceInput")?.value) || 0;
   const baseProfitCoeff = parseFloat(document.getElementById("batchProfitCoeffInput")?.value) || (state.pricingConfig.default_profit_coeff || 1.0);
   const baseQty = parseInt(document.getElementById("batchQtyInput")?.value || 40, 10);
@@ -971,7 +1031,8 @@ async function autoGenerateMatrix() {
           item.weight = old.weight !== undefined ? old.weight : 0;
           item.purchase_price = old.purchase_price !== undefined ? old.purchase_price : (basePurchasePrice || 0);
           item.profit_coefficient = old.profit_coefficient !== undefined ? old.profit_coefficient : baseProfitCoeff;
-          if (old.sku) item.sku = old.sku;
+          // 手工改过的子 SKU 保留, 自动生成的按父 SKU+序号 规则重新生成
+          if (old.sku_manual && old.sku) item.sku = old.sku;
           if (old.ean && old.ean.trim()) item.ean = old.ean.trim();
           if (old.price_jpy) item.price_jpy = old.price_jpy;
           if (old.quantity) item.quantity = old.quantity;
@@ -1143,6 +1204,8 @@ function renderMatrixTable() {
     inp.addEventListener("input", (e) => {
       const idx = e.target.dataset.idx;
       state.variations[idx].sku = e.target.value;
+      // 标记为手工修改, 父 SKU 变更与矩阵重生成时不再自动覆盖
+      state.variations[idx].sku_manual = true;
       if (globalTooltipEl && globalTooltipEl.style.display !== "none") {
         globalTooltipEl.innerText = e.target.value;
       }
@@ -1364,6 +1427,9 @@ async function saveProduct() {
   const parent_sku = document.getElementById("parentSkuInput")?.value.trim() || "";
   const manufacturer = document.getElementById("manufacturerInput")?.value.trim() || "";
   const title = document.getElementById("titleInput")?.value.trim();
+  const title_translation = document.getElementById("titleTranslationInput")?.value.trim() || "";
+  const product_identifier = document.getElementById("productIdentifierInput")?.value.trim() || "";
+  const identifier_translation = document.getElementById("identifierTranslationInput")?.value.trim() || "";
   const sale_type = document.querySelector("input[name='saleTypeRadio']:checked")?.value || document.getElementById("saleTypeSelect")?.value || "variation";
   const variation_theme = document.getElementById("variationThemeSelect")?.value || "カラー/サイズ(颜色/尺寸)";
 
@@ -1465,6 +1531,9 @@ async function saveProduct() {
     product_id_type: "EAN",
     product_id_value: "",
     title,
+    title_translation,
+    product_identifier,
+    identifier_translation,
     brand: document.getElementById("brandInput")?.value.trim() || "",
     category_name: "厕所托盘(トイレトレー)",
     category_type: "LITTER_BOX",
@@ -1571,6 +1640,13 @@ async function loadProductForEdit(productId) {
 
     const titleInp = document.getElementById("titleInput");
     if (titleInp) titleInp.value = p.title || "";
+
+    const prodIdInp = document.getElementById("productIdentifierInput");
+    if (prodIdInp) prodIdInp.value = p.product_identifier || "";
+    const titleTransInp = document.getElementById("titleTranslationInput");
+    if (titleTransInp) titleTransInp.value = p.title_translation || "";
+    const idTransInp = document.getElementById("identifierTranslationInput");
+    if (idTransInp) idTransInp.value = p.identifier_translation || "";
 
     const saleType = p.sale_type || "variation";
     const saleRadio = document.querySelector(`input[name='saleTypeRadio'][value='${saleType}']`);
@@ -1907,26 +1983,184 @@ function initKeywordsManager() {
       termsInp.value = titleInp.value;
     });
   }
+  // 标题自动级联: 输入停顿 1.2s 自动触发, 失焦时若标题已变化则立即触发
+  if (titleInp) {
+    titleInp.addEventListener("input", scheduleAutoTranslateTitle);
+    titleInp.addEventListener("blur", () => {
+      const title = titleInp.value.trim();
+      if (title && title !== lastAutoTranslatedTitle) {
+        clearTimeout(autoTranslateTimer);
+        runTitleAiCascade(title);
+      }
+    });
+  }
 }
 
 /**
- * 构建符合亚马逊日本电商表述习惯的五点描述与翻译 AI 提示词
+ * 本地 Ollama AI 级联处理: 标题翻译 -> 商品标识提炼 -> 商品标识英文翻译
+ * @param {string} mode   title_translation | identifier | identifier_translation
+ * @param {string} btnId  触发按钮 id
+ * @param {string} inpId  结果回填输入框 id
+ * @param {string} source 源文本 (title_translation 用产品标题, 其余用上游字段内容)
+ * @param {string} emptyHint 源文本为空时的提示
  */
-function buildJapaneseDescAiPrompt(title) {
-  const t = title ? title.trim() : "";
-  return `你是一位亚马逊日本的卖家，擅长基于日本的电商表述习惯生成商品描述。请基于这个品的日文标题，生成5点日语描述，避免废话。一点一个自然段。有标点符号。同时在最下方生成对应5条的中文翻译。输出格式如下：
-一、日文版
-&&&&&&&&&&&&&&&&&&&
-1.xxx
-2.xxx
-3.xxx
-4.xxx
-5.xxx
-&&&&&&&&&&&&&&&&&&&
-二、中文翻译
-1.xxx
-2.xxx
-具体标题如下：${t}`;
+// 同一按钮同时只允许一个 AI 请求, 防止并发覆盖按钮文案导致卡在"处理中"
+const aiBusyButtons = new Set();
+
+async function runAiTextProcess(mode, btnId, inpId, source, emptyHint) {
+  if (!source || !source.trim()) {
+    showToast(emptyHint, "error");
+    return false;
+  }
+  const btn = document.getElementById(btnId);
+  const inp = document.getElementById(inpId);
+  if (!btn || !inp) return false;
+  if (aiBusyButtons.has(btnId)) return false;
+
+  aiBusyButtons.add(btnId);
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "⏳ 处理中...";
+  try {
+    const res = await fetch("/api/products/extract-identifier", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, title: source, content: source })
+    });
+    const result = await res.json();
+    if (result.code === 0 && result.data?.result) {
+      inp.value = result.data.result;
+      // 程序赋值不触发 input 事件, 手动派发以驱动 Parent SKU 等下游联动
+      inp.dispatchEvent(new Event("input", { bubbles: true }));
+      showToast(`🤖 AI 处理完成: ${result.data.result}`);
+      return true;
+    }
+    showToast(`AI 处理失败: ${result.detail || result.msg || "未知错误"}`, "error");
+    return false;
+  } catch (err) {
+    showToast(`AI 处理异常: ${err.message}`, "error");
+    return false;
+  } finally {
+    aiBusyButtons.delete(btnId);
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+// 标题自动翻译: 输入停顿或失焦后自动触发 (标题变化时才重新翻译)
+let autoTranslateTimer = null;
+let lastAutoTranslatedTitle = "";
+
+/**
+ * 输入标题后全自动级联: 标题翻译 -> 商品标识提炼 -> 商品标识英文翻译
+ */
+async function runTitleAiCascade(title) {
+  const ok1 = await runAiTextProcess(
+    "title_translation", "translateTitleBtn", "titleTranslationInput",
+    title, "请先填写产品标题，再进行 AI 翻译！"
+  );
+  if (!ok1) return;
+  lastAutoTranslatedTitle = title;
+
+  const translation = document.getElementById("titleTranslationInput")?.value.trim() || "";
+  const ok2 = await runAiTextProcess(
+    "identifier", "extractIdentifierBtn", "productIdentifierInput",
+    translation, "请先完成标题翻译，再提炼商品标识！"
+  );
+  if (!ok2) return;
+
+  const identifier = document.getElementById("productIdentifierInput")?.value.trim() || "";
+  await runAiTextProcess(
+    "identifier_translation", "translateIdentifierBtn", "identifierTranslationInput",
+    identifier, "请先填写商品标识，再翻译成英文！"
+  );
+
+  // 标题级联完成后, 自动调用大模型生成五点描述 (来源: 本地 Ollama / 公共 API, 由管理台配置)
+  autoGenerateBullets(title);
+}
+
+/**
+ * 输入标题后自动调用大模型生成日文五点描述并回填 (提示词同 DeepSeek 助手)
+ * 生成来源 (本地 Ollama / 公共 API) 由管理台「AI 大模型配置」决定
+ */
+async function autoGenerateBullets(title) {
+  if (!title || !title.trim()) return;
+  try {
+    // 调用后端: 后端按管理台配置的来源 (local/public) 生成
+    const res = await fetch("/api/products/generate-bullets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title })
+    });
+    const result = await res.json();
+    if (result.code !== 0 || !result.data?.raw) {
+      showToast(`五点描述生成失败: ${result.detail || result.msg || "未知错误"}`, "error");
+      return;
+    }
+
+    // 3. 解析并回填 (复用 DeepSeek 回答的解析逻辑)
+    const parsed = extractAmpersandSection(result.data.raw);
+    if (parsed.extractedText && parsed.bullets.length >= 2) {
+      const descInp = document.getElementById("descriptionInput");
+      if (descInp) descInp.value = parsed.extractedText;
+      populateBulletPoints(parsed.bullets, parsed.chineseTranslations || []);
+      showToast(`🎉 AI 已自动生成 ${parsed.bullets.length} 条五点描述！`);
+    } else {
+      showToast("AI 生成结果解析失败，请检查五点描述区域或手动生成", "error");
+    }
+  } catch (err) {
+    showToast(`五点描述自动生成异常: ${err.message}`, "error");
+  }
+}
+
+function scheduleAutoTranslateTitle() {
+  const title = document.getElementById("titleInput")?.value.trim() || "";
+  if (!title || title === lastAutoTranslatedTitle) return;
+  clearTimeout(autoTranslateTimer);
+  autoTranslateTimer = setTimeout(() => {
+    const t = document.getElementById("titleInput")?.value.trim() || "";
+    if (!t || t === lastAutoTranslatedTitle) return;
+    runTitleAiCascade(t);
+  }, 1200);
+}
+
+function translateTitle() {
+  const title = document.getElementById("titleInput")?.value.trim() || "";
+  runTitleAiCascade(title);
+}
+
+function extractProductIdentifier() {
+  const translation = document.getElementById("titleTranslationInput")?.value.trim() || "";
+  runAiTextProcess("identifier", "extractIdentifierBtn", "productIdentifierInput", translation, "请先完成标题翻译，再提炼商品标识！");
+}
+
+function translateIdentifier() {
+  const identifier = document.getElementById("productIdentifierInput")?.value.trim() || "";
+  runAiTextProcess("identifier_translation", "translateIdentifierBtn", "identifierTranslationInput", identifier, "请先填写商品标识，再翻译成英文！");
+}
+
+/**
+ * 从后端获取五点描述提示词 (与「📝 查看提示词」及自动生成共用同一模板, 后端为唯一来源)
+ */
+async function fetchBulletsPrompt() {
+  const title = (document.getElementById("titleInput")?.value || "").trim();
+  if (!title) {
+    showToast("请先填写产品标题，再使用提示词功能！", "error");
+    return null;
+  }
+  try {
+    const res = await fetch("/api/products/ai-prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "bullets", title })
+    });
+    const result = await res.json();
+    if (result.code === 0 && result.data?.prompt) return result.data.prompt;
+    showToast(result.detail || result.msg || "获取提示词失败", "error");
+  } catch (e) {
+    showToast("获取提示词失败: " + e.message, "error");
+  }
+  return null;
 }
 
 /**
@@ -1995,150 +2229,36 @@ function populateBulletPoints(bullets, chineseTranslations = []) {
   reindexBulletPoints();
 }
 
-// 全局剪贴板自动监听器（当用户在 DeepSeek 点击复制后切回本页面，自动秒级捕获回填）
-let liveClipboardWatcherTimer = null;
-let lastCapturedClipboardText = "";
-
-function startLiveClipboardWatcher() {
-  if (liveClipboardWatcherTimer) clearInterval(liveClipboardWatcherTimer);
-
-  const checkClipboardOnce = async () => {
-    try {
-      if (!navigator.clipboard || !navigator.clipboard.readText) return;
-      const text = await navigator.clipboard.readText();
-      if (!text || text === lastCapturedClipboardText) return;
-
-      // 判断剪贴板文本是否包含 DeepSeek 生成的特征 (包含 & 标记，或包含 日文版，或包含多条日语五点描述)
-      if (text.includes("&") || text.includes("日文版") || (text.includes("1.") && /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(text))) {
-        const parsed = extractAmpersandSection(text);
-        if (parsed.extractedText && parsed.bullets.length >= 2) {
-          lastCapturedClipboardText = text;
-          const descInp = document.getElementById("descriptionInput");
-          if (descInp) {
-            descInp.value = parsed.extractedText;
-          }
-          populateBulletPoints(parsed.bullets, parsed.chineseTranslations || []);
-          showToast("🎉 已自动从剪贴板捕获 DeepSeek 回答并完成五点描述及翻译参考回填！");
-          descInp?.scrollIntoView({ behavior: "smooth", block: "center" });
-
-          // 回填成功后停止定时监听
-          clearInterval(liveClipboardWatcherTimer);
-          liveClipboardWatcherTimer = null;
-        }
-      }
-    } catch(e) {}
-  };
-
-  // 1. 用户切回当前标签页时立即触发检查
-  const onFocusHandler = () => {
-    checkClipboardOnce();
-  };
-  window.addEventListener("focus", onFocusHandler, { once: false });
-
-  // 2. 定时轮询 60 秒
-  let elapsed = 0;
-  liveClipboardWatcherTimer = setInterval(() => {
-    elapsed += 1.5;
-    checkClipboardOnce();
-    if (elapsed > 90) {
-      clearInterval(liveClipboardWatcherTimer);
-      liveClipboardWatcherTimer = null;
-    }
-  }, 1500);
-}
-
 function initAiPromptAssistant() {
   const genBtn = document.getElementById("generatePromptBtn");
   if (genBtn) {
-    genBtn.addEventListener("click", () => {
-      const title = document.getElementById("titleInput")?.value.trim() || "";
-      const promptText = buildJapaneseDescAiPrompt(title);
-
+    genBtn.addEventListener("click", async () => {
+      const promptText = await fetchBulletsPrompt();
+      if (!promptText) return;
       copyTextToClipboard(promptText, true);
     });
   }
 
-  const DEEPSEEK_TARGET_URL = "https://chat.deepseek.com/a/chat/s/7d257fd5-a7f7-482f-bec5-ba53f94f6725";
-
-  // 1. 仅跳转 DeepSeek 按钮（复制提示词 + 新标签页直达，不执行后台自动化回填）
+  // 跳转 DeepSeek 按钮 (仅复制提示词 + 打开 DeepSeek 页面, 不做自动回填)
   const jumpOnlyBtn = document.getElementById("jumpDeepSeekOnlyBtn");
   if (jumpOnlyBtn) {
-    jumpOnlyBtn.addEventListener("click", () => {
-      const title = document.getElementById("titleInput")?.value.trim() || "";
-      const promptText = buildJapaneseDescAiPrompt(title);
+    jumpOnlyBtn.addEventListener("click", async () => {
+      const promptText = await fetchBulletsPrompt();
+      if (!promptText) return;
 
       // 自动复制提示词到剪贴板
       copyTextToClipboard(promptText, false);
 
-      // 启动智能剪贴板监听（用户在 DeepSeek 复制回答切回本页时可自动秒级回填）
-      startLiveClipboardWatcher();
-
       // 在当前浏览器打开 DeepSeek 页面
       window.open(DEEPSEEK_TARGET_URL, "_blank");
 
-      showToast("🚀 已复制提示词并为您打开 DeepSeek（直接按 Ctrl+V 粘贴发送即可）！");
-    });
-  }
-
-  // 2. 跳转 DeepSeek 并通过 CDP 自动化自动填入、等待与回填按钮
-  const dsBtn = document.getElementById("openDeepSeekBtn");
-
-  if (dsBtn) {
-    dsBtn.addEventListener("click", async () => {
-      const title = document.getElementById("titleInput")?.value.trim() || "";
-      const promptText = buildJapaneseDescAiPrompt(title);
-
-      // 1. 同步备份复制到系统剪贴板
-      copyTextToClipboard(promptText, false);
-
-      // 2. 启动智能剪贴板回填监听器（切回标签页自动感知回填）
-      startLiveClipboardWatcher();
-
-      // 3. 同时直接打开指定的 DeepSeek 会话页面
-      window.open(DEEPSEEK_TARGET_URL, "_blank");
-
-      // 4. 后台调起 BrowserEngine 打开指定会话，自动填入提示词、点击发送并监听完成后自动点击复制
-      showToast("🚀 已为您打开 DeepSeek 会话页面（提示词已就绪，AI 生成完毕后将自动点击复制并秒级回填！）");
-      dsBtn.disabled = true;
-      dsBtn.innerHTML = `⏳ 监听回答中...`;
-
-      try {
-        const res = await fetch("/api/automation/deepseek-generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: promptText, target_url: DEEPSEEK_TARGET_URL })
-        });
-        const result = await res.json();
-        if (result.code === 0) {
-          let data = result.data || {};
-          if (data.data && typeof data.data === "object") {
-            data = data.data;
-          }
-
-          if (data.extracted_jp_text) {
-            const descInp = document.getElementById("descriptionInput");
-            if (descInp) {
-              descInp.value = data.extracted_jp_text;
-            }
-          }
-
-          if (data.bullet_points && data.bullet_points.length > 0) {
-            populateBulletPoints(data.bullet_points, data.chinese_translations || []);
-            showToast("🎉 已成功获取 DeepSeek 回答并完成 5 点描述及中文翻译参考回填！");
-            document.getElementById("descriptionInput")?.scrollIntoView({ behavior: "smooth", block: "center" });
-          } else {
-            syncBulletPointsFromDescription();
-          }
-        }
-      } catch (err) {
-        // 即使后台自动化未启动 CDP，前台的 LiveClipboardWatcher 也能 100% 自动回填
-      } finally {
-        dsBtn.disabled = false;
-        dsBtn.innerHTML = `🌐 跳转DS (自动回填)`;
-      }
+      showToast("🚀 提示词已复制，DeepSeek 页面已打开（直接按 Ctrl+V 粘贴发送即可）！");
     });
   }
 }
+
+// DeepSeek 会话页面地址
+const DEEPSEEK_TARGET_URL = "https://chat.deepseek.com/a/chat/s/7d257fd5-a7f7-482f-bec5-ba53f94f6725";
 
 function copyTextToClipboard(text, notify = true) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -2189,6 +2309,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   initBatchOperations();
   initBulletPointsManager();
   initKeywordsManager();
+  bindIdentifierToParentSku();
   initAiPromptAssistant();
 
   if (editingProductId) {
@@ -2204,6 +2325,85 @@ document.addEventListener("DOMContentLoaded", async () => {
   const clearAllExtraBtn = document.getElementById("clearAllExtraBtn");
   if (clearAllExtraBtn) clearAllExtraBtn.addEventListener("click", clearAllExtraImages);
 
+  const extractIdentifierBtn = document.getElementById("extractIdentifierBtn");
+  if (extractIdentifierBtn) extractIdentifierBtn.addEventListener("click", extractProductIdentifier);
+
+  const translateTitleBtn = document.getElementById("translateTitleBtn");
+  if (translateTitleBtn) translateTitleBtn.addEventListener("click", translateTitle);
+
+  const translateIdentifierBtn = document.getElementById("translateIdentifierBtn");
+  if (translateIdentifierBtn) translateIdentifierBtn.addEventListener("click", translateIdentifier);
+
+  // 📝 按钮: 查看各 AI 字段当前使用的 Ollama 提示词
+  document.querySelectorAll(".js-view-prompt").forEach(btn => {
+    btn.addEventListener("click", () => viewOllamaPrompt(btn.dataset.mode));
+  });
+
   const saveBtn = document.getElementById("saveProductBtn");
   if (saveBtn) saveBtn.addEventListener("click", () => saveProduct());
 });
+
+/**
+ * 查看指定模式当前实际使用的 Ollama 提示词 (取当前输入框内容)
+ */
+async function viewOllamaPrompt(mode) {
+  const title = (document.getElementById("titleInput")?.value || "").trim();
+  const contentMap = {
+    title_translation: null,
+    identifier: (document.getElementById("titleTranslationInput")?.value || "").trim(),
+    identifier_translation: (document.getElementById("productIdentifierInput")?.value || "").trim()
+  };
+  const content = contentMap[mode];
+  try {
+    const res = await fetch("/api/products/ai-prompt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, title, content })
+    });
+    const result = await res.json();
+    if (result.code !== 0 || !result.data?.prompt) {
+      showToast(result.detail || result.msg || "获取提示词失败", "error");
+      return;
+    }
+    showPromptModal(mode, result.data.prompt);
+  } catch (e) {
+    showToast("获取提示词失败: " + e.message, "error");
+  }
+}
+
+/**
+ * 提示词查看弹窗
+ */
+function showPromptModal(mode, promptText) {
+  const modeNames = {
+    title_translation: "标题翻译",
+    identifier: "商品标识提炼",
+    identifier_translation: "商品标识英文翻译",
+    bullets: "五点描述生成"
+  };
+  let modal = document.getElementById("promptViewModal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "promptViewModal";
+    modal.style.cssText = "position:fixed; inset:0; background:rgba(15,23,42,0.55); z-index:9999; display:flex; align-items:center; justify-content:center; padding:24px;";
+    modal.innerHTML = `
+      <div style="background:#fff; border-radius:12px; max-width:680px; width:100%; max-height:80vh; display:flex; flex-direction:column; box-shadow:0 20px 50px rgba(0,0,0,0.3);">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #e2e8f0;">
+          <strong style="font-size:0.95rem;">📝 大模型提示词 (五点描述生成)</strong>
+          <button id="promptModalCloseBtn" type="button" style="border:none; background:none; font-size:1.1rem; cursor:pointer; color:#64748b;">✕</button>
+        </div>
+        <pre id="promptModalText" style="margin:0; padding:16px 18px; overflow:auto; white-space:pre-wrap; word-break:break-all; font-size:0.82rem; line-height:1.6; color:#334155; background:#f8fafc; flex:1;"></pre>
+        <div style="padding:10px 18px; border-top:1px solid #e2e8f0; text-align:right;">
+          <button id="promptModalOkBtn" type="button" class="btn btn-primary btn-sm">关闭</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    // 点击遮罩或关闭按钮关闭
+    modal.addEventListener("click", e => { if (e.target === modal) modal.style.display = "none"; });
+    modal.querySelector("#promptModalCloseBtn").addEventListener("click", () => { modal.style.display = "none"; });
+    modal.querySelector("#promptModalOkBtn").addEventListener("click", () => { modal.style.display = "none"; });
+  }
+  modal.querySelector("strong").textContent = `📝 大模型提示词 (${modeNames[mode] || mode})`;
+  modal.querySelector("#promptModalText").textContent = promptText;
+  modal.style.display = "flex";
+}

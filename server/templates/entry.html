@@ -50,6 +50,32 @@
     <div class="form-group" style="margin-top:14px;">
       <label class="form-label required">产品标题</label>
       <input type="text" class="form-input" id="titleInput" value="" placeholder="请输入 Amazon 产品标题">
+      <!-- 标题翻译: 参考五点描述的中文翻译参考条样式, 输入标题后自动 AI 翻译 -->
+      <div class="bullet-point-cn-hint" style="margin-top:8px; margin-left:0; display:flex; align-items:center; gap:6px;">
+        <span style="color:#6366f1; font-weight:600; font-size:0.75rem; flex-shrink:0;">🤖 中文翻译:</span>
+        <input type="text" class="form-input" id="titleTranslationInput" value="" placeholder="输入标题后自动翻译，也可手工修改..." style="flex:1; min-width:0; padding:3px 8px; font-size:0.78rem; height:auto; background:transparent; border:1px dashed #cbd5e1;">
+        <button class="btn btn-outline btn-sm" id="translateTitleBtn" type="button" style="flex-shrink:0; padding:2px 8px; font-size:0.72rem; color:#7c3aed; border-color:#ddd6fe; background:#f5f3ff;" title="重新调用本地 Ollama 翻译标题">🔄</button>
+        <button class="btn btn-outline btn-sm js-view-prompt" data-mode="title_translation" type="button" style="flex-shrink:0; padding:2px 8px; font-size:0.72rem; color:#475569; border-color:#cbd5e1; background:#f8fafc;" title="查看标题翻译使用的 Ollama 提示词">📝</button>
+      </div>
+    </div>
+
+    <!-- 商品标识 + 英文翻译提示条 (与标题翻译样式一致, 本地 Ollama AI 自动级联处理) -->
+    <div class="form-group" style="margin-top:14px;">
+      <label class="form-label">
+        商品标识
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(标题翻译提炼成一个中文词，输入标题后自动处理)</span>
+      </label>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <input type="text" class="form-input" id="productIdentifierInput" value="" placeholder="如: 犬用厕所垫" style="flex:1; min-width:0;">
+        <button class="btn btn-outline btn-sm" id="extractIdentifierBtn" type="button" style="flex-shrink:0; padding:3px 8px; font-size:0.72rem; color:#7c3aed; border-color:#ddd6fe; background:#f5f3ff;" title="调用本地 Ollama 将标题翻译内容提炼成一个中文词">🤖 提炼</button>
+        <button class="btn btn-outline btn-sm js-view-prompt" data-mode="identifier" type="button" style="flex-shrink:0; padding:3px 8px; font-size:0.72rem; color:#475569; border-color:#cbd5e1; background:#f8fafc;" title="查看商品标识提炼使用的 Ollama 提示词">📝</button>
+      </div>
+      <div class="bullet-point-cn-hint" style="margin-top:8px; margin-left:0; display:flex; align-items:center; gap:6px;">
+        <span style="color:#6366f1; font-weight:600; font-size:0.75rem; flex-shrink:0;">🇬🇧 英文翻译:</span>
+        <input type="text" class="form-input" id="identifierTranslationInput" value="" placeholder="商品标识确认后自动翻译，也可手工修改..." style="flex:1; min-width:0; padding:3px 8px; font-size:0.78rem; height:auto; background:transparent; border:1px dashed #cbd5e1;">
+        <button class="btn btn-outline btn-sm" id="translateIdentifierBtn" type="button" style="flex-shrink:0; padding:2px 8px; font-size:0.72rem; color:#7c3aed; border-color:#ddd6fe; background:#f5f3ff;" title="重新调用本地 Ollama 翻译商品标识">🔄</button>
+        <button class="btn btn-outline btn-sm js-view-prompt" data-mode="identifier_translation" type="button" style="flex-shrink:0; padding:2px 8px; font-size:0.72rem; color:#475569; border-color:#cbd5e1; background:#f8fafc;" title="查看商品标识英文翻译使用的 Ollama 提示词">📝</button>
+      </div>
     </div>
 
     <!-- 售卖形式 (拆分为独立字段，单选样式，同店小秘) -->
@@ -82,9 +108,9 @@
     <div class="form-group" style="margin-bottom:0; max-width:480px;">
       <label class="form-label">
         Parent SKU (父SKU)
-        <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(登录用户账号+第几个品自动生成)</span>
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(登录账号+第几个品-商品标识翻译, 随英文标识联动)</span>
       </label>
-      <input type="text" class="form-input" id="parentSkuInput" value="" placeholder="如: admin1">
+      <input type="text" class="form-input" id="parentSkuInput" value="" placeholder="如: admin1-DogToilet">
     </div>
   </div>
 </div>
@@ -366,20 +392,18 @@
 <!-- 8. 描述信息 (对标店小秘 Amazon 描述规范) -->
 <div class="form-card">
   <div class="card-header">
-    <div class="card-title">
+    <div class="card-title" style="display:flex; align-items:center; gap:8px;">
       <div class="card-title-icon">8</div>
       <span>描述信息 (商品描述 / 五点描述)</span>
+      <button class="btn btn-outline btn-sm js-view-prompt" data-mode="bullets" type="button" style="flex-shrink:0; padding:2px 8px; font-size:0.72rem; color:#475569; border-color:#cbd5e1; background:#f8fafc;" title="查看五点描述生成使用的大模型提示词">📝</button>
     </div>
     <!-- AI 描述辅助操作区 -->
     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-      <button class="btn btn-primary btn-sm" id="generatePromptBtn" type="button" style="background:#7c3aed; border-color:#7c3aed; font-size:0.8rem; padding:4px 12px;" title="将提示词模板与当前标题拼接并自动复制到剪贴板">
+      <button class="btn btn-primary btn-sm" id="generatePromptBtn" type="button" style="background:#7c3aed; border-color:#7c3aed; font-size:0.8rem; padding:4px 12px;" title="从后端获取统一提示词模板（与查看提示词一致）并自动复制到剪贴板">
         ✨ 生成提示词
       </button>
-      <button class="btn btn-outline btn-sm" id="jumpDeepSeekOnlyBtn" type="button" style="color:#059669; border-color:#a7f3d0; background:#ecfdf5; font-size:0.8rem; padding:4px 10px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;" title="自动复制提示词并直接在浏览器中打开 DeepSeek 页面（仅跳转，不执行自动化回填）">
-        🚀 跳转DS (仅跳转)
-      </button>
-      <button class="btn btn-outline btn-sm" id="openDeepSeekBtn" type="button" style="color:#0284c7; border-color:#bae6fd; background:#f0f9ff; font-size:0.8rem; padding:4px 10px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;" title="点击自动通过浏览器 CDP 接管 DeepSeek 填入提示词并提交，等待回答自动回填">
-        🌐 跳转DS (自动回填)
+      <button class="btn btn-outline btn-sm" id="jumpDeepSeekOnlyBtn" type="button" style="color:#059669; border-color:#a7f3d0; background:#ecfdf5; font-size:0.8rem; padding:4px 10px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;" title="复制统一提示词并打开 DeepSeek 页面（不做自动回填）">
+        🚀 跳转DS
       </button>
       <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">对标店小秘 Amazon 描述标准</span>
     </div>

@@ -2048,7 +2048,7 @@ class FormOperator:
     def close_all_popups(self, max_rounds: int = 3) -> int:
         """
         关闭店小秘页面上的自动弹窗 (公告/活动/提示类浮层)
-        策略: 在可见浮层容器内寻找关闭控件逐一点击, 多轮清理 + Escape 兜底
+        策略: 在可见浮层容器内寻找关闭控件(右上角叉/关闭按钮)逐一点击, 多轮清理 + Escape 兜底
         :return: 成功关闭的弹窗数量
         """
         js_close = """
@@ -2058,30 +2058,53 @@ class FormOperator:
                     const s = getComputedStyle(el);
                     if (s.display === 'none' || s.visibility === 'hidden' || +s.opacity === 0) return false;
                     const r = el.getBoundingClientRect();
-                    return r.width > 30 && r.height > 15;
+                    return r.width > 10 && r.height > 10;
                 } catch (e) { return false; }
             };
-            const OVERLAY_SEL = ".modal, .layui-layer, .el-dialog, .el-dialog__wrapper, .ant-modal, "
+            const OVERLAY_SEL = ".modal, .layui-layer, .el-dialog, .el-dialog__wrapper, .ant-modal, .ant-modal-wrap, "
+                + ".swal2-container, .swal2-popup, .bootbox, "
                 + "div[class*='dialog'], div[class*='Dialog'], div[class*='popup'], div[class*='Popup'], "
                 + "div[class*='modal'], div[class*='Modal'], div[class*='mask'], div[class*='Mask'], div[class*='notice']";
             const CLOSE_SEL = [
-                '.modal .close', '[data-dismiss="modal"]', 'button[aria-label="Close"]',
-                '.layui-layer-close', '.el-dialog__headerbtn', '.ant-modal-close',
+                '.modal .close', '.modal-header .close', '[data-dismiss="modal"]', 'button[aria-label="Close"]',
+                '[aria-label*="lose"]', '[title*="关闭"]', '[title*="Close"]',
+                '.layui-layer-close', '.layui-layer-setwin a', '.el-dialog__headerbtn', '.ant-modal-close',
+                '.swal2-close',
                 "img[src*='close']", "i[class*='close']", "span[class*='close']",
                 "em[class*='close']", "a[class*='close']", "div[class*='close']",
-                "button[class*='close']", "[class*='closeBtn']", "[class*='close-btn']"
+                "button[class*='close']", "button[class*='Close']", "[class*='closeBtn']", "[class*='close-btn']"
             ].join(',');
             let closed = 0;
-            let nodes;
-            try { nodes = document.querySelectorAll(CLOSE_SEL); } catch (e) { return 0; }
-            for (const el of nodes) {
+            const clicked = new Set();
+            const tryClick = (el) => {
                 try {
-                    if (!isVisible(el)) continue;
+                    if (!isVisible(el) || clicked.has(el)) return;
                     const host = el.closest(OVERLAY_SEL);
-                    if (!host || !isVisible(host)) continue;
+                    if (!host || !isVisible(host)) return;
                     el.click();
+                    clicked.add(el);
                     closed++;
                 } catch (e) {}
+            };
+            let nodes;
+            try { nodes = document.querySelectorAll(CLOSE_SEL); } catch (e) { nodes = []; }
+            for (const el of nodes) { tryClick(el); }
+            // 兜底: 在可见浮层头部寻找文本为叉号的元素 (× ✕ ⨯ X), 通常是右上角关闭叉
+            let overlays;
+            try { overlays = document.querySelectorAll(OVERLAY_SEL); } catch (e) { overlays = []; }
+            for (const host of overlays) {
+                if (!isVisible(host)) continue;
+                const chars = el => {
+                    try { return (el.textContent || '').trim(); } catch (e) { return ''; }
+                };
+                const candidates = host.querySelectorAll('button, a, span, i, em, b, div, svg');
+                for (const el of candidates) {
+                    const t = chars(el);
+                    if (t.length <= 2 && ['×', '✕', '⨯', 'X', 'x', '╳'].includes(t)) {
+                        // 优先点击最内层元素, 避免父容器重复计数
+                        tryClick(el);
+                    }
+                }
             }
             return closed;
         }
@@ -2092,11 +2115,11 @@ class FormOperator:
                 n = int(self.page.evaluate(js_close) or 0)
             except Exception:
                 n = 0
-            if not n:
-                break
-            total += n
+            if n:
+                total += n
+            # 无论本轮是否关闭都稍作等待, 兼容延迟出现的弹窗
             try:
-                self.page.wait_for_timeout(400)
+                self.page.wait_for_timeout(600)
             except Exception:
                 break
         # Escape 兜底 (部分弹窗支持键盘关闭)

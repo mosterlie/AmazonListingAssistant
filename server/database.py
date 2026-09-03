@@ -40,6 +40,9 @@ def init_db():
         sale_type TEXT DEFAULT 'variation',
         model_number TEXT DEFAULT '',
         model_name TEXT DEFAULT '',
+        product_identifier TEXT DEFAULT '',
+        title_translation TEXT DEFAULT '',
+        identifier_translation TEXT DEFAULT '',
         item_length REAL DEFAULT 0,
         item_width REAL DEFAULT 0,
         item_height REAL DEFAULT 0,
@@ -89,8 +92,51 @@ def init_db():
     existing_items_cols = [col["name"] for col in cursor.fetchall()]
     if "brand" not in existing_items_cols:
         cursor.execute("ALTER TABLE product_items ADD COLUMN brand TEXT DEFAULT '';")
+    if "product_identifier" not in existing_items_cols:
+        cursor.execute("ALTER TABLE product_items ADD COLUMN product_identifier TEXT DEFAULT '';")
+    if "title_translation" not in existing_items_cols:
+        cursor.execute("ALTER TABLE product_items ADD COLUMN title_translation TEXT DEFAULT '';")
+    if "identifier_translation" not in existing_items_cols:
+        cursor.execute("ALTER TABLE product_items ADD COLUMN identifier_translation TEXT DEFAULT '';")
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_items_brand ON product_items(brand);")
+
+    # 0.0.1 大模型调用日志表 (记录每次五点描述调用的请求与回复, 用于 token 统计)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS llm_call_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scene TEXT DEFAULT 'bullets',
+        source TEXT DEFAULT '',
+        model TEXT DEFAULT '',
+        title TEXT DEFAULT '',
+        prompt TEXT DEFAULT '',
+        response TEXT DEFAULT '',
+        status TEXT DEFAULT 'success',
+        error_detail TEXT DEFAULT '',
+        prompt_tokens INTEGER DEFAULT 0,
+        completion_tokens INTEGER DEFAULT 0,
+        total_tokens INTEGER DEFAULT 0,
+        duration_ms INTEGER DEFAULT 0,
+        created_by TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_created_at ON llm_call_logs(created_at);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_llm_logs_scene ON llm_call_logs(scene);")
+    # 旧库向下兼容: 补充缺失字段
+    cursor.execute("PRAGMA table_info(llm_call_logs);")
+    existing_llm_cols = [col["name"] for col in cursor.fetchall()]
+    for col_def, col_name in [
+        ("title TEXT DEFAULT ''", "title"),
+        ("prompt_tokens INTEGER DEFAULT 0", "prompt_tokens"),
+        ("completion_tokens INTEGER DEFAULT 0", "completion_tokens"),
+        ("total_tokens INTEGER DEFAULT 0", "total_tokens"),
+        ("duration_ms INTEGER DEFAULT 0", "duration_ms"),
+        ("created_by TEXT DEFAULT ''", "created_by"),
+    ]:
+        if col_name not in existing_llm_cols:
+            cursor.execute(f"ALTER TABLE llm_call_logs ADD COLUMN {col_def};")
+
 
     # 0.1 SKU 与 EAN 对应流水映射表 (每新增一个 SKU+EAN 自动新增一条)
     cursor.execute("""

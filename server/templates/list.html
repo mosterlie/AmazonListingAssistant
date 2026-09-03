@@ -68,7 +68,7 @@
   </div>
   <div class="card-body" style="padding:0;">
     <div class="table-wrapper" style="overflow-x:auto;">
-      <table class="matrix-table" style="min-width: 1050px;">
+      <table class="matrix-table" style="min-width: 1160px;">
         <thead>
           <tr>
             <th style="width:55px;">ID</th>
@@ -76,6 +76,7 @@
             <th style="width:70px; text-align:center;">主图</th>
             <th style="width:150px;">Parent SKU</th>
             <th>商品标题</th>
+            <th style="width:110px;">商品标识</th>
             <th style="width:130px;">品番/型番</th>
             <th style="width:90px; text-align:center;">变体数</th>
             <th style="width:170px;">关联任务</th>
@@ -109,6 +110,13 @@
               <td style="font-family:monospace; font-weight:600; color:#0f172a;">{{ p.parent_sku or p.sku }}</td>
               <td style="font-weight:500; max-width:280px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{{ p.title }}">
                 {{ p.title }}
+              </td>
+              <td style="font-size:0.85rem;">
+                {% if p.product_identifier %}
+                  <span class="tag-badge" style="background:#f5f3ff; color:#7c3aed; font-weight:600;" title="英文: {{ p.identifier_translation or '-' }}">🤖 {{ p.product_identifier }}</span>
+                {% else %}
+                  <span style="color:#94a3b8; font-size:0.8rem;">-</span>
+                {% endif %}
               </td>
               <td style="font-size:0.85rem; color:#475569;">
                 <div><strong>{{ p.model_number or '-' }}</strong></div>
@@ -146,7 +154,7 @@
             {% endfor %}
           {% else %}
             <tr>
-              <td colspan="10" style="text-align:center; padding:50px; color:var(--text-muted);">
+              <td colspan="11" style="text-align:center; padding:50px; color:var(--text-muted);">
                 <div style="font-size:2rem; margin-bottom:10px;">📭</div>
                 <div>暂无已录入商品数据，请点击右上角【➕ 录入新商品】保存商品！</div>
               </td>
@@ -441,6 +449,20 @@ async function viewProductDetail(productId) {
           <div style="font-size:1.05rem; font-weight:700; color:#0f172a; line-height:1.55; word-break:break-word;">
             ${p.title || '<span style="color:#94a3b8;">未命名商品</span>'}
           </div>
+          <!-- AI 三字段: 标题翻译 / 商品标识 / 商品标识英文翻译 -->
+          ${(p.title_translation || p.product_identifier || p.identifier_translation) ? `
+          <div style="margin-top:10px; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; align-items:baseline; gap:8px;">
+              <span style="flex-shrink:0; color:#6366f1; font-weight:600; font-size:0.78rem;">🤖 中文翻译:</span>
+              <span style="font-size:0.88rem; color:#334155; word-break:break-word;">${p.title_translation || '-'}</span>
+            </div>
+            <div style="display:flex; align-items:baseline; gap:8px;">
+              <span style="flex-shrink:0; color:#6366f1; font-weight:600; font-size:0.78rem;">🤖 商品标识:</span>
+              <span style="font-size:0.88rem; color:#334155;">${p.product_identifier || '-'}</span>
+              <span style="flex-shrink:0; color:#94a3b8; font-size:0.78rem;">→ 英文:</span>
+              <span style="font-size:0.88rem; color:#334155; font-family:monospace;">${p.identifier_translation || '-'}</span>
+            </div>
+          </div>` : ''}
         </div>
 
         <div class="detail-grid">

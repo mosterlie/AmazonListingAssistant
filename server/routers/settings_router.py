@@ -2,6 +2,7 @@
 系统管理与全局配置 REST API 路由
 包含店铺账号列表维护、Calcfee 物流税率/汇率/售价系数等核心参数配置
 """
+import sys
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Union
@@ -26,6 +27,19 @@ class StoragePathsSchema(BaseModel):
     rel_sku: str = Field("sku", description="SKU图片相对子文件夹路径 (默认 sku)")
 
 
+class ChromeUserDataDirsSchema(BaseModel):
+    mac: str = Field("~/ChromeDebugUser", description="Mac 端 Chrome 9222 自动化专属用户数据目录")
+    win: str = Field("D:\\ChromeDebugUser", description="Windows 端 Chrome 9222 自动化专属用户数据目录")
+
+
+class AiConfigSchema(BaseModel):
+    bullets_source: str = Field("public", description="五点描述生成来源: local=本地 Ollama / public=公共大模型 API")
+    ollama_model: str = Field("qwen2.5:1.5b-instruct-q4_K_M", description="本地 Ollama 模型名称 (标题翻译/商品标识/五点描述均可用)")
+    api_base_url: str = Field("https://api.deepseek.com", description="公共大模型 API Base URL (OpenAI 兼容)")
+    model_name: str = Field("deepseek-v4-flash", description="公共大模型名称")
+    api_key: str = Field("sk-44d5b47efaa64e3a967efc0c8fc05ce2", description="公共大模型 API Key")
+
+
 class StoreBrandItemSchema(BaseModel):
     store_name: str = Field(..., min_length=1, description="店铺账号名称")
     brand_name: str = Field(..., min_length=1, description="对应品牌名称 (1对1必填)")
@@ -37,7 +51,8 @@ class SystemSettingsSchema(BaseModel):
     pricing_config: PricingConfigSchema = Field(default_factory=PricingConfigSchema, description="物流与计价核心参数")
     storage_paths: StoragePathsSchema = Field(default_factory=StoragePathsSchema, description="本地归档存储目录")
     session_expire_hours: Optional[float] = Field(1.0, description="登录 Session 有效时长 (小时，默认 1.0h)")
-    chrome_user_data_dir: Optional[str] = Field("", description="Chrome 9222 自动化专属用户数据目录 (留空使用系统默认)")
+    chrome_user_data_dirs: ChromeUserDataDirsSchema = Field(default_factory=ChromeUserDataDirsSchema, description="Chrome 9222 自动化专属用户数据目录 (mac/win 分平台配置)")
+    ai_config: AiConfigSchema = Field(default_factory=AiConfigSchema, description="AI 大模型配置 (自动生成五点描述)")
 
 
 def normalize_store_accounts(raw_stores: Any) -> List[Dict[str, Any]]:
@@ -115,7 +130,22 @@ async def get_system_settings():
         rel_main = get_setting("storage_rel_main", "main")
         rel_sku = get_setting("storage_rel_sku", "sku")
         session_exp = float(get_setting("session_expire_hours", 1.0))
-        chrome_dir = get_setting("chrome_user_data_dir", "")
+        # Chrome 9222 用户数据目录 (mac/win 分平台配置; 留空回退平台默认)
+        chrome_dir = {
+            "mac": (get_setting("chrome_user_data_dir_mac", "") or "").strip() or "~/ChromeDebugUser",
+            "win": (get_setting("chrome_user_data_dir_win", "") or "").strip() or "D:\\ChromeDebugUser"
+        }
+        # AI 大模型配置 (五点描述生成来源 + 本地 Ollama 模型 + 公共 API)
+        bullets_source = (get_setting("ai_bullets_source", "") or "").strip().lower()
+        if bullets_source not in ("local", "public"):
+            bullets_source = "public"
+        ai_config = {
+            "bullets_source": bullets_source,
+            "ollama_model": (get_setting("ai_ollama_model", "") or "").strip() or "qwen2.5:1.5b-instruct-q4_K_M",
+            "api_base_url": (get_setting("ai_api_base_url", "") or "").strip() or "https://api.deepseek.com",
+            "model_name": (get_setting("ai_model_name", "") or "").strip() or "deepseek-v4-flash",
+            "api_key": (get_setting("ai_api_key", "") or "").strip() or "sk-44d5b47efaa64e3a967efc0c8fc05ce2"
+        }
 
         return {
             "code": 0,
@@ -135,7 +165,8 @@ async def get_system_settings():
                     "rel_sku": rel_sku
                 },
                 "session_expire_hours": session_exp,
-                "chrome_user_data_dir": chrome_dir
+                "chrome_user_data_dirs": chrome_dir,
+                "ai_config": ai_config
             }
         }
     except Exception as e:
@@ -178,9 +209,33 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         session_exp = max(0.0, min(720.0, session_exp))
         set_setting("session_expire_hours", session_exp)
 
-        # 5. 保存 Chrome 9222 自动化用户数据目录 (留空使用系统默认)
-        chrome_dir = (payload.chrome_user_data_dir or "").strip()
-        set_setting("chrome_user_data_dir", chrome_dir)
+        # 5. 保存 Chrome 9222 自动化用户数据目录 (mac/win 分平台; 留空回退平台默认)
+        default_mac, default_win = "~/ChromeDebugUser", "D:\\ChromeDebugUser"
+        chrome_mac = (payload.chrome_user_data_dirs.mac or "").strip() or default_mac
+        chrome_win = (payload.chrome_user_data_dirs.win or "").strip() or default_win
+        set_setting("chrome_user_data_dir_mac", chrome_mac)
+        set_setting("chrome_user_data_dir_win", chrome_win)
+        # 同步旧单字段 (兼容历史读取方: 当前平台对应的值)
+        set_setting("chrome_user_data_dir", chrome_mac if sys.platform == "darwin" else chrome_win)
+        chrome_dir = {"mac": chrome_mac, "win": chrome_win}
+
+        # 6. 保存 AI 大模型配置 (来源: local=本地 Ollama / public=公共 API)
+        ai = payload.ai_config
+        source = (ai.bullets_source or "").strip().lower()
+        if source not in ("local", "public"):
+            source = "public"
+        set_setting("ai_bullets_source", source)
+        set_setting("ai_ollama_model", (ai.ollama_model or "").strip() or "qwen2.5:1.5b-instruct-q4_K_M")
+        set_setting("ai_api_base_url", (ai.api_base_url or "").strip() or "https://api.deepseek.com")
+        set_setting("ai_model_name", (ai.model_name or "").strip() or "deepseek-v4-flash")
+        set_setting("ai_api_key", (ai.api_key or "").strip())
+        ai_config = {
+            "bullets_source": source,
+            "ollama_model": (ai.ollama_model or "").strip() or "qwen2.5:1.5b-instruct-q4_K_M",
+            "api_base_url": (ai.api_base_url or "").strip() or "https://api.deepseek.com",
+            "model_name": (ai.model_name or "").strip() or "deepseek-v4-flash",
+            "api_key": (ai.api_key or "").strip()
+        }
 
         # 同步刷新内存全局参数
         GLOBAL_PRICING_CONFIG.update(pricing_dict)
@@ -198,7 +253,8 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
                     "rel_sku": rel_sku
                 },
                 "session_expire_hours": session_exp,
-                "chrome_user_data_dir": chrome_dir
+                "chrome_user_data_dirs": chrome_dir,
+                "ai_config": ai_config
             }
         }
     except Exception as e:

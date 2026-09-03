@@ -51,14 +51,15 @@ class ERPBridgeService:
         except Exception:
             pass
 
-        # 读取系统管理页配置的 Chrome 9222 用户数据目录 (留空则使用系统默认)
+        # 读取系统管理页配置的 Chrome 9222 用户数据目录 (按当前平台取 mac/win 配置, 留空回退平台默认)
         chrome_user_dir = None
         try:
             from server.database import get_setting
-            _dir = (get_setting("chrome_user_data_dir", "") or "").strip()
-            if _dir:
-                chrome_user_dir = _dir
-                emit_log(f"⚙️ 使用系统配置的 Chrome 用户数据目录: {_dir}")
+            _key = "chrome_user_data_dir_mac" if sys.platform == "darwin" else "chrome_user_data_dir_win"
+            _default = "~/ChromeDebugUser" if sys.platform == "darwin" else "D:\\ChromeDebugUser"
+            _dir = (get_setting(_key, "") or "").strip() or _default
+            chrome_user_dir = os.path.expanduser(_dir)
+            emit_log(f"⚙️ 使用 Chrome 用户数据目录 ({'mac' if sys.platform == 'darwin' else 'win'}): {chrome_user_dir}")
         except Exception:
             pass
         engine = BrowserEngine(port=9222, user_data_dir=chrome_user_dir) if chrome_user_dir else BrowserEngine(port=9222)
@@ -102,12 +103,13 @@ class ERPBridgeService:
                 engine.manager.run_on_browser_thread(reload_or_goto)
             except Exception as nav_e:
                 print(f"⚠️ 页面跳转提示: {nav_e}")
-            time.sleep(1.5)
+            time.sleep(2)
             # 0.5 关闭店小秘自动弹窗 (公告/活动/提示浮层), 避免遮挡后续表单操作
+            # close_all_popups 内部多轮扫描, 兼容延迟弹出的弹窗; 通过右上角叉/关闭按钮清理
             try:
                 closed_n = engine.close_all_popups()
                 if closed_n:
-                    emit_log(f"🧹 已自动关闭 {closed_n} 个页面弹窗")
+                    emit_log(f"🧹 已自动关闭 {closed_n} 个页面弹窗 (含右上角叉)")
                     time.sleep(0.5)
             except Exception as pop_e:
                 print(f"⚠️ 弹窗清理提示: {pop_e}")

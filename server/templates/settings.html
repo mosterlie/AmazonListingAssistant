@@ -259,17 +259,70 @@
   </div>
   <div class="card-body">
     <div class="form-group">
-      <label class="form-label">
-        🌐 Chrome 自动化专属用户数据目录
-        <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(绝对路径，留空使用系统默认)</span>
-      </label>
-      <input type="text" class="form-input" id="chromeUserDataDirInput" value="" placeholder="如: D:\ChromeDebugUser">
+        <label class="form-label">
+          🍎 Mac 端 Chrome 自动化专属用户数据目录
+          <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(绝对路径，留空使用 Mac 默认 ~/ChromeDebugUser)</span>
+        </label>
+        <input type="text" class="form-input" id="chromeUserDataDirMacInput" value="" placeholder="如: /Users/你的用户名/ChromeDebugUser">
+      </div>
+      <div class="form-group">
+        <label class="form-label">
+          🪟 Windows 端 Chrome 自动化专属用户数据目录
+          <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(绝对路径，留空使用 Windows 默认 D:\ChromeDebugUser)</span>
+        </label>
+        <input type="text" class="form-input" id="chromeUserDataDirWinInput" value="" placeholder="如: D:\ChromeDebugUser">
+      </div>
       <small style="color:var(--text-muted); font-size:0.78rem;">
-        网页端执行「🚀 上件」时，将使用此目录启动 Chrome 9222 调试实例并自动上传至店小秘。修改后<b>需重启 Chrome 9222</b> 才能生效。
+        网页端执行「🚀 上件」时，将根据当前操作系统自动选择对应目录启动 Chrome 9222 调试实例并自动上传至店小秘。修改后<b>需重启 Chrome 9222</b> 才能生效。
       </small>
+  </div>
+</div>
+
+<!-- AI 大模型配置 (自动生成五点描述) -->
+<div class="form-card">
+  <div class="card-header">
+    <div class="card-title">
+      <div class="card-title-icon">🤖</div>
+      <span>AI 大模型配置 (五点描述生成来源)</span>
+    </div>
+    <span class="tag-badge" style="background:#f5f3ff; color:#7c3aed; border-color:#ddd6fe;">录入页输入标题后自动生效</span>
+  </div>
+  <div class="card-body">
+    <div class="form-group">
+      <label class="form-label">五点描述生成来源</label>
+      <div style="display:flex; gap:16px; align-items:center;">
+        <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:0.88rem;">
+          <input type="radio" name="aiBulletsSource" id="aiSourceLocal" value="local"> 🏠 本地 (走下方 Ollama 模型)
+        </label>
+        <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:0.88rem;">
+          <input type="radio" name="aiBulletsSource" id="aiSourcePublic" value="public"> ☁️ 公共 (走下方 API 配置)
+        </label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">
+        本地 Ollama 模型名称
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(标题翻译/商品标识/本地生成五点描述均使用)</span>
+      </label>
+      <input type="text" class="form-input" id="aiOllamaModelInput" value="" placeholder="如: qwen2.5:1.5b-instruct-q4_K_M">
+    </div>
+    <div class="form-group">
+      <label class="form-label">
+        API Base URL
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(公共大模型 OpenAI 兼容接口地址)</span>
+      </label>
+      <input type="text" class="form-input" id="aiApiBaseUrlInput" value="" placeholder="如: https://api.deepseek.com">
+    </div>
+    <div class="form-group">
+      <label class="form-label">公共大模型名称</label>
+      <input type="text" class="form-input" id="aiModelNameInput" value="" placeholder="如: deepseek-v4-flash">
+    </div>
+    <div class="form-group">
+      <label class="form-label">公共大模型 API Key</label>
+      <input type="password" class="form-input" id="aiApiKeyInput" value="" placeholder="如: sk-xxxxxxxx" autocomplete="new-password">
     </div>
   </div>
 </div>
 
-<script src="/static/js/settings.js?v=20260903_chrome_dir_v3"></script>
+<script src="/static/js/settings.js?v=20260903_ai_config_v3"></script>
 {% endblock %}

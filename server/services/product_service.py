@@ -17,19 +17,16 @@ class ProductService:
         """
         colors = req.colors if req.colors else [""]
         sizes = req.sizes if req.sizes else [""]
-        base_sku = (req.base_sku or "DOG-TOILET").strip().upper()
+        base_sku = (req.base_sku or "DOG-TOILET").strip()  # 保持父 SKU 原样 (含大小写), 子 SKU 需与其保持一致
 
         combinations = list(itertools.product(colors, sizes))
         generated_eans = EANService.generate_batch_eans(len(combinations))
+        # 序号宽度: 默认两位 (01、02...), 组合数达到三位数时自动升级为三位 (001、002...), 支持 999 个变体
+        seq_width = 3 if len(combinations) >= 100 else 2
         variations = []
         for idx, (color, size) in enumerate(combinations):
-            # 生成建议 SKU 编码
-            sku_parts = [base_sku]
-            if color:
-                sku_parts.append(color)
-            if size:
-                sku_parts.append(size)
-            generated_sku = "-".join(sku_parts)
+            # 子 SKU 生成规则: 父 SKU + "-" + 序号 (如父 SKU 为 admin25-DogToilet -> admin25-DogToilet-01、admin25-DogToilet-02...)
+            generated_sku = f"{base_sku}-{idx + 1:0{seq_width}d}"
 
             ean_val = generated_eans[idx] if idx < len(generated_eans) else EANService.generate_single_ean()
 
@@ -211,13 +208,15 @@ class ProductService:
 
             parent_sku = (data.parent_sku or "").strip()
             if not parent_sku:
-                # 默认规则：Parent SKU = 登录账号 + 该账号创建的第几个品 (数字)
+                # 默认规则：Parent SKU = 登录账号 + 该账号创建的第几个品 (数字) + "-商品标识翻译"
+                identifier = (data.identifier_translation or "").strip().replace(" ", "")
+                suffix = f"-{identifier}" if identifier else ""
                 cursor.execute(
                     "SELECT COUNT(*) FROM product_items WHERE is_parent = 1 AND created_by = ?",
                     (creator,)
                 )
                 seq = cursor.fetchone()[0] + 1
-                parent_sku = f"{creator}{seq}"
+                parent_sku = f"{creator}{seq}{suffix}"
                 # 防止编号撞车，自动顺延
                 while True:
                     cursor.execute(
@@ -227,7 +226,7 @@ class ProductService:
                     if cursor.fetchone()[0] == 0:
                         break
                     seq += 1
-                    parent_sku = f"{creator}{seq}"
+                    parent_sku = f"{creator}{seq}{suffix}"
 
             color_opts = data.color_options if data.color_options else data.attributes.get("color", [])
             size_opts = data.size_options if data.size_options else data.attributes.get("size", [])
@@ -243,7 +242,7 @@ class ProductService:
             INSERT INTO product_items (
                 is_parent, parent_sku, sku,
                 store_account, brand, title, sale_type,
-                model_number, model_name,
+                model_number, model_name, product_identifier, title_translation, identifier_translation,
                 item_length, item_width, item_height, item_dim_unit,
                 package_length, package_width, package_height, package_dim_unit,
                 package_weight, package_weight_unit,
@@ -253,11 +252,11 @@ class ProductService:
                 description, bullet_points_json, chinese_translations_json,
                 fulfillment_channel, search_terms,
                 status, created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """, (
                 1, parent_sku, parent_sku,
                 data.store_account or "", data.brand or "", data.title or "", data.sale_type or "variation",
-                data.model_number or "", data.model_name or "",
+                data.model_number or "", data.model_name or "", data.product_identifier or "", data.title_translation or "", data.identifier_translation or "",
                 float(data.item_length or 0.0), float(data.item_width or 0.0), float(data.item_height or 0.0), data.item_dimension_unit or "cm",
                 float(data.package_length or 0.0), float(data.package_width or 0.0), float(data.package_height or 0.0), data.package_dimension_unit or "cm",
                 float(data.package_weight or 0.0), data.package_weight_unit or "kg",
@@ -372,6 +371,9 @@ class ProductService:
                     sale_type = ?,
                     model_number = ?,
                     model_name = ?,
+                    product_identifier = ?,
+                    title_translation = ?,
+                    identifier_translation = ?,
                     item_length = ?,
                     item_width = ?,
                     item_height = ?,
@@ -400,7 +402,7 @@ class ProductService:
                 """, (
                     parent_sku, parent_sku,
                     data.store_account or "", data.brand or "", data.title or "", data.sale_type or "variation",
-                    data.model_number or "", data.model_name or "",
+                    data.model_number or "", data.model_name or "", data.product_identifier or "", data.title_translation or "", data.identifier_translation or "",
                     float(data.item_length or 0.0), float(data.item_width or 0.0), float(data.item_height or 0.0), data.item_dimension_unit or "cm",
                     float(data.package_length or 0.0), float(data.package_width or 0.0), float(data.package_height or 0.0), data.package_dimension_unit or "cm",
                     float(data.package_weight or 0.0), data.package_weight_unit or "kg",
@@ -417,7 +419,7 @@ class ProductService:
                 INSERT INTO product_items (
                     id, is_parent, parent_sku, sku,
                     store_account, brand, title, sale_type,
-                    model_number, model_name,
+                    model_number, model_name, product_identifier, title_translation, identifier_translation,
                     item_length, item_width, item_height, item_dim_unit,
                     package_length, package_width, package_height, package_dim_unit,
                     package_weight, package_weight_unit,
@@ -427,11 +429,11 @@ class ProductService:
                     description, bullet_points_json, chinese_translations_json,
                     fulfillment_channel, search_terms,
                     status, created_by, created_at, updated_at
-                ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """, (
                     product_id, parent_sku, parent_sku,
                     data.store_account or "", data.brand or "", data.title or "", data.sale_type or "variation",
-                    data.model_number or "", data.model_name or "",
+                    data.model_number or "", data.model_name or "", data.product_identifier or "", data.title_translation or "", data.identifier_translation or "",
                     float(data.item_length or 0.0), float(data.item_width or 0.0), float(data.item_height or 0.0), data.item_dimension_unit or "cm",
                     float(data.package_length or 0.0), float(data.package_width or 0.0), float(data.package_height or 0.0), data.package_dimension_unit or "cm",
                     float(data.package_weight or 0.0), data.package_weight_unit or "kg",
@@ -674,9 +676,10 @@ class ProductService:
 
             where_str = " AND ".join(where_clauses)
             query = f"""
-            SELECT 
+            SELECT
                 p.id, p.is_parent, p.parent_sku, p.sku, p.store_account, p.brand, p.title,
                 p.sale_type, p.model_number, p.model_name, p.main_image,
+                p.product_identifier, p.title_translation, p.identifier_translation,
                 p.variation_theme, p.fulfillment_channel, p.search_terms,
                 p.status, p.created_by, p.created_at, p.updated_at,
                 (SELECT COUNT(*) FROM product_items WHERE is_parent = 0 AND parent_sku = p.sku) as variation_count,
