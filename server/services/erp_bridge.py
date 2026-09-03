@@ -21,9 +21,10 @@ class ERPBridgeService:
     """店小秘 ERP 自动化上件调度桥接器"""
 
     @staticmethod
-    def publish_product_to_erp(product_id: int, log_callback=None) -> Dict[str, Any]:
+    def publish_product_to_erp(product_id: int, log_callback=None, chrome_user_data_dir: str = None) -> Dict[str, Any]:
         """
         根据商品 ID 读取 product_items 全部数据，并执行全流程自动化上件至店小秘
+        :param chrome_user_data_dir: 桌面程序显式指定 Chrome 9222 用户数据目录 (远程电脑上覆盖主机数据库配置)
         """
         product = ProductService.get_product_by_id(product_id)
         if not product:
@@ -51,17 +52,21 @@ class ERPBridgeService:
         except Exception:
             pass
 
-        # 读取系统管理页配置的 Chrome 9222 用户数据目录 (按当前平台取 mac/win 配置, 留空回退平台默认)
+        # 读取 Chrome 9222 用户数据目录: 桌面程序显式传入优先, 否则读系统管理页配置 (按当前平台, 留空回退平台默认)
         chrome_user_dir = None
-        try:
-            from server.database import get_setting
-            _key = "chrome_user_data_dir_mac" if sys.platform == "darwin" else "chrome_user_data_dir_win"
-            _default = "~/ChromeDebugUser" if sys.platform == "darwin" else "D:\\ChromeDebugUser"
-            _dir = (get_setting(_key, "") or "").strip() or _default
-            chrome_user_dir = os.path.expanduser(_dir)
-            emit_log(f"⚙️ 使用 Chrome 用户数据目录 ({'mac' if sys.platform == 'darwin' else 'win'}): {chrome_user_dir}")
-        except Exception:
-            pass
+        if chrome_user_data_dir and str(chrome_user_data_dir).strip():
+            chrome_user_dir = os.path.expanduser(str(chrome_user_data_dir).strip())
+            emit_log(f"⚙️ 使用桌面程序配置的 Chrome 用户数据目录: {chrome_user_dir}")
+        else:
+            try:
+                from server.database import get_setting
+                _key = "chrome_user_data_dir_mac" if sys.platform == "darwin" else "chrome_user_data_dir_win"
+                _default = "~/ChromeDebugUser" if sys.platform == "darwin" else "C:\\ChromeDebugUser"
+                _dir = (get_setting(_key, "") or "").strip() or _default
+                chrome_user_dir = os.path.expanduser(_dir)
+                emit_log(f"⚙️ 使用 Chrome 用户数据目录 ({'mac' if sys.platform == 'darwin' else 'win'}): {chrome_user_dir}")
+            except Exception:
+                pass
         engine = BrowserEngine(port=9222, user_data_dir=chrome_user_dir) if chrome_user_dir else BrowserEngine(port=9222)
 
         if not engine.is_running():

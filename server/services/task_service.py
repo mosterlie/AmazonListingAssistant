@@ -63,9 +63,8 @@ class TaskService:
         assigned_to_filter: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        查询任务列表（严格执行角色数据权限隔离）
-        - 普通用户：强制过滤 assigned_to == current_user.username (只能查看自己的任务)
-        - 管理员：可查看所有人或按成员过滤
+        查询任务列表 (所有人可见全部任务, 编辑权限另行控制)
+        - assigned_to_filter: 执行人筛选 (管理员专用, 普通用户传参忽略)
         """
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -74,12 +73,9 @@ class TaskService:
             where_clauses = []
             params = []
 
-            # 1. 权限隔离控制
+            # 1. 执行人筛选 (仅管理员可按成员过滤; 普通用户可见全部)
             is_admin = (current_user.get("role") == "admin")
-            if not is_admin:
-                where_clauses.append("assigned_to = ?")
-                params.append(current_user.get("username", ""))
-            elif assigned_to_filter and assigned_to_filter.strip():
+            if is_admin and assigned_to_filter and assigned_to_filter.strip():
                 where_clauses.append("assigned_to = ?")
                 params.append(assigned_to_filter.strip())
 
@@ -117,12 +113,6 @@ class TaskService:
             if not row:
                 return None
             task_dict = dict(row)
-
-            # 若提供了非管理员用户，校验数据归属
-            if current_user and current_user.get("role") != "admin":
-                if task_dict["assigned_to"] != current_user.get("username"):
-                    return None
-
             return task_dict
         finally:
             conn.close()
@@ -136,7 +126,11 @@ class TaskService:
         """
         task = TaskService.get_task_by_id(task_id, current_user)
         if not task:
-            raise ValueError("任务不存在或您无权处理该任务！")
+            raise ValueError("任务不存在！")
+        # 编辑权限控制: 仅任务执行人本人或管理员可登记成果
+        is_admin = (current_user.get("role") == "admin")
+        if not is_admin and task.get("assigned_to") != current_user.get("username", ""):
+            raise ValueError("只有该任务的执行人才能登记成果！")
 
         conn = get_db_connection()
         cursor = conn.cursor()

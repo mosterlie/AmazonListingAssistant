@@ -33,7 +33,7 @@ async def get_seq_numbers(request: Request, brand: Optional[str] = Query(None)):
 
 @router.get("/filter-options", summary="获取商品列表筛选下拉可选项")
 async def get_product_filter_options():
-    """返回所有已录入商品的店铺、品牌与维护人列表，用于前端筛选器下拉菜单"""
+    """返回已录入商品的店铺、品牌与维护人列表，用于前端筛选器下拉菜单"""
     opts = ProductService.get_filter_options()
     return {"code": 0, "msg": "获取成功", "data": opts}
 
@@ -372,9 +372,14 @@ async def create_product(data: ProductCreateSchema, request: Request):
     return {"code": 0, "msg": "商品录入成功", "data": product}
 
 
-@router.put("/{product_id}", summary="更新修改商品与变体信息")
-async def update_product(product_id: int, data: ProductCreateSchema):
-    """更新修改已有商品及变体完整信息"""
+@router.put("/{product_id}", summary="更新修改商品与变体信息 (普通用户仅可修改自己的品)")
+async def update_product(product_id: int, data: ProductCreateSchema, request: Request):
+    """更新修改已有商品及变体完整信息 (维护人不可修改, 归属校验: 普通用户仅能改自己的品)"""
+    user = get_current_user_from_request(request)
+    if user and user.get("role") != "admin":
+        existing = ProductService.get_product_by_id(product_id)
+        if not existing or (existing.get("created_by") or "") != user.get("username", ""):
+            raise HTTPException(status_code=404, detail=f"ID 为 {product_id} 的商品不存在")
     product = ProductService.update_product(product_id, data)
     if not product:
         raise HTTPException(status_code=404, detail=f"ID 为 {product_id} 的商品不存在")
@@ -446,14 +451,14 @@ async def list_parent_skus():
 
 @router.get("/{product_id}", summary="获取商品详情")
 async def get_product_detail(product_id: int):
-    """获取指定商品的完整结构化数据"""
+    """获取指定商品的完整结构化数据 (所有人可查看)"""
     product = ProductService.get_product_by_id(product_id)
     if not product:
         raise HTTPException(status_code=404, detail="商品不存在")
     return {"code": 0, "msg": "获取成功", "data": product}
 
 
-@router.get("", summary="获取商品列表 (支持多条件组合检索与模糊查询)")
+@router.get("", summary="获取商品列表 (支持多条件组合检索与模糊查询, 所有人可见全部)")
 async def list_products(
     keyword: Optional[str] = Query(None, description="搜索标题/Parent SKU/型号/关键词"),
     store_account: Optional[str] = Query(None, description="店铺账号筛选"),
@@ -463,7 +468,7 @@ async def list_products(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0)
 ):
-    """获取录入的商品列表与变体总数看板"""
+    """获取录入的商品列表与变体总数看板 (所有人可见全部商品, 编辑权限另行控制)"""
     products = ProductService.list_products(
         limit=limit,
         offset=offset,

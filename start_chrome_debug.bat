@@ -1,5 +1,5 @@
 @echo off
-set "USER_DATA=D:\ChromeDebugUser"
+set "USER_DATA=C:\ChromeDebugUser"
 if not exist "%USER_DATA%" mkdir "%USER_DATA%"
 
 set "CHROME_PATH="

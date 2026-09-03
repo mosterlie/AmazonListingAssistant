@@ -29,7 +29,7 @@ class StoragePathsSchema(BaseModel):
 
 class ChromeUserDataDirsSchema(BaseModel):
     mac: str = Field("~/ChromeDebugUser", description="Mac 端 Chrome 9222 自动化专属用户数据目录")
-    win: str = Field("D:\\ChromeDebugUser", description="Windows 端 Chrome 9222 自动化专属用户数据目录")
+    win: str = Field("C:\\ChromeDebugUser", description="Windows 端 Chrome 9222 自动化专属用户数据目录")
 
 
 class AiConfigSchema(BaseModel):
@@ -133,7 +133,7 @@ async def get_system_settings():
         # Chrome 9222 用户数据目录 (mac/win 分平台配置; 留空回退平台默认)
         chrome_dir = {
             "mac": (get_setting("chrome_user_data_dir_mac", "") or "").strip() or "~/ChromeDebugUser",
-            "win": (get_setting("chrome_user_data_dir_win", "") or "").strip() or "D:\\ChromeDebugUser"
+            "win": (get_setting("chrome_user_data_dir_win", "") or "").strip() or "C:\\ChromeDebugUser"
         }
         # AI 大模型配置 (五点描述生成来源 + 本地 Ollama 模型 + 公共 API)
         bullets_source = (get_setting("ai_bullets_source", "") or "").strip().lower()
@@ -210,7 +210,7 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         set_setting("session_expire_hours", session_exp)
 
         # 5. 保存 Chrome 9222 自动化用户数据目录 (mac/win 分平台; 留空回退平台默认)
-        default_mac, default_win = "~/ChromeDebugUser", "D:\\ChromeDebugUser"
+        default_mac, default_win = "~/ChromeDebugUser", "C:\\ChromeDebugUser"
         chrome_mac = (payload.chrome_user_data_dirs.mac or "").strip() or default_mac
         chrome_win = (payload.chrome_user_data_dirs.win or "").strip() or default_win
         set_setting("chrome_user_data_dir_mac", chrome_mac)

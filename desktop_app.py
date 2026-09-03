@@ -5,7 +5,7 @@ ERP 桌面上件助手 (Desktop Publishing Assistant) — 支持远程部署
 功能：
 1. 可配置商品数据库路径：本地文件 / 网络共享 (\\\\server\\share\\xx.db) / 映射盘符 (Z:\\xx.db)
 2. 可配置图片存储目录（远程机器上映射同一共享目录，覆盖数据库中的 storage_path_win 设置）
-3. 一键启动 Chrome 调试实例 (9222 端口, 用户数据目录 D:\\ChromeDebugUser)
+3. 一键启动 Chrome 调试实例 (9222 端口, 用户数据目录 C:\ChromeDebugUser)
 4. 输入 Parent SKU → 查询商品 → 一键自动上件到店小秘 ERP
 
 运行方式：
@@ -29,13 +29,24 @@ from datetime import datetime
 # ──────────────────────────────────────────────────────────────
 # 路径与环境准备 (必须在导入 server/browser 模块之前)
 # ──────────────────────────────────────────────────────────────
-# 打包成 exe 后 __file__ 位于临时解压目录, 配置/数据库应放在 exe 同级目录
+# PyInstaller onefile 下 __file__ 指向临时解压目录, 配置/数据必须跟随 exe 所在目录
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
+
+def _app_error_log(stage: str, exc: Exception):
+    """把关键失败追加到 exe 同目录 desktop_error.log, 便于远程电脑排查"""
+    import traceback
+    try:
+        with open(os.path.join(BASE_DIR, "desktop_error.log"), "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {stage}:\n")
+            f.write("".join(traceback.format_exception(exc)).rstrip() + "\n\n")
+    except Exception:
+        pass
+
 
 if sys.platform == "win32":
     try:
@@ -46,7 +57,14 @@ if sys.platform == "win32":
 
 CONFIG_FILE = os.path.join(BASE_DIR, "desktop_config.json")
 DEFAULT_DB_PATH = os.path.join(BASE_DIR, "data", "products.db")
-CHROME_USER_DATA_DIR = r"D:\ChromeDebugUser"
+
+# 远程连接默认值 (SakuraFrp 隧道 → 主机 db_agent), 新环境首次启动直接预填
+DEFAULT_REMOTE_HOST = "frp-rib.com"
+DEFAULT_REMOTE_PORT = 49063
+DEFAULT_REMOTE_TOKEN = "erp2024"
+# Chrome 9222 用户数据目录默认值 (C 盘根目录下, 可在界面配置调整)
+DEFAULT_CHROME_DIR = r"C:\ChromeDebugUser"
+DXM_URL = "https://www.dianxiaomi.com/"
 CDP_PORT = 9222
 CHROME_CANDIDATES = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -56,10 +74,18 @@ CHROME_CANDIDATES = [
 
 # 预先固定浏览器自动化使用的用户数据目录 (erp_bridge 内部 BrowserEngine 默认值在导入时绑定)
 import config as toolkit_config  # noqa: E402  (项目根目录 config.py)
-toolkit_config.USER_DATA_DIR = CHROME_USER_DATA_DIR
+toolkit_config.USER_DATA_DIR = DEFAULT_CHROME_DIR
 
-# 导入上件管线 (依赖 playwright, 导入耗时属正常)
-from server.services.erp_bridge import ERPBridgeService  # noqa: E402
+_BRIDGE = None
+
+
+def _get_bridge():
+    """惰性加载上件管线 (playwright 导入耗时 8~15 秒, 延迟到启动动画之后再执行)"""
+    global _BRIDGE
+    if _BRIDGE is None:
+        from server.services.erp_bridge import ERPBridgeService
+        _BRIDGE = ERPBridgeService
+    return _BRIDGE
 
 
 def load_app_config() -> dict:
@@ -211,15 +237,17 @@ class RemoteSQLiteConnection:
 class DesktopApp:
     """桌面上件助手主窗口"""
 
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk, on_ready=None, on_status=None):
         self.root = root
         self.root.title("ERP 桌面上件助手 - 店小秘自动化")
         self.root.geometry("900x680")
         self.root.minsize(800, 600)
 
+        self._on_ready = on_ready      # 初始化完成回调 (用于关闭启动动画)
+        self._on_status = on_status    # 启动过程状态文本回调 (更新启动动画提示)
         self.log_queue: "queue.Queue[str]" = queue.Queue()
         self.publishing = False
-        self.stop_requested = False  # 终止指令标志: 置位后强杀驱动并无条件中断任务
+        self._stop_requested = False  # 用户点击终止后置 True
         self.current_product = None  # 查询到的商品信息 dict
 
         self._build_ui()
@@ -227,15 +255,34 @@ class DesktopApp:
 
         # 启动时应用已保存的配置
         cfg = load_app_config()
-        self.conn_mode.set(cfg.get("conn_mode", "local"))
+        self.conn_mode.set(cfg.get("conn_mode", "remote"))
         self.db_path_var.set(cfg.get("db_path", DEFAULT_DB_PATH))
-        self.host_var.set(cfg.get("host", ""))
-        self.port_var.set(str(cfg.get("port", 8765)))
-        self.token_var.set(cfg.get("token", ""))
+        self.host_var.set(cfg.get("host", DEFAULT_REMOTE_HOST))
+        self.port_var.set(str(cfg.get("port", DEFAULT_REMOTE_PORT)))
+        self.token_var.set(cfg.get("token", DEFAULT_REMOTE_TOKEN))
         self.remote_scheme = cfg.get("scheme", "")
         self.image_root_var.set(cfg.get("image_root", ""))
+        self.chrome_dir_var.set(cfg.get("chrome_user_data_dir", DEFAULT_CHROME_DIR))
         self._on_mode_change()
-        self.apply_db_path(silent=True)
+        # 初始数据库连接放到后台线程, 避免阻塞主线程导致启动动画卡住
+        threading.Thread(target=self._initial_connect, daemon=True).start()
+
+    def _initial_connect(self):
+        """启动时后台执行数据库初始连接 (不阻塞启动动画)"""
+        try:
+            if self._on_status:
+                self._on_status("正在连接数据库")
+            self.apply_db_path(silent=True)
+        except Exception as e:
+            _app_error_log("初始连接失败", e)
+            self._set_db_status(f"数据库: 初始连接异常 ({e})", "#dc2626")
+        finally:
+            if self._on_ready:
+                self._ui(self._on_ready)
+
+    def _set_db_status(self, text: str, fg: str):
+        """线程安全更新数据库状态标签"""
+        self._ui(lambda: self.lbl_db_status.config(text=text, foreground=fg))
 
     # ────────────────── UI 构建 ──────────────────
     def _build_ui(self):
@@ -249,10 +296,10 @@ class DesktopApp:
         ttk.Label(frm_db, text="连接方式:").grid(row=0, column=0, padx=6, pady=8, sticky="e")
         mode_frm = ttk.Frame(frm_db)
         mode_frm.grid(row=0, column=1, columnspan=3, sticky="w", padx=4)
-        ttk.Radiobutton(mode_frm, text="本地 / 共享文件", variable=self.conn_mode,
-                        value="local", command=self._on_mode_change).pack(side="left")
         ttk.Radiobutton(mode_frm, text="远程 IP/域名 (需主机运行 db_agent.py)", variable=self.conn_mode,
-                        value="remote", command=self._on_mode_change).pack(side="left", padx=(16, 0))
+                        value="remote", command=self._on_mode_change).pack(side="left")
+        ttk.Radiobutton(mode_frm, text="本地 / 共享文件", variable=self.conn_mode,
+                        value="local", command=self._on_mode_change).pack(side="left", padx=(16, 0))
 
         # -- 本地/共享文件行 --
         self.lbl_db_file = ttk.Label(frm_db, text="数据库路径:")
@@ -267,17 +314,17 @@ class DesktopApp:
         self.frm_remote = ttk.Frame(frm_db)
         self.lbl_host = ttk.Label(self.frm_remote, text="主机 (IP/域名):")
         self.lbl_host.pack(side="left")
-        self.host_var = tk.StringVar()
+        self.host_var = tk.StringVar(value=DEFAULT_REMOTE_HOST)
         self.ent_host = ttk.Entry(self.frm_remote, textvariable=self.host_var, width=20)
         self.ent_host.pack(side="left", padx=(2, 8))
         self.lbl_port = ttk.Label(self.frm_remote, text="端口:")
         self.lbl_port.pack(side="left")
-        self.port_var = tk.StringVar(value="8765")
+        self.port_var = tk.StringVar(value=str(DEFAULT_REMOTE_PORT))
         self.ent_port = ttk.Entry(self.frm_remote, textvariable=self.port_var, width=7)
         self.ent_port.pack(side="left", padx=(2, 8))
         self.lbl_token = ttk.Label(self.frm_remote, text="令牌:")
         self.lbl_token.pack(side="left")
-        self.token_var = tk.StringVar()
+        self.token_var = tk.StringVar(value=DEFAULT_REMOTE_TOKEN)
         self.ent_token = ttk.Entry(self.frm_remote, textvariable=self.token_var, width=12, show="*")
         self.ent_token.pack(side="left", padx=2)
 
@@ -300,15 +347,19 @@ class DesktopApp:
         # 2. 浏览器区
         frm_browser = ttk.LabelFrame(self.root, text=" 2. 浏览器 (Chrome 9222 调试模式) ")
         frm_browser.pack(fill="x", **pad)
-        self.btn_chrome = ttk.Button(frm_browser, text="🌐 启动 Chrome 9222", command=self.launch_chrome)
+        self.btn_chrome = ttk.Button(frm_browser, text="🔐 登录 ERP 系统", command=self.launch_chrome)
         self.btn_chrome.grid(row=0, column=0, padx=8, pady=8, sticky="w")
-        ttk.Label(frm_browser, text="用户数据目录:").grid(row=0, column=1, padx=(8, 2), sticky="e")
-        self.chrome_user_data_var = tk.StringVar(value=CHROME_USER_DATA_DIR)
-        ttk.Entry(frm_browser, textvariable=self.chrome_user_data_var).grid(row=0, column=2, padx=2, pady=8, sticky="we")
-        ttk.Button(frm_browser, text="应用", command=self.apply_chrome_user_data, width=6).grid(row=0, column=3, padx=(2, 8))
+        ttk.Label(frm_browser, text="用户数据目录:").grid(row=0, column=1, padx=(8, 2), sticky="w")
+        self.chrome_dir_var = tk.StringVar(value=DEFAULT_CHROME_DIR)
+        ent_chrome_dir = ttk.Entry(frm_browser, textvariable=self.chrome_dir_var)
+        ent_chrome_dir.grid(row=0, column=2, padx=2, sticky="we")
         self.lbl_browser_status = ttk.Label(frm_browser, text="● 未启动", foreground="#94a3b8")
-        self.lbl_browser_status.grid(row=0, column=4, padx=8, sticky="e")
+        self.lbl_browser_status.grid(row=0, column=3, padx=8, sticky="e")
         frm_browser.columnconfigure(2, weight=1)
+        ttk.Label(frm_browser, text="点击「登录 ERP 系统」自动启动 Chrome 9222 并打开店小秘, 登录一次后长期有效; "
+                                   "修改目录后重新点击生效",
+                  foreground="#64748b", wraplength=820, justify="left").grid(
+            row=1, column=0, columnspan=4, sticky="w", padx=8, pady=(0, 6))
 
         # 3. 上件操作区
         frm_pub = ttk.LabelFrame(self.root, text=" 3. 商品上件 (输入 Parent SKU) ")
@@ -321,7 +372,7 @@ class DesktopApp:
         self.btn_search = ttk.Button(frm_pub, text="查询商品", command=self.search_product, width=12)
         self.btn_search.grid(row=0, column=2, padx=4)
         self.btn_publish = ttk.Button(frm_pub, text="🚀 上件", command=self.start_publish, width=12, state="disabled")
-        self.btn_publish.grid(row=0, column=3, padx=4)
+        self.btn_publish.grid(row=0, column=3, padx=(4, 0))
         self.btn_stop = ttk.Button(frm_pub, text="🛑 终止", command=self.stop_publish, width=10, state="disabled")
         self.btn_stop.grid(row=0, column=4, padx=(4, 8))
         self.lbl_product_info = ttk.Label(frm_pub, text="商品信息: (请先查询)", foreground="#64748b", wraplength=800, justify="left")
@@ -479,10 +530,11 @@ class DesktopApp:
             self.apply_image_root()
 
     def apply_db_path(self, silent: bool = False):
-        """应用数据库连接并做连通性验证 (远程模式走 HTTP 桥接; 本地模式验证文件)"""
+        """应用数据库配置 (远程模式走 db_agent 隧道; 本地模式走文件路径) 并做连通性验证"""
+        # 远程模式分发: 连接远程主库 (db_agent), 不做本地文件校验
         if self.conn_mode.get() == "remote":
-            self._apply_remote_db(silent=silent)
-            return
+            return self._apply_remote_db(silent=silent)
+
         db_path = self.db_path_var.get().strip()
         if not db_path:
             if not silent:
@@ -515,7 +567,7 @@ class DesktopApp:
             parent_count = cursor.fetchone()[0]
             conn.close()
         except Exception as e:
-            self.lbl_db_status.config(text=f"数据库: 连接失败 ❌ ({e})", foreground="#dc2626")
+            self._set_db_status(f"数据库: 连接失败 ❌ ({e})", "#dc2626")
             if not silent:
                 messagebox.showerror("数据库错误", f"无法连接数据库:\n{e}")
             return
@@ -525,16 +577,14 @@ class DesktopApp:
             import server.database as appdb
             appdb.init_db()  # 幂等: 表不存在则创建/补齐
         except Exception as e:
-            self.lbl_db_status.config(text=f"数据库: 初始化失败 ❌ ({e})", foreground="#dc2626")
+            self._set_db_status(f"数据库: 初始化失败 ❌ ({e})", "#dc2626")
             if not silent:
                 messagebox.showerror("数据库错误", f"初始化数据库失败:\n{e}")
             return
 
-        self.lbl_db_status.config(
-            text=f"数据库: 已连接 ✅ (本地文件, 父级商品 {parent_count} 个)  |  图片目录: "
-                 f"{self.image_root_var.get().strip() or '(用数据库内配置)'}",
-            foreground="#059669"
-        )
+        self._set_db_status(
+            f"数据库: 已连接 ✅ (本地文件, 父级商品 {parent_count} 个)  |  图片目录: "
+            f"{self.image_root_var.get().strip() or '(用数据库内配置)'}", "#059669")
         self._save_current_config()
         self._log(f"📦 数据库已连接: {db_path} (父级商品 {parent_count} 个)")
 
@@ -553,10 +603,8 @@ class DesktopApp:
             self.remote_scheme = detected_scheme
             info = probe.ping()
         except Exception as e:
-            self.lbl_db_status.config(
-                text=f"远程数据库: 连接失败 ❌ ({host}:{port} 不可达)",
-                foreground="#dc2626"
-            )
+            _app_error_log("远程连接探测失败", e)
+            self._set_db_status(f"远程数据库: 连接失败 ❌ ({host}:{port} 不可达)", "#dc2626")
             if not silent:
                 messagebox.showerror(
                     "远程数据库连接失败",
@@ -572,30 +620,32 @@ class DesktopApp:
             import server.database as appdb
             appdb.init_db()  # 经 HTTP 代理执行 (表已存在则无操作)
         except Exception as e:
-            self.lbl_db_status.config(text=f"远程数据库: 初始化失败 ❌ ({e})", foreground="#dc2626")
+            _app_error_log("远程初始化失败", e)
+            self._set_db_status(f"远程数据库: 初始化失败 ❌ ({e})", "#dc2626")
             if not silent:
                 messagebox.showerror("数据库错误", f"初始化远程数据库失败:\n{e}")
             return
 
-        self.lbl_db_status.config(
-            text=f"数据库: 已连接 ✅ (远程 {host}:{port}, 父级商品 {info.get('parent_count', '?')} 个)  |  图片目录: "
-                 f"{self.image_root_var.get().strip() or '(用数据库内配置)'}",
-            foreground="#059669"
-        )
+        self._set_db_status(
+            f"数据库: 已连接 ✅ (远程 {host}:{port}, 父级商品 {info.get('parent_count', '?')} 个)  |  图片目录: "
+            f"{self.image_root_var.get().strip() or '(用数据库内配置)'}", "#059669")
         self._save_current_config()
         self._log(f"📦 远程数据库已连接: {host}:{port} (父级商品 {info.get('parent_count', '?')} 个)")
 
     def _save_current_config(self):
-        save_app_config({
-            "conn_mode": self.conn_mode.get(),
-            "db_path": self.db_path_var.get().strip(),
-            "host": self.host_var.get().strip(),
-            "port": self.port_var.get().strip(),
-            "token": self.token_var.get(),
-            "scheme": getattr(self, "remote_scheme", ""),
-            "image_root": self.image_root_var.get().strip(),
-            "chrome_user_data": self.chrome_user_data_var.get().strip(),
-        })
+        try:
+            save_app_config({
+                "conn_mode": self.conn_mode.get(),
+                "db_path": self.db_path_var.get().strip(),
+                "host": self.host_var.get().strip(),
+                "port": self.port_var.get().strip(),
+                "token": self.token_var.get(),
+                "scheme": getattr(self, "remote_scheme", ""),
+                "image_root": self.image_root_var.get().strip(),
+                "chrome_user_data_dir": self.chrome_dir_var.get().strip(),
+            })
+        except Exception as e:
+            _app_error_log("配置保存失败", e)
 
     def apply_image_root(self):
         """应用图片存储目录覆盖并重新注入运行时配置"""
@@ -648,22 +698,18 @@ class DesktopApp:
                 return p
         return None
 
-    def apply_chrome_user_data(self):
-        """应用自定义 Chrome 用户数据目录 (对下次启动的 Chrome 及上件管线生效)"""
-        ud = self.chrome_user_data_var.get().strip() or CHROME_USER_DATA_DIR
-        self.chrome_user_data_var.set(ud)
-        toolkit_config.USER_DATA_DIR = ud
-        self._save_current_config()
-        self._log(f"🧭 Chrome 用户数据目录已设置: {ud} (对下次启动的 Chrome 生效；若 Chrome 正在运行请先关闭再重新启动)")
-
     def launch_chrome(self):
         self.btn_chrome.config(state="disabled")
         threading.Thread(target=self._launch_chrome_worker, daemon=True).start()
 
     def _launch_chrome_worker(self):
+        chrome_dir = (self.chrome_dir_var.get().strip() or DEFAULT_CHROME_DIR)
+        toolkit_config.USER_DATA_DIR = chrome_dir  # 上件管线同步使用该目录
+
         if self._chrome_port_open():
             self._ui(lambda: self.lbl_browser_status.config(text="● 运行中 (9222)", foreground="#059669"))
             self._log("🌐 Chrome 9222 已在运行，直接复用现有实例")
+            self._open_dxm_tab_cdp()
             self._ui(lambda: self.btn_chrome.config(state="normal"))
             return
 
@@ -673,15 +719,13 @@ class DesktopApp:
             self._ui(lambda: self.btn_chrome.config(state="normal"))
             return
 
-        ud = self.chrome_user_data_var.get().strip() or CHROME_USER_DATA_DIR
-        toolkit_config.USER_DATA_DIR = ud  # 上件管线 (erp_bridge) 同步使用该目录
-        os.makedirs(ud, exist_ok=True)
-        self._log(f"🌐 正在启动 Chrome: {exe}")
+        os.makedirs(chrome_dir, exist_ok=True)
+        self._log(f"🌐 正在启动 Chrome 并打开店小秘 (数据目录: {chrome_dir})")
         try:
             subprocess.Popen(
                 [exe, f"--remote-debugging-port={CDP_PORT}",
-                 f"--user-data-dir={ud}",
-                 "--no-first-run", "--no-default-browser-check"],
+                 f"--user-data-dir={chrome_dir}",
+                 DXM_URL, "--no-first-run", "--no-default-browser-check"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True
             )
@@ -695,12 +739,23 @@ class DesktopApp:
             if self._chrome_port_open():
                 break
         if self._chrome_port_open():
-            self._log(f"✅ Chrome 9222 启动成功 (数据目录: {ud})")
+            self._log(f"✅ Chrome 9222 启动成功，已打开店小秘 ({DXM_URL})")
+            self._log("💡 首次使用请在打开的页面中登录店小秘，登录一次后长期有效")
             self._ui(lambda: self.lbl_browser_status.config(text="● 运行中 (9222)", foreground="#059669"))
         else:
             self._log("❌ Chrome 启动超时，9222 端口未就绪")
             self._ui(lambda: self.lbl_browser_status.config(text="● 启动失败", foreground="#dc2626"))
         self._ui(lambda: self.btn_chrome.config(state="normal"))
+
+    def _open_dxm_tab_cdp(self):
+        """Chrome 已运行时, 通过 CDP 在现有实例中新开店小秘标签页"""
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{CDP_PORT}/json/new?{DXM_URL}", method="PUT")
+            urllib.request.urlopen(req, timeout=3).read()
+            self._log(f"🌐 已在现有 Chrome 中打开店小秘: {DXM_URL}")
+        except Exception as e:
+            self._log(f"⚠️ 自动打开店小秘页失败 ({e})，请手动在浏览器访问")
 
     # ────────────────── 商品查询与上件 ──────────────────
     def search_product(self):
@@ -731,34 +786,19 @@ class DesktopApp:
         if self.publishing:
             messagebox.showinfo("提示", "当前已有上件任务在执行中，请稍候！")
             return
-        parent_sku = self.sku_var.get().strip()
-        if not parent_sku:
-            messagebox.showwarning("提示", "请输入 Parent SKU！")
+        if not self.current_product:
+            messagebox.showwarning("提示", "请先查询商品！")
+            return
+        if not self._chrome_port_open():
+            if messagebox.askyesno("Chrome 未启动", "Chrome 9222 尚未启动，是否现在启动？"):
+                self.launch_chrome()
+                messagebox.showinfo("提示", "Chrome 启动中，请等状态变为「运行中」后再点上件！")
             return
 
-        # 直接使用输入框中的 SKU 上件: 无需先点「查询商品」
-        product = self.current_product
-        if not product or (product.get("parent_sku") != parent_sku and product.get("sku") != parent_sku):
-            try:
-                product = self._find_product_by_sku(parent_sku)
-            except Exception as e:
-                messagebox.showerror("查询失败", f"数据库查询出错:\n{e}")
-                return
-            if not product:
-                self.current_product = None
-                self.btn_publish.config(state="disabled")
-                self.lbl_product_info.config(text=f"商品信息: 未找到 Parent SKU「{parent_sku}」", foreground="#dc2626")
-                messagebox.showwarning("提示", f"未找到 Parent SKU「{parent_sku}」，请检查输入！")
-                return
-            self.current_product = product
-            info = (f"商品信息: #{product['id']}  [{product['parent_sku']}]  {product['title'] or '未命名'}  |  "
-                    f"店铺: {product['store_account'] or '-'}  |  变体: {product['variation_count']} 个  |  状态: {product['status']}")
-            self.lbl_product_info.config(text=info, foreground="#0f172a")
-
-        product_id = product["id"]
-        parent_sku = product["parent_sku"]
+        product_id = self.current_product["id"]
+        parent_sku = self.current_product["parent_sku"]
         self.publishing = True
-        self.stop_requested = False
+        self._stop_requested = False
         self.btn_publish.config(state="disabled")
         self.btn_search.config(state="disabled")
         self.btn_stop.config(state="normal")
@@ -770,48 +810,59 @@ class DesktopApp:
 
         def worker():
             try:
-                # 上件前自动确保 Chrome 9222 已启动 (erp_bridge 会自动打开店小秘上件页)
-                if not self._chrome_port_open():
-                    self.log_queue.put("🌐 检测到 Chrome 9222 未启动，正在自动启动 Chrome...")
-                    self._launch_chrome_worker()
-                    if not self._chrome_port_open():
-                        self.log_queue.put("❌ Chrome 自动启动失败，请检查 Chrome 安装后重试")
-                        self.log_queue.put("__FAILED__")
-                        return
-                if self.stop_requested:
-                    self.log_queue.put("🛑 任务已被用户终止")
-                    self.log_queue.put("__FAILED__")
-                    return
-                res = ERPBridgeService.publish_product_to_erp(product_id, log_callback=on_log)
+                bridge = _get_bridge()  # 惰性导入 (playwright 导入耗时, 仅在上件时加载)
+                chrome_dir = self.chrome_dir_var.get().strip() or None
+                res = bridge.publish_product_to_erp(
+                    product_id, log_callback=on_log, chrome_user_data_dir=chrome_dir)
                 ok = res.get("success", False)
-                if self.stop_requested:
-                    self.log_queue.put("🛑 任务已被用户终止")
+                if self._stop_requested:
+                    self.log_queue.put("🛑 上件已被用户终止")
                     self.log_queue.put("__FAILED__")
                     return
                 self.log_queue.put(("✅" if ok else "❌") + f" 上件结束: {res.get('msg', '')}")
                 self.log_queue.put("__DONE__" if ok else "__FAILED__")
             except Exception as e:
-                if self.stop_requested:
-                    self.log_queue.put("🛑 任务已被用户终止")
-                    self.log_queue.put("__FAILED__")
+                if self._stop_requested:
+                    self.log_queue.put("🛑 上件已被用户终止")
                 else:
                     self.log_queue.put(f"❌ 上件异常: {e}")
-                    self.log_queue.put("__FAILED__")
+                self.log_queue.put("__FAILED__")
 
         threading.Thread(target=worker, daemon=True).start()
 
     def stop_publish(self):
-        """无条件终止进行中的上件任务: 强杀 Playwright 驱动进程, 执行中的自动化操作立即中断"""
+        """终止当前上件任务: 无条件强杀 Playwright Node 驱动进程, 立即中断自动化流程"""
         if not self.publishing:
             return
-        self.stop_requested = True
-        self._log("🛑 收到终止指令，正在无条件停止上件任务...")
+        self._stop_requested = True
+        self.btn_stop.config(state="disabled")
+        self._log("🛑 用户点击终止，正在强制停止上件任务...")
+        threading.Thread(target=self._stop_publish_worker, daemon=True).start()
+
+    def _stop_publish_worker(self):
+        """后台执行终止: 强杀本进程登记的 Playwright 驱动进程树;
+        持续压制最多 60 秒 — 若上件尚未进入自动化阶段或管线重建驱动, 出现一个杀一个 (保证无条件终止)"""
         try:
             from core.browser_manager import cleanup_stale_drivers
-            killed = cleanup_stale_drivers()
-            self._log(f"🛑 已强制终止自动化驱动 ({killed} 个进程)，任务将在数秒内中断")
         except Exception as e:
-            self._log(f"⚠️ 终止操作异常: {e}")
+            self._log(f"⚠️ 终止模块加载失败: {e}")
+            return
+        killed_total = 0
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            if not self.publishing:  # 任务已结束 (终止生效或自然完成)
+                break
+            killed = cleanup_stale_drivers()
+            if killed:
+                killed_total += killed
+                self._log(f"🛑 已强制停止自动化驱动进程 ({killed} 个)")
+                time.sleep(0.5)  # 防止管线刚重建驱动, 继续轮询压制
+                continue
+            time.sleep(0.5)
+        if killed_total:
+            self._log(f"🛑 上件任务已终止 (共停止 {killed_total} 个自动化驱动进程)")
+        elif self.publishing:
+            self._log("⚠️ 未检测到自动化驱动进程，终止结束 (任务可能已完成)")
 
     # ────────────────── 日志与线程通信 ──────────────────
     def _ui(self, fn):
@@ -840,14 +891,65 @@ class DesktopApp:
 
     def _finish_publish(self, ok: bool):
         self.publishing = False
-        self.stop_requested = False
         self.btn_publish.config(state="normal")
         self.btn_search.config(state="normal")
         self.btn_stop.config(state="disabled")
-        if ok:
+        if self._stop_requested:
+            self.lbl_product_info.config(text="上件结果: 🛑 已终止 (详见日志)", foreground="#d97706")
+        elif ok:
             self.lbl_product_info.config(text="上件结果: ✅ 成功！", foreground="#059669")
         else:
             self.lbl_product_info.config(text="上件结果: ❌ 失败 (详见日志)", foreground="#dc2626")
+
+
+# ──────────────────────────────────────────────────────────────
+# 启动动画窗口 (双击 exe 后立即展示, 主窗口就绪后关闭)
+# ──────────────────────────────────────────────────────────────
+SPLASH_BG = "#0f172a"
+
+
+def _show_splash(root: tk.Tk):
+    """显示无边框启动动画窗口 (深色居中, 点点动画 + 不确定进度条)
+    返回 (splash, set_status), set_status 用于后台线程更新提示文本"""
+    splash = tk.Toplevel(root, bg=SPLASH_BG)
+    splash.overrideredirect(True)
+    splash.attributes("-topmost", True)
+    w, h = 430, 180
+    x = (splash.winfo_screenwidth() - w) // 2
+    y = (splash.winfo_screenheight() - h) // 2
+    splash.geometry(f"{w}x{h}+{x}+{y}")
+
+    tk.Label(splash, text="ERP 桌面上件助手", bg=SPLASH_BG, fg="#e2e8f0",
+             font=("Microsoft YaHei UI", 16, "bold")).pack(pady=(36, 2))
+    tk.Label(splash, text="店小秘自动化上件工具", bg=SPLASH_BG, fg="#94a3b8",
+             font=("Microsoft YaHei UI", 9)).pack()
+    lbl_status = tk.Label(splash, text="正在启动", bg=SPLASH_BG, fg="#38bdf8",
+                          font=("Microsoft YaHei UI", 10))
+    lbl_status.pack(pady=(20, 4))
+    bar = ttk.Progressbar(splash, mode="indeterminate", length=300)
+    bar.pack(pady=(4, 20))
+    bar.start(12)
+
+    state = {"custom": None}
+
+    def _animate(i=[0]):
+        if not splash.winfo_exists():
+            return
+        text = state["custom"] or "正在启动"
+        lbl_status.config(text=text + "." * (i[0] % 4))
+        i[0] += 1
+        splash.after(260, _animate)
+
+    def set_status(text: str):
+        state["custom"] = text
+        try:
+            if splash.winfo_exists():
+                lbl_status.config(text=text)
+        except Exception:
+            pass
+
+    _animate()
+    return splash, set_status
 
 
 def main():
@@ -856,7 +958,51 @@ def main():
         ttk.Style().theme_use("vista")
     except Exception:
         pass
-    DesktopApp(root)
+    root.withdraw()  # 主窗口就绪前先隐藏, 由启动动画接管
+
+    # 打包模式下关闭 PyInstaller 原生解压画面, 交接到应用内动画
+    try:
+        import pyi_splash  # noqa: F401
+        pyi_splash.close()
+    except Exception:
+        pass
+
+    splash, set_status = _show_splash(root)
+    ready = {"flag": False}
+
+    def _on_ready():
+        if ready["flag"]:
+            return
+        ready["flag"] = True
+
+        def _show_main():
+            try:
+                splash.destroy()
+            except Exception:
+                pass
+            root.deiconify()
+            root.lift()
+            root.focus_force()
+
+        # 动画至少展示 0.8 秒, 避免一闪而过
+        root.after(800, _show_main)
+
+    def _on_status(text: str):
+        # 后台线程调用, 需派发回主线程更新动画文本
+        root.after(0, lambda: set_status(text))
+
+    try:
+        DesktopApp(root, on_ready=_on_ready, on_status=_on_status)
+    except Exception as e:
+        _app_error_log("程序初始化失败", e)
+        try:
+            splash.destroy()
+        except Exception:
+            pass
+        messagebox.showerror("启动失败", f"程序初始化出错:\n{e}")
+        root.destroy()
+        return
+
     root.mainloop()
 
 

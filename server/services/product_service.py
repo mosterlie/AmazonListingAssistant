@@ -411,7 +411,8 @@ class ProductService:
                     var_dim, json.dumps(saved_dim_images, ensure_ascii=False),
                     data.description or "", json.dumps(data.bullet_points or [], ensure_ascii=False), json.dumps(data.chinese_translations or [], ensure_ascii=False),
                     data.fulfillment_channel or "FBM", data.search_terms or "",
-                    data.created_by or old_parent.get("created_by") or "admin",
+                    # 维护人锁定: 编辑不允许变更 created_by (含管理员), 始终沿用原维护人
+                    old_parent.get("created_by") or "admin",
                     product_id
                 ))
             else:
@@ -442,7 +443,7 @@ class ProductService:
                     var_dim, json.dumps(saved_dim_images, ensure_ascii=False),
                     data.description or "", json.dumps(data.bullet_points or [], ensure_ascii=False), json.dumps(data.chinese_translations or [], ensure_ascii=False),
                     data.fulfillment_channel or "FBM", data.search_terms or "",
-                    data.created_by or "admin"
+                    old_parent.get("created_by") or "admin"
                 ))
 
             # 1.3 插入更新后的子变体记录 (is_parent = 0) 与映射关系
@@ -470,7 +471,7 @@ class ProductService:
                     float(v.length_cm or 0.0), float(v.width_cm or 0.0), float(v.height_cm or 0.0), v_weight,
                     float(v.purchase_price or 0.0), float(v.profit_coefficient or 1.0), v_channel,
                     float(v.price_jpy or 0.0), int(v.quantity or 0), v_ean,
-                    "ready", data.created_by or "admin"
+                    "ready", old_parent.get("created_by") or "admin"
                 ))
 
                 if v_sku and v_ean:
@@ -483,7 +484,7 @@ class ProductService:
                         store_account = excluded.store_account,
                         created_by = excluded.created_by,
                         created_at = CURRENT_TIMESTAMP;
-                    """, (v_sku, v_ean, parent_sku, data.store_account or "", data.created_by or "admin"))
+                    """, (v_sku, v_ean, parent_sku, data.store_account or "", old_parent.get("created_by") or "admin"))
 
             conn.commit()
             return ProductService.get_product_by_id(product_id)
@@ -717,7 +718,7 @@ class ProductService:
             conn.close()
 
     @staticmethod
-    def get_filter_options() -> Dict[str, List[str]]:
+    def get_filter_options() -> Dict[str, Any]:
         """获取商品筛选下拉选项 (店铺、品牌、创建人)"""
         conn = get_db_connection()
         cursor = conn.cursor()

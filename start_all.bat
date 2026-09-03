@@ -17,7 +17,7 @@ timeout /t 2 /nobreak >nul
 echo ============================================
 echo   2/3 启动 Chrome 调试端口 9222...
 echo ============================================
-set "USER_DATA=D:\ChromeDebugUser"
+set "USER_DATA=C:\ChromeDebugUser"
 if not exist "%USER_DATA%" mkdir "%USER_DATA%"
 
 set "CHROME_PATH="
@@ -39,7 +39,7 @@ if not defined CHROME_PATH (
     echo [ERROR] 未找到 Google Chrome，请确认已安装！
 ) else (
     start "" "%CHROME_PATH%" --remote-debugging-port=9222 --user-data-dir="%USER_DATA%" --no-first-run --no-default-browser-check
-    echo [OK] Chrome 已启动（调试端口 9222，用户数据: D:\ChromeDebugUser）
+    echo [OK] Chrome 已启动（调试端口 9222，用户数据: C:\ChromeDebugUser）
 )
 timeout /t 2 /nobreak >nul
 

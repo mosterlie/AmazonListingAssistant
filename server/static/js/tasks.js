@@ -271,13 +271,15 @@ function renderTaskTable(tasks) {
       ? `<div style="font-size:0.8rem; color:#334155; line-height:1.45; white-space:pre-wrap; word-break:break-word; max-width:280px;">${t.instructions}</div>`
       : `<span style="color:var(--text-muted); font-size:0.78rem;">(无特殊说明)</span>`;
 
-    // 操作按钮
+    // 操作按钮 (登记/关联仅任务执行人或管理员可见)
     const isAdmin = (window.currentUserRole === "admin");
+    const canSubmit = isAdmin || (window.currentUsername && window.currentUsername === t.assigned_to);
     const actionsHtml = `
       <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
+        ${canSubmit ? `
         <button class="btn btn-outline btn-sm" onclick="openSubmitDeliverableModal(${t.id})" style="padding:3px 8px; font-size:0.75rem; width:100%; border-color:#3b82f6; color:#2563eb; background:#eff6ff;">
           📝 登记/关联
-        </button>
+        </button>` : '<span style="font-size:0.7rem; color:#94a3b8;">仅执行人可登记</span>'}
         ${isAdmin ? `
           <div style="display:flex; gap:4px; width:100%;">
             <button class="btn btn-outline btn-sm" onclick="openEditTaskModal(${t.id})" style="padding:3px 8px; font-size:0.75rem; flex:1;">✏️ 编辑</button>

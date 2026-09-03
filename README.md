@@ -6,7 +6,7 @@
 
 
 启动调试chrmoe
-& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="D:\ChromeDebugUser"
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\ChromeDebugUser"
 
 项目启动
 cd D:\myCoding\AmazonListingAssistant

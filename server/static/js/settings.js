@@ -20,7 +20,7 @@ const settingsState = {
   session_expire_hours: 1.0,
   chrome_user_data_dirs: {
     mac: "~/ChromeDebugUser",
-    win: "D:\\ChromeDebugUser"
+    win: "C:\\ChromeDebugUser"
   },
   ai_config: {
     bullets_source: "public",
@@ -120,7 +120,7 @@ function populateForm() {
   }
   
   if (chromeDirMacInp) chromeDirMacInp.value = settingsState.chrome_user_data_dirs.mac || "~/ChromeDebugUser";
-  if (chromeDirWinInp) chromeDirWinInp.value = settingsState.chrome_user_data_dirs.win || "D:\\ChromeDebugUser";
+  if (chromeDirWinInp) chromeDirWinInp.value = settingsState.chrome_user_data_dirs.win || "C:\\ChromeDebugUser";
 
   const aiLocalRadio = document.getElementById("aiSourceLocal");
   const aiPublicRadio = document.getElementById("aiSourcePublic");
@@ -410,7 +410,7 @@ function resetDefaults() {
       rel_sku: "sku"
     };
     settingsState.session_expire_hours = 1.0;
-    settingsState.chrome_user_data_dirs = { mac: "~/ChromeDebugUser", win: "D:\\ChromeDebugUser" };
+    settingsState.chrome_user_data_dirs = { mac: "~/ChromeDebugUser", win: "C:\\ChromeDebugUser" };
     settingsState.ai_config = {
       bullets_source: "public",
       ollama_model: "qwen2.5:1.5b-instruct-q4_K_M",
