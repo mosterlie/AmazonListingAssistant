@@ -19,6 +19,7 @@
         <a href="/list" class="nav-item {% if active_page == 'list' %}active{% endif %}">📋 商品管理</a>
         <a href="/tasks" class="nav-item {% if active_page == 'tasks' %}active{% endif %}">📌 任务管理</a>
         {% if current_user and current_user.role == 'admin' %}
+        <a href="/ads" class="nav-item {% if active_page == 'ads' %}active{% endif %}">📢 广告管理</a>
         <a href="/settings" class="nav-item {% if active_page == 'settings' %}active{% endif %}">⚙️ 系统管理</a>
         <a href="/users" class="nav-item {% if active_page == 'users' %}active{% endif %}">👥 用户管理</a>
         {% endif %}

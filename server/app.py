@@ -30,7 +30,8 @@ from server.routers import (
     settings_router,
     auth_router,
     user_router,
-    task_router
+    task_router,
+    ad_router
 )
 
 @asynccontextmanager
@@ -80,6 +81,7 @@ app.include_router(auth_router.router)
 app.include_router(user_router.router)
 app.include_router(product_router.router)
 app.include_router(task_router.router)
+app.include_router(ad_router.router)
 app.include_router(upload_router.router)
 app.include_router(automation_router.router)
 app.include_router(pricing_router.router)
@@ -275,6 +277,19 @@ async def render_tasks_page(request: Request):
 
     return templates.TemplateResponse(request=request, name="tasks.html", context={
         "active_page": "tasks",
+        "current_user": user
+    })
+
+
+@app.get("/ads", response_class=HTMLResponse, summary="赛狐广告投放任务管理页面")
+async def render_ads_page(request: Request):
+    """渲染广告管理页面 (仅管理员)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=True)
+    if redirect_resp:
+        return redirect_resp
+
+    return templates.TemplateResponse(request=request, name="ads.html", context={
+        "active_page": "ads",
         "current_user": user
     })
 

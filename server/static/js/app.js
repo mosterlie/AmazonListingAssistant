@@ -2407,3 +2407,25 @@ function showPromptModal(mode, promptText) {
   modal.querySelector("#promptModalText").textContent = promptText;
   modal.style.display = "flex";
 }
+
+/* ====================================================================
+ * 全局 fetch 拦截: 会话过期静默跳转登录页
+ * 旧页面停留后 session 过期, 接口返回 401 时不弹"请先登录"提示,
+ * 直接跳转 /login?next=<当前页>, 登录成功后由 login 页回跳原页面。
+ * 说明: 登录页不加载本文件; /api/auth/login 失败返回 HTTP 200 + code 401,
+ * 不会误触发本拦截。
+ * ==================================================================== */
+(function () {
+  if (window.__authRedirectInstalled) return;
+  window.__authRedirectInstalled = true;
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = async function (...args) {
+    const res = await _origFetch(...args);
+    if (res && res.status === 401 && !window.__redirectingToLogin) {
+      window.__redirectingToLogin = true;
+      const next = encodeURIComponent(location.pathname + location.search);
+      window.location.href = "/login?next=" + next;
+    }
+    return res;
+  };
+})();

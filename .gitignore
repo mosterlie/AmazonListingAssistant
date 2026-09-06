@@ -34,6 +34,7 @@ logs/
 # Uploaded files and DB backups (user data, not code)
 data/uploads/
 data/*.backup_*
+data/browser_toolkit.db
 
 
 # Environment variables

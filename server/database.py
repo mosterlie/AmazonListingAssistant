@@ -273,6 +273,64 @@ def init_db():
     );
     """)
 
+    # 8. 广告投放任务表 (赛狐 SP 批量创建广告 - 任务参数落库)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ad_campaign_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_name TEXT NOT NULL DEFAULT '',
+        shop_name TEXT NOT NULL DEFAULT '',
+        create_mode TEXT NOT NULL DEFAULT '所有产品合并创建广告',
+        start_date TEXT DEFAULT '',
+        end_date TEXT DEFAULT '',
+        daily_budget REAL NOT NULL DEFAULT 300,
+        bid_strategy TEXT NOT NULL DEFAULT '动态竞价-只降低',
+        default_bid REAL NOT NULL DEFAULT 15,
+        asins_json TEXT NOT NULL DEFAULT '[]',
+        asin_count INTEGER NOT NULL DEFAULT 0,
+        batch_size INTEGER NOT NULL DEFAULT 0,
+        auto_dedup INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        last_run_id INTEGER DEFAULT 0,
+        last_result TEXT DEFAULT '',
+        last_run_at DATETIME,
+        created_by TEXT DEFAULT '',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ad_tasks_status ON ad_campaign_tasks(status);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ad_tasks_shop ON ad_campaign_tasks(shop_name);")
+    # 旧库向下兼容: 补充 auto_dedup 字段 (ASIN 自动去重开关, 默认关闭)
+    cursor.execute("PRAGMA table_info(ad_campaign_tasks);")
+    _ad_cols = [col["name"] for col in cursor.fetchall()]
+    if "auto_dedup" not in _ad_cols:
+        cursor.execute("ALTER TABLE ad_campaign_tasks ADD COLUMN auto_dedup INTEGER NOT NULL DEFAULT 0;")
+
+    # 9. 广告任务执行记录表 (每次「自动投放」登记一条执行结果)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ad_task_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL,
+        task_name TEXT DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'running',
+        submitted INTEGER NOT NULL DEFAULT 0,
+        batch_count INTEGER DEFAULT 0,
+        total_asins INTEGER DEFAULT 0,
+        entered_count INTEGER DEFAULT 0,
+        skipped_count INTEGER DEFAULT 0,
+        skip_detail_json TEXT DEFAULT '[]',
+        verify_json TEXT DEFAULT '{}',
+        result_msg TEXT DEFAULT '',
+        log_text TEXT DEFAULT '',
+        operator TEXT DEFAULT '',
+        started_at DATETIME,
+        finished_at DATETIME,
+        duration_ms INTEGER DEFAULT 0
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ad_runs_task_id ON ad_task_runs(task_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ad_runs_started_at ON ad_task_runs(started_at);")
+
     # 初始化默认管理员用户 (admin / admin)
     cursor.execute("SELECT id FROM users WHERE username = 'admin';")
     if not cursor.fetchone():

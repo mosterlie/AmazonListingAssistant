@@ -197,8 +197,10 @@
         if (result.code === 0) {
           btn.textContent = "✅ 登录成功，跳转中...";
           const urlParams = new URLSearchParams(window.location.search);
-          const nextUrl = urlParams.get("next");
-          window.location.href = (nextUrl && nextUrl !== "/") ? nextUrl : "/list";
+          let nextUrl = urlParams.get("next") || "";
+          // 仅允许站内相对路径, 防开放重定向 (拒绝 //host、http:// 等)
+          if (!/^\/(?!\/)/.test(nextUrl)) nextUrl = "";
+          window.location.href = nextUrl || "/list";
         } else {
           errorDiv.textContent = result.msg || "用户名或密码错误，请核对！";
           errorDiv.style.display = "block";

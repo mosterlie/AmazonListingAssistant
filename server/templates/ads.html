@@ -1,0 +1,784 @@
+{% extends "base.html" %}
+
+{% block title %}广告投放任务管理{% endblock %}
+
+{% block content %}
+<div class="form-card" style="margin-bottom:20px;">
+  <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <div>
+      <div class="card-title" style="margin:0;">
+        <div class="card-title-icon">📢</div>
+        <span>广告投放任务管理（赛狐 SP 批量创建）</span>
+      </div>
+      <div style="font-size:0.83rem; color:var(--text-muted); margin-top:3px;">
+        维护广告投放参数 → 点击「自动投放」驱动赛狐完成录入，执行结果自动登记。
+        <span style="color:#b45309; font-weight:600;">当前阶段执行到「提交」前停止，需人工在赛狐页面核对后手动提交。</span>
+      </div>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <span id="cdpStatusBadge" style="font-size:0.78rem; padding:4px 10px; border-radius:9999px; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b;">
+        🔌 检测调试浏览器中...
+      </span>
+      <button class="btn btn-outline btn-sm" onclick="loadAdTasks()" style="display:inline-flex; align-items:center; gap:4px;">
+        <span>🔄</span> 刷新
+      </button>
+      <button class="btn btn-primary btn-sm" onclick="openAdTaskModal(null)" style="display:inline-flex; align-items:center; gap:4px;">
+        <span>➕</span> 新增广告任务
+      </button>
+    </div>
+  </div>
+
+  <!-- 统计与筛选栏 -->
+  <div style="padding:16px 20px; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <div class="stat-pill" onclick="filterAdByStatus('all')" style="background:#fff; border:1px solid #cbd5e1; padding:6px 14px; border-radius:20px; font-size:0.84rem; cursor:pointer; font-weight:600; color:#334155;">
+        全部: <span id="adStatAll" style="color:var(--primary); font-weight:700;">0</span>
+      </div>
+      <div class="stat-pill" onclick="filterAdByStatus('pending')" style="background:#fff; border:1px solid #cbd5e1; padding:6px 14px; border-radius:20px; font-size:0.84rem; cursor:pointer; font-weight:600; color:#64748b;">
+        ⏳ 待执行: <span id="adStatPending" style="font-weight:700;">0</span>
+      </div>
+      <div class="stat-pill" onclick="filterAdByStatus('success')" style="background:#fff; border:1px solid #cbd5e1; padding:6px 14px; border-radius:20px; font-size:0.84rem; cursor:pointer; font-weight:600; color:#059669;">
+        ✅ 已完成: <span id="adStatSuccess" style="font-weight:700;">0</span>
+      </div>
+      <div class="stat-pill" onclick="filterAdByStatus('partial')" style="background:#fff; border:1px solid #cbd5e1; padding:6px 14px; border-radius:20px; font-size:0.84rem; cursor:pointer; font-weight:600; color:#d97706;">
+        ⚠️ 部分成功: <span id="adStatPartial" style="font-weight:700;">0</span>
+      </div>
+      <div class="stat-pill" onclick="filterAdByStatus('failed')" style="background:#fff; border:1px solid #cbd5e1; padding:6px 14px; border-radius:20px; font-size:0.84rem; cursor:pointer; font-weight:600; color:#dc2626;">
+        ❌ 失败: <span id="adStatFailed" style="font-weight:700;">0</span>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <select class="form-select" id="adShopFilter" onchange="loadAdTasks()" style="width:150px; padding:6px 10px; font-size:0.82rem;">
+        <option value="">🏬 全部店铺</option>
+      </select>
+      <input type="text" class="form-input" id="adSearchInput" placeholder="搜索任务名 / 店铺 / ASIN..." style="width:220px; padding:6px 12px; font-size:0.82rem;" onkeyup="if(event.key==='Enter') loadAdTasks()">
+      <button class="btn btn-outline btn-sm" onclick="loadAdTasks()">🔍 搜索</button>
+    </div>
+  </div>
+
+  <!-- 任务列表 -->
+  <div class="card-body" style="padding:0;">
+    <div class="table-wrapper" style="overflow-x:auto;">
+      <table class="matrix-table" style="min-width:1000px; width:100%; table-layout:fixed;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="width:4%; text-align:center;">ID</th>
+            <th style="width:13%;">任务名称</th>
+            <th style="width:7%;">店铺</th>
+            <th style="width:11%;">创建方式</th>
+            <th style="width:12%;">投放周期</th>
+            <th style="width:10%;">预算 / 竞价</th>
+            <th style="width:5%; text-align:center;">ASIN</th>
+            <th style="width:5%; text-align:center;">批次</th>
+            <th style="width:9%; text-align:center;">状态</th>
+            <th style="width:11%;">最近执行结果</th>
+            <th style="width:13%; text-align:center;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="adTableBody">
+          <tr><td colspan="11" style="text-align:center; padding:40px; color:var(--text-muted);">⏳ 正在加载广告任务数据...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 弹窗 1：新增 / 编辑广告任务 ================= -->
+<div id="adTaskModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeAdTaskModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:640px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">📢</span>
+        <h3 style="margin:0; font-size:1.1rem; color:#0f172a; font-weight:700;" id="adTaskModalTitle">新增广告投放任务</h3>
+      </div>
+      <button class="custom-modal-close" onclick="closeAdTaskModal()">✕</button>
+    </div>
+    <form id="adTaskForm" onsubmit="handleAdTaskSubmit(event)"
+          style="display:flex; flex-direction:column; flex:1; min-height:0;">
+      <input type="hidden" id="adTaskId" value="">
+      <div class="custom-modal-body" style="padding:20px 24px; min-height:0;">
+
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">任务名称 <span style="color:#ef4444;">*</span>
+            <span style="font-weight:400; font-size:0.72rem; color:var(--text-muted); margin-left:6px;">自动生成，可修改</span></label>
+          <input type="text" class="form-input" id="adTaskName" placeholder="task260906-1" required style="width:100%;">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">1. 店铺名称 <span style="color:#ef4444;">*</span></label>
+          <input type="text" class="form-input" id="adShopName" list="adShopNameList" required
+                 placeholder="点击选择或直接输入店铺名称" autocomplete="off" style="width:100%;">
+          <datalist id="adShopNameList"></datalist>
+          <div id="adShopHint" style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;"></div>
+        </div>
+
+        <div class="form-group">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <label class="form-label" style="font-weight:700; margin-bottom:0;">7. ASIN 列表 <span style="color:#ef4444;">*</span></label>
+            <div id="adDedupGroup" style="display:flex; gap:6px; align-items:center;"></div>
+          </div>
+          <textarea class="form-input" id="adAsinsText" rows="12" required
+            placeholder="支持批量输入，逗号分隔：B0XXXXXXXX,B0YYYYYYYY,B0ZZZZZZZZ&#10;也支持换行 / 空格 / 分号分隔，自动转大写"
+            style="width:100%; resize:vertical; font-family:inherit; margin-top:6px;" oninput="updateAsinCounter()"></textarea>
+          <div id="adAsinCounter" style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">已识别 0 个 ASIN</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">8. 批次数量</label>
+          <input type="number" class="form-input" id="adBatchSize" value="20" min="1" step="1" placeholder="默认 20" style="width:100%;">
+          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">
+            每批最多录入的 ASIN 数，默认 20（不足一批时全部一批完成）。
+            当前阶段不执行提交：每批在新标签页执行并停留在提交前，全部批次结束后请逐个标签页人工检查提交。
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">2. 创建方式</label>
+          <div id="adCreateModeGroup" style="display:flex; gap:10px; flex-wrap:wrap;"></div>
+        </div>
+
+        <div style="display:flex; gap:14px;">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label" style="font-weight:700;">3. 开始时间 <span style="color:#ef4444;">*</span></label>
+            <input type="date" class="form-input" id="adStartDate" required style="width:100%;">
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label class="form-label" style="font-weight:700;">结束时间</label>
+            <input type="date" class="form-input" id="adEndDate" style="width:100%;">
+          </div>
+        </div>
+
+        <div style="display:flex; gap:14px;">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label" style="font-weight:700;">4. 每日预算 <span style="color:#ef4444;">*</span></label>
+            <input type="number" class="form-input" id="adBudget" value="300" min="1" step="1" required style="width:100%;">
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label class="form-label" style="font-weight:700;">6. 默认竞价 <span style="color:#ef4444;">*</span></label>
+            <input type="number" class="form-input" id="adDefaultBid" value="15" min="0.01" step="0.01" required style="width:100%;">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" style="font-weight:700;">5. 竞价策略</label>
+          <div id="adBidStrategyGroup" style="display:flex; gap:10px; flex-wrap:wrap;"></div>
+        </div>
+
+      </div>
+      <div class="custom-modal-footer" style="flex-shrink:0;">
+        <button type="button" class="btn btn-outline" onclick="closeAdTaskModal()">取消</button>
+        <button type="submit" class="btn btn-primary" id="adTaskSubmitBtn">💾 保存任务</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ================= 弹窗 2：实时执行日志 ================= -->
+<div id="adRunLogModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeRunLogModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:820px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">▶️</span>
+        <div>
+          <h3 style="margin:0; font-size:1.1rem; color:#0f172a; font-weight:700;">自动投放执行日志</h3>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">
+            任务 #<span id="adRunTaskId">-</span> · <span id="adRunElapsed">0s</span> · <span id="adRunStateLabel">准备中</span>
+          </div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeRunLogModal()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:16px 24px;">
+      <div id="adRunResultBar" style="display:none; border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:0.85rem;"></div>
+      <pre id="adRunLogBox" style="background:#0f172a; color:#cbd5e1; border-radius:8px; padding:14px 16px; font-size:0.78rem; line-height:1.65; max-height:52vh; overflow:auto; white-space:pre-wrap; word-break:break-all; margin:0;">等待执行日志...</pre>
+    </div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" id="adRunStopBtn" onclick="stopAdTask(adState.runTaskId)"
+        style="display:none; color:#dc2626; border-color:#fecaca; margin-right:auto;">⏹ 终止任务</button>
+      <button type="button" class="btn btn-outline" onclick="closeRunLogModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 弹窗 3：历史执行记录 ================= -->
+<div id="adHistoryModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeHistoryModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:900px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">🗂️</span>
+        <h3 style="margin:0; font-size:1.1rem; color:#0f172a; font-weight:700;">执行记录 · 任务 #<span id="adHistoryTaskId">-</span></h3>
+      </div>
+      <button class="custom-modal-close" onclick="closeHistoryModal()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:16px 24px;">
+      <table class="matrix-table" style="width:100%; min-width:760px;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="width:50px; text-align:center;">#</th>
+            <th style="width:100px; text-align:center;">状态</th>
+            <th style="width:150px;">执行时间</th>
+            <th style="width:110px; text-align:center;">录入/总数</th>
+            <th style="min-width:200px;">结果摘要</th>
+            <th style="width:90px; text-align:center;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="adHistoryBody">
+          <tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">⏳ 加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="closeHistoryModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 弹窗 4：执行记录详情（完整日志 + 跳过明细） ================= -->
+<div id="adRunDetailModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeRunDetailModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:900px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">📄</span>
+        <h3 style="margin:0; font-size:1.1rem; color:#0f172a; font-weight:700;">执行记录详情 #<span id="adDetailRunId">-</span></h3>
+      </div>
+      <button class="custom-modal-close" onclick="closeRunDetailModal()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:16px 24px;">
+      <div id="adDetailSummary" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px 16px; margin-bottom:12px; font-size:0.84rem; line-height:1.8;"></div>
+      <div id="adDetailSkips" style="margin-bottom:12px;"></div>
+      <div style="font-size:0.82rem; font-weight:700; color:#334155; margin-bottom:6px;">执行日志</div>
+      <pre id="adDetailLogBox" style="background:#0f172a; color:#cbd5e1; border-radius:8px; padding:14px 16px; font-size:0.78rem; line-height:1.65; max-height:46vh; overflow:auto; white-space:pre-wrap; word-break:break-all; margin:0;"></pre>
+    </div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="closeRunDetailModal()">关闭</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+/* 当前登录用户角色 (由服务端模板渲染注入) */
+const CURRENT_USER_ROLE = "{{ current_user.role if current_user else '' }}";
+
+/* ===================== 全局状态 ===================== */
+const adState = {
+  options: { shop_names: [], create_modes: [], bid_strategies: [], today: '', submit_enabled: false },
+  filterStatus: 'all',
+  tasks: [],
+  runTimer: null,
+  runTaskId: null,
+  runSince: 0,
+};
+
+/* ===================== 初始化 ===================== */
+document.addEventListener('DOMContentLoaded', function () {
+  loadAdOptions().then(() => { loadAdTasks(); });
+  checkCdpStatus();
+});
+
+async function loadAdOptions() {
+  try {
+    const r = await fetch('/api/ads/options');
+    const j = await r.json();
+    if (j.code === 0) adState.options = j.data || adState.options;
+  } catch (e) { console.error('加载广告选项失败', e); }
+
+  fillDatalist('adShopNameList', adState.options.shop_names || []);
+  renderRadioGroup('adCreateModeGroup', adState.options.create_modes || ['所有产品合并创建广告', '每个产品单独创建广告'],
+    '所有产品合并创建广告', 'adCreateMode');
+  renderRadioGroup('adBidStrategyGroup', adState.options.bid_strategies || ['动态竞价-只降低'],
+    '动态竞价-只降低', 'adBidStrategy');
+  renderRadioGroup('adDedupGroup',
+    [{ v: 'no', label: '不去重' }, { v: 'yes', label: '自动去重' }],
+    'no', 'adDedup', true);
+  if (!document.getElementById('adStartDate').value) {
+    document.getElementById('adStartDate').value = adState.options.today || '';
+  }
+  const hint = document.getElementById('adShopHint');
+  if (!(adState.options.shop_names || []).length) {
+    hint.innerHTML = '⚠ 系统未维护店铺，请先到「系统管理」添加店铺账号。';
+    hint.style.color = '#b45309';
+  } else {
+    hint.innerText = '共 ' + adState.options.shop_names.length + ' 个可选店铺';
+    hint.style.color = '';
+  }
+  // 店铺筛选下拉
+  const f = document.getElementById('adShopFilter');
+  const keep = f.value;
+  f.innerHTML = '<option value="">🏬 全部店铺</option>' +
+    (adState.options.shop_names || []).map(s => '<option value="' + s + '">' + s + '</option>').join('');
+  f.value = keep;
+}
+
+/* 填充店铺 datalist: 输入框可自由打字, 也可下拉选择系统维护的店铺 */
+function fillDatalist(id, list) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = list.map(v => '<option value="' + esc(v) + '">').join('');
+}
+
+/* 渲染单选组 (分段按钮式): options 为字符串数组或 {v,label} 数组; small=true 时为紧凑小字样式 */
+function renderRadioGroup(containerId, options, selected, name, small) {
+  const box = document.getElementById(containerId);
+  if (!box) return;
+  const pad = small ? '3px 10px' : '7px 14px';
+  const fs = small ? '0.76rem' : '0.84rem';
+  const br = small ? '6px' : '8px';
+  box.innerHTML = options.map(o => {
+    const v = typeof o === 'string' ? o : o.v;
+    const label = typeof o === 'string' ? o : (o.label || o.v);
+    const on = (v === selected);
+    return '<label data-val="' + esc(v) + '" style="display:inline-flex; align-items:center; gap:5px; padding:' + pad +
+      '; border-radius:' + br + '; border:1.5px solid ' +
+      (on ? '#2563eb' : '#e2e8f0') + '; background:' + (on ? '#eff6ff' : '#fff') + '; color:' +
+      (on ? '#1d4ed8' : '#475569') + '; font-size:' + fs + '; font-weight:600; cursor:pointer; transition:all .15s; user-select:none;">' +
+      '<input type="radio" name="' + name + '" value="' + esc(v) + '"' + (on ? ' checked' : '') +
+      ' style="accent-color:#2563eb; margin:0; cursor:pointer; width:auto;">' + esc(label) + '</label>';
+  }).join('');
+  box.onclick = function (e) {
+    const lb = e.target.closest('label');
+    if (!lb || !box.contains(lb)) return;
+    const input = lb.querySelector('input');
+    if (!input) return;
+    input.checked = true;
+    paintRadioGroup(box);
+    if (name === 'adDedup') updateAsinCounter();
+  };
+}
+
+function paintRadioGroup(box) {
+  box.querySelectorAll('label').forEach(l => {
+    const on = l.querySelector('input').checked;
+    l.style.borderColor = on ? '#2563eb' : '#e2e8f0';
+    l.style.background = on ? '#eff6ff' : '#fff';
+    l.style.color = on ? '#1d4ed8' : '#475569';
+  });
+}
+
+function getCheckedValue(name) {
+  const el = document.querySelector('input[name="' + name + '"]:checked');
+  return el ? el.value : '';
+}
+
+async function checkCdpStatus() {
+  const badge = document.getElementById('cdpStatusBadge');
+  try {
+    const j = await (await fetch('/api/ads/cdp-status')).json();
+    const ok = j.data && j.data.available;
+    badge.innerText = ok ? '🟢 调试浏览器已就绪' : '🔴 未检测到调试浏览器(9222)';
+    badge.style.color = ok ? '#059669' : '#dc2626';
+    badge.style.borderColor = ok ? '#a7f3d0' : '#fecaca';
+    badge.style.background = ok ? '#ecfdf5' : '#fef2f2';
+  } catch (e) {
+    badge.innerText = '🟡 状态检测失败';
+  }
+}
+
+/* ===================== 列表 ===================== */
+function filterAdByStatus(st) {
+  adState.filterStatus = st;
+  loadAdTasks();
+}
+
+async function loadAdTasks() {
+  const params = new URLSearchParams();
+  if (adState.filterStatus && adState.filterStatus !== 'all') params.append('status', adState.filterStatus);
+  const shop = document.getElementById('adShopFilter').value;
+  if (shop) params.append('shop_name', shop);
+  const kw = document.getElementById('adSearchInput').value.trim();
+  if (kw) params.append('search', kw);
+
+  try {
+    const j = await (await fetch('/api/ads/tasks?' + params.toString())).json();
+    if (j.code !== 0) throw new Error(j.msg || '查询失败');
+    adState.tasks = j.data || [];
+    renderAdStats(adState.tasks);
+    renderAdTable(adState.tasks);
+    await loadAdOptions();
+  } catch (e) {
+    showToast('加载广告任务失败: ' + e.message, 'error');
+  }
+}
+
+function renderAdStats(tasks) {
+  const c = { pending: 0, running: 0, success: 0, partial: 0, failed: 0 };
+  tasks.forEach(t => { if (c[t.status] !== undefined) c[t.status]++; else c.pending++; });
+  document.getElementById('adStatAll').innerText = tasks.length;
+  document.getElementById('adStatPending').innerText = c.pending + c.running;
+  document.getElementById('adStatSuccess').innerText = c.success;
+  document.getElementById('adStatPartial').innerText = c.partial;
+  document.getElementById('adStatFailed').innerText = c.failed;
+}
+
+function statusBadge(st) {
+  const map = {
+    pending: ['⏳ 待执行', '#64748b', '#f1f5f9', '#cbd5e1'],
+    running: ['▶️ 执行中', '#1d4ed8', '#eff6ff', '#bfdbfe'],
+    success: ['✅ 已完成', '#059669', '#ecfdf5', '#a7f3d0'],
+    partial: ['⚠️ 部分成功', '#b45309', '#fffbeb', '#fde68a'],
+    failed: ['❌ 失败', '#dc2626', '#fef2f2', '#fecaca'],
+  };
+  const m = map[st] || map.pending;
+  return '<span style="display:inline-block; padding:2px 8px; border-radius:9999px; font-size:0.72rem; font-weight:700; color:' +
+    m[1] + '; background:' + m[2] + '; border:1px solid ' + m[3] + ';">' + m[0] + '</span>';
+}
+
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/* 单行省略单元格内容 (table-layout:fixed 下防止长文本撑破列宽) */
+function ellip(text, fs, color) {
+  const t = esc(text === null || text === undefined || text === '' ? '-' : text);
+  return '<div title="' + t + '" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:' +
+    (fs || '0.8rem') + ';' + (color ? ' color:' + color + ';' : '') + '">' + t + '</div>';
+}
+
+/* 多行截断 (最多 maxLines 行, 溢出显示省略号) */
+function clampLines(text, maxLines, fs) {
+  const t = esc(text === null || text === undefined || text === '' ? '-' : text);
+  return '<div title="' + t + '" style="display:-webkit-box; -webkit-line-clamp:' + maxLines +
+    '; -webkit-box-orient:vertical; overflow:hidden; word-break:break-all; font-size:' + (fs || '0.76rem') + ';">' + t + '</div>';
+}
+
+function renderAdTable(tasks) {
+  const tbody = document.getElementById('adTableBody');
+  if (!tasks.length) {
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:40px; color:var(--text-muted);">📭 暂无广告任务，点击右上角「新增广告任务」创建</td></tr>';
+    return;
+  }
+  const isAdmin = (CURRENT_USER_ROLE === 'admin');
+  const runBtn = (t) => t.running
+    ? '<button class="btn btn-outline btn-sm" onclick="stopAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem; color:#dc2626; border-color:#fecaca;" title="请求终止执行">⏹ 终止</button>'
+    : '<button class="btn btn-primary btn-sm" onclick="runAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="执行自动投放">▶ 投放</button>';
+  tbody.innerHTML = tasks.map(t => {
+    const asins = t.asins || [];
+    const period = (t.start_date || '-') + ' ~ ' + (t.end_date || '不限');
+    const lastRun = t.last_result
+      ? clampLines(t.last_result, 2) +
+        '<div style="font-size:0.7rem; color:#94a3b8; margin-top:3px;">' + esc(t.last_run_at || '') + '</div>'
+      : '<span style="color:#94a3b8; font-size:0.78rem;">尚未执行</span>';
+    return '<tr>' +
+      '<td style="text-align:center; font-weight:700; color:#64748b; overflow:hidden;">#' + t.id + '</td>' +
+      '<td>' + ellip(t.task_name, '0.84rem', '#0f172a').replace('overflow:hidden', 'overflow:hidden; font-weight:600;') +
+        '<div style="font-size:0.7rem; color:#94a3b8; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">👤 ' + esc(t.created_by || '-') + '</div></td>' +
+      '<td>' + ellip(t.shop_name, '0.8rem') + '</td>' +
+      '<td>' + ellip(t.create_mode, '0.78rem') + '</td>' +
+      '<td>' + ellip(period, '0.78rem') + '</td>' +
+      '<td><div style="font-size:0.78rem; white-space:nowrap;">预算 <b>' + t.daily_budget + '</b> / 竞价 <b>' + t.default_bid + '</b></div>' +
+        ellip(t.bid_strategy, '0.7rem', '#94a3b8') + '</td>' +
+      '<td style="text-align:center;"><span title="' + esc(asins.join(', ')) + '" style="font-weight:700; color:#2563eb;">' + asins.length + '</span>' +
+        (t.auto_dedup ? '<div style="font-size:0.68rem; color:#64748b; margin-top:2px;">已去重</div>' : '') + '</td>' +
+      '<td style="text-align:center; font-size:0.8rem;">' + (t.batch_size || '不分批') + '</td>' +
+      '<td style="text-align:center;">' + statusBadge(t.running ? 'running' : t.status) + '</td>' +
+      '<td>' + lastRun + '</td>' +
+      '<td style="text-align:center;"><div style="display:inline-flex; gap:3px; align-items:center; justify-content:center; white-space:nowrap;">' +
+        runBtn(t) +
+        '<button class="btn btn-outline btn-sm" onclick="openAdTaskModal(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="编辑">✏️</button>' +
+        '<button class="btn btn-outline btn-sm" onclick="openHistoryModal(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="执行记录">🗂️</button>' +
+        (isAdmin ? '<button class="btn btn-outline btn-sm" onclick="deleteAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem; color:#ef4444;" title="删除">🗑️</button>' : '') +
+      '</div></td></tr>';
+  }).join('');
+}
+
+/* ===================== 新增 / 编辑 ===================== */
+function updateAsinCounter() {
+  const raw = document.getElementById('adAsinsText').value || '';
+  const parts = raw.split(/[,，;；\s\r\n\t]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  const dedup = getCheckedValue('adDedup') === 'yes';
+  let list = parts, dupCount = 0;
+  if (dedup) {
+    list = Array.from(new Set(parts));
+    dupCount = parts.length - list.length;
+  } else {
+    const seen = new Set();
+    for (const p of parts) { if (seen.has(p)) dupCount++; else seen.add(p); }
+  }
+  const bad = list.filter(a => !/^[A-Z0-9]{10}$/.test(a));
+  const el = document.getElementById('adAsinCounter');
+  el.innerHTML = '已识别 <b style="color:#2563eb;">' + list.length + '</b> 个 ASIN' +
+    (dupCount > 0 ? ' · <span style="color:#b45309;">重复 ' + dupCount + ' 个' +
+      (dedup ? '（保存时将自动去重）' : '（按当前设置原样保留）') + '</span>' : '') +
+    (bad.length ? ' · <span style="color:#dc2626;">⚠ ' + bad.length + ' 个格式异常: ' + esc(bad.slice(0, 3).join(', ')) + '</span>' : '');
+}
+
+function openAdTaskModal(taskId) {
+  document.getElementById('adTaskForm').reset();
+  document.getElementById('adTaskId').value = '';
+  document.getElementById('adTaskModalTitle').innerText = '新增广告投放任务';
+  document.getElementById('adBudget').value = 300;
+  document.getElementById('adDefaultBid').value = 15;
+  document.getElementById('adBatchSize').value = 20;
+  document.getElementById('adStartDate').value = adState.options.today || '';
+  document.getElementById('adEndDate').value = '';
+  document.getElementById('adShopName').value = '';   // 默认不选中店铺(占位态)
+  renderRadioGroup('adCreateModeGroup', adState.options.create_modes || [],
+    '所有产品合并创建广告', 'adCreateMode');
+  renderRadioGroup('adBidStrategyGroup', adState.options.bid_strategies || [],
+    '动态竞价-只降低', 'adBidStrategy');
+  renderRadioGroup('adDedupGroup',
+    [{ v: 'no', label: '不去重' }, { v: 'yes', label: '自动去重' }], 'no', 'adDedup', true);
+
+  if (taskId) {
+    // 编辑模式: 回填, 不自动改任务名
+    const t = adState.tasks.find(x => x.id === taskId);
+    if (!t) { showToast('未找到该任务数据', 'error'); return; }
+    document.getElementById('adTaskModalTitle').innerText = '编辑广告投放任务 #' + taskId;
+    document.getElementById('adTaskId').value = t.id;
+    document.getElementById('adTaskName').value = t.task_name || '';
+    document.getElementById('adShopName').value = t.shop_name || '';
+    renderRadioGroup('adCreateModeGroup', adState.options.create_modes || [],
+      t.create_mode || '所有产品合并创建广告', 'adCreateMode');
+    renderRadioGroup('adBidStrategyGroup', adState.options.bid_strategies || [],
+      t.bid_strategy || '动态竞价-只降低', 'adBidStrategy');
+    document.getElementById('adStartDate').value = t.start_date || '';
+    document.getElementById('adEndDate').value = t.end_date || '';
+    document.getElementById('adBudget').value = t.daily_budget;
+    document.getElementById('adDefaultBid').value = t.default_bid;
+    document.getElementById('adAsinsText').value = (t.asins || []).join(',');
+    renderRadioGroup('adDedupGroup',
+      [{ v: 'no', label: '不去重' }, { v: 'yes', label: '自动去重' }],
+      t.auto_dedup ? 'yes' : 'no', 'adDedup', true);
+    document.getElementById('adBatchSize').value = t.batch_size || 20;
+  } else {
+    // 新增模式: 自动生成任务名 task+2位年份+4位日期-n (n=今日第n个任务, 后端计数)
+    // 先用缓存值即填, 再实时拉取修正 (仅当用户尚未改动输入框时覆盖)
+    const nameEl = document.getElementById('adTaskName');
+    const cached = adState.options.next_task_name || '';
+    nameEl.value = cached;
+    fetch('/api/ads/options').then(r => r.json()).then(j => {
+      if (j.code === 0 && j.data && j.data.next_task_name) {
+        adState.options = j.data;
+        if (nameEl.value === cached || nameEl.value === '') {
+          nameEl.value = j.data.next_task_name;
+        }
+      }
+    }).catch(() => {});
+  }
+  updateAsinCounter();
+  document.getElementById('adTaskModal').style.display = 'flex';
+}
+
+function closeAdTaskModal() { document.getElementById('adTaskModal').style.display = 'none'; }
+
+async function handleAdTaskSubmit(e) {
+  e.preventDefault();
+  const id = document.getElementById('adTaskId').value;
+  const payload = {
+    task_name: document.getElementById('adTaskName').value.trim(),
+    shop_name: document.getElementById('adShopName').value,
+    create_mode: getCheckedValue('adCreateMode'),
+    start_date: document.getElementById('adStartDate').value,
+    end_date: document.getElementById('adEndDate').value,
+    daily_budget: parseFloat(document.getElementById('adBudget').value),
+    bid_strategy: getCheckedValue('adBidStrategy'),
+    default_bid: parseFloat(document.getElementById('adDefaultBid').value),
+    asins_text: document.getElementById('adAsinsText').value,
+    auto_dedup: getCheckedValue('adDedup') === 'yes',
+    batch_size: parseInt(document.getElementById('adBatchSize').value || '0', 10) || 0,
+  };
+  if (!payload.shop_name) { showToast('请选择店铺名称', 'error'); return; }
+  if (!payload.create_mode) { showToast('请选择创建方式', 'error'); return; }
+  if (!payload.bid_strategy) { showToast('请选择竞价策略', 'error'); return; }
+  if (!payload.asins_text.trim()) { showToast('请填写 ASIN 列表', 'error'); return; }
+
+  const btn = document.getElementById('adTaskSubmitBtn');
+  btn.disabled = true; btn.innerText = '保存中...';
+  try {
+    const url = id ? ('/api/ads/tasks/' + id) : '/api/ads/tasks';
+    const method = id ? 'PUT' : 'POST';
+    const r = await fetch(url, {
+      method: method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (j.code !== 0) throw new Error(j.detail || j.msg || '保存失败');
+    showToast(id ? '广告任务更新成功！' : '广告任务创建成功！', 'success');
+    closeAdTaskModal();
+    loadAdTasks();
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerText = '💾 保存任务';
+  }
+}
+
+async function deleteAdTask(id) {
+  if (!confirm('确认删除广告任务 #' + id + '？该任务的执行记录将一并删除，且不可恢复。')) return;
+  try {
+    const j = await (await fetch('/api/ads/tasks/' + id, { method: 'DELETE' })).json();
+    if (j.code !== 0) throw new Error(j.detail || '删除失败');
+    showToast('广告任务已删除', 'success');
+    loadAdTasks();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+/* ===================== 自动投放 ===================== */
+async function stopAdTask(id) {
+  if (!confirm('确认请求终止任务 #' + id + ' 的自动投放？\n\n当前 ASIN 录入环节结束后即停止，已录入的数据保持现状。')) return;
+  try {
+    const r = await fetch('/api/ads/tasks/' + id + '/stop', { method: 'POST' });
+    const j = await r.json();
+    if (j.code !== 0) throw new Error(j.detail || '终止失败');
+    showToast('终止请求已受理，任务将在当前环节结束后停止', 'success');
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function runAdTask(id) {
+  const t = adState.tasks.find(x => x.id === id);
+  const cnt = t ? (t.asins || []).length : 0;
+  if (!confirm('确认对任务 #' + id + ' 执行自动投放？\n\n' +
+      '· 共 ' + cnt + ' 个 ASIN\n' +
+      '· 将驱动赛狐完成向导三步并录入产品\n' +
+      '· 当前阶段执行到「提交」前停止；多批时每批在独立新标签页执行，结束后请逐个标签页人工检查提交\n\n' +
+      '执行期间请勿操作 9222 调试浏览器窗口。')) return;
+
+  try {
+    const r = await fetch('/api/ads/tasks/' + id + '/run', { method: 'POST' });
+    const j = await r.json();
+    if (j.code !== 0) throw new Error(j.detail || '启动失败');
+    showToast('自动投放已启动', 'success');
+    openRunLogModal(id);
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+function openRunLogModal(id) {
+  adState.runTaskId = id;
+  adState.runSince = 0;
+  document.getElementById('adRunTaskId').innerText = id;
+  document.getElementById('adRunLogBox').innerText = '等待执行日志...\n';
+  document.getElementById('adRunResultBar').style.display = 'none';
+  document.getElementById('adRunStateLabel').innerText = '执行中';
+  document.getElementById('adRunStopBtn').style.display = 'inline-block';
+  document.getElementById('adRunLogModal').style.display = 'flex';
+  if (adState.runTimer) clearInterval(adState.runTimer);
+  adState.runTimer = setInterval(pollRunStatus, 1500);
+  pollRunStatus();
+}
+
+function closeRunLogModal() {
+  if (adState.runTimer) { clearInterval(adState.runTimer); adState.runTimer = null; }
+  document.getElementById('adRunLogModal').style.display = 'none';
+  loadAdTasks();
+}
+
+async function pollRunStatus() {
+  const id = adState.runTaskId;
+  if (!id) return;
+  try {
+    const j = await (await fetch('/api/ads/tasks/' + id + '/run-status?since=' + adState.runSince)).json();
+    const d = (j.data || {});
+    document.getElementById('adRunElapsed').innerText = (d.elapsed_sec || 0) + 's';
+    if (d.new_logs && d.new_logs.length) {
+      const box = document.getElementById('adRunLogBox');
+      if (adState.runSince === 0) box.innerText = '';
+      box.innerText += d.new_logs.join('\n') + '\n';
+      box.scrollTop = box.scrollHeight;
+      adState.runSince = d.total_log_lines || adState.runSince;
+    }
+    if (d.done) {
+      clearInterval(adState.runTimer); adState.runTimer = null;
+      const ok = d.success;
+      document.getElementById('adRunStopBtn').style.display = 'none';
+      document.getElementById('adRunStateLabel').innerText = ok ? '✅ 执行成功' : '⚠️ 执行结束（存在异常）';
+      const bar = document.getElementById('adRunResultBar');
+      bar.style.display = 'block';
+      bar.style.background = ok ? '#ecfdf5' : '#fffbeb';
+      bar.style.border = '1px solid ' + (ok ? '#a7f3d0' : '#fde68a');
+      bar.style.color = ok ? '#065f46' : '#92400e';
+      bar.innerText = d.msg || (ok ? '执行完成' : '执行结束，请查看日志');
+      checkCdpStatus();
+      loadAdTasks();
+    }
+  } catch (e) { console.error('轮询执行状态失败', e); }
+}
+
+/* ===================== 历史执行记录 ===================== */
+function openHistoryModal(taskId) {
+  document.getElementById('adHistoryTaskId').innerText = taskId;
+  document.getElementById('adHistoryModal').style.display = 'flex';
+  loadHistory(taskId);
+}
+function closeHistoryModal() { document.getElementById('adHistoryModal').style.display = 'none'; }
+
+async function loadHistory(taskId) {
+  const body = document.getElementById('adHistoryBody');
+  body.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">⏳ 加载中...</td></tr>';
+  try {
+    const j = await (await fetch('/api/ads/tasks/' + taskId + '/runs?limit=50')).json();
+    const runs = (j.data || []);
+    if (!runs.length) {
+      body.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">📭 暂无执行记录</td></tr>';
+      return;
+    }
+    body.innerHTML = runs.map(r =>
+      '<tr>' +
+      '<td style="text-align:center; color:#64748b; font-weight:700;">#' + r.id + '</td>' +
+      '<td style="text-align:center;">' + statusBadge(r.status) + '</td>' +
+      '<td style="font-size:0.8rem;">' + esc(r.started_at || '-') +
+        '<div style="font-size:0.72rem; color:#94a3b8;">耗时 ' + ((r.duration_ms || 0) / 1000).toFixed(1) + 's</div></td>' +
+      '<td style="text-align:center;"><b style="color:#059669;">' + r.entered_count + '</b> / ' + r.total_asins +
+        (r.skipped_count ? '<div style="font-size:0.72rem; color:#dc2626;">跳过 ' + r.skipped_count + '</div>' : '') + '</td>' +
+      '<td style="font-size:0.78rem; color:#475569; line-height:1.5;">' + esc(r.result_msg || '-') + '</td>' +
+      '<td style="text-align:center;"><button class="btn btn-outline btn-sm" onclick="openRunDetail(' + r.id + ')" style="padding:4px 8px; font-size:0.75rem;">查看</button></td>' +
+      '</tr>').join('');
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:#dc2626;">加载失败</td></tr>';
+  }
+}
+
+function openRunDetail(runId) {
+  document.getElementById('adDetailRunId').innerText = runId;
+  document.getElementById('adDetailSummary').innerHTML = '⏳ 加载中...';
+  document.getElementById('adDetailLogBox').innerText = '';
+  document.getElementById('adDetailSkips').innerHTML = '';
+  document.getElementById('adRunDetailModal').style.display = 'flex';
+  loadRunDetail(runId);
+}
+function closeRunDetailModal() { document.getElementById('adRunDetailModal').style.display = 'none'; }
+
+async function loadRunDetail(runId) {
+  try {
+    const j = await (await fetch('/api/ads/runs/' + runId)).json();
+    const r = j.data || {};
+    const verify = safeParse(r.verify_json, {});
+    document.getElementById('adDetailSummary').innerHTML =
+      '<div><b>任务:</b> ' + esc(r.task_name || '-') + '（#' + r.task_id + '）</div>' +
+      '<div><b>状态:</b> ' + statusBadge(r.status) + ' · <b>是否提交:</b> ' + (r.submitted ? '已提交' : '未提交') + '</div>' +
+      '<div><b>时间:</b> ' + esc(r.started_at || '-') + ' → ' + esc(r.finished_at || '-') + '（耗时 ' + ((r.duration_ms || 0) / 1000).toFixed(1) + 's）</div>' +
+      '<div><b>终态对账:</b> 页面已配置 ' + (verify.configured !== undefined ? verify.configured : '-') +
+        ' 条 / 期望 ' + (verify.expected !== undefined ? verify.expected : '-') + ' 条' +
+        (verify.match === true ? ' <span style="color:#059669;font-weight:700;">✓ 一致</span>'
+          : (verify.match === false ? ' <span style="color:#dc2626;font-weight:700;">✗ 不一致</span>' : '')) + '</div>' +
+      '<div><b>结果:</b> ' + esc(r.result_msg || '-') + '</div>';
+
+    const skips = safeParse(r.skip_detail_json, []);
+    if (skips.length) {
+      document.getElementById('adDetailSkips').innerHTML =
+        '<div style="font-size:0.82rem; font-weight:700; color:#b45309; margin-bottom:6px;">跳过明细（' + skips.length + ' 条）</div>' +
+        '<div style="max-height:160px; overflow:auto; border:1px solid #fde68a; background:#fffbeb; border-radius:8px; padding:10px 12px; font-size:0.78rem; line-height:1.7;">' +
+        skips.map(s => '· ASIN <b>' + esc(s.asin) + '</b> @ ' + esc(s.campaign) + '：' + esc(s.reason) + ' ' + esc(s.detail || '')).join('<br>') +
+        '</div>';
+    }
+    document.getElementById('adDetailLogBox').innerText = r.log_text || '(无日志)';
+  } catch (e) {
+    document.getElementById('adDetailSummary').innerText = '加载失败: ' + e.message;
+  }
+}
+
+function safeParse(text, fallback) {
+  try { return JSON.parse(text || '') || fallback; } catch (e) { return fallback; }
+}
+</script>
+{% endblock %}
