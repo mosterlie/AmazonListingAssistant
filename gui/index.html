@@ -9,7 +9,7 @@
   html,body { height:100%; }
   body {
     font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;
-    background:#f1f5f9; color:#0f172a; display:flex; flex-direction:column; overflow:hidden;
+    background:#f1f5f9; color:#0f172a;
   }
   .wrap { max-width:920px; width:100%; margin:0 auto; padding:8px 16px 10px;
           display:flex; flex-direction:column; height:100%; gap:8px; }
@@ -37,6 +37,7 @@
 
   /* 卡片 */
   .card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:10px 14px; }
+  .card.params { flex:0 0 auto; }
   .card-title { display:flex; align-items:center; gap:6px; font-size:.92rem; font-weight:700; color:#0f172a; margin-bottom:8px; }
   .form-grid { display:grid; grid-template-columns:110px 1fr 90px 1fr; gap:8px 10px; align-items:center; }
   .lbl { font-size:.85rem; font-weight:600; color:#334155; text-align:right; }
@@ -76,9 +77,9 @@
          padding:4px 10px; border-radius:8px; }
 
   /* 日志 */
-  .log-card { flex:1; display:flex; flex-direction:column; min-height:0; }
+  .log-card { flex:1 1 200px; display:flex; flex-direction:column; min-height:200px; }
   #logBox {
-    flex:1; min-height:110px; background:#0f172a; color:#cbd5e1; border-radius:8px; padding:8px 10px;
+    flex:1; min-height:150px; background:#0f172a; color:#cbd5e1; border-radius:8px; padding:8px 10px;
     font-family:"Menlo",monospace; font-size:.74rem; line-height:1.55; overflow-y:auto;
     white-space:pre-wrap; word-break:break-all;
   }
@@ -120,7 +121,7 @@
     <div class="note" style="margin-top:4px;">登录态与 Cookie 保存在此目录, 与日常浏览器隔离; 换目录即换账号环境。</div>
   </div>
 
-  <div class="card">
+  <div class="card params">
     <div class="card-title">📢 投放参数 <span class="note" style="font-weight:400">（全程数据不落库）</span></div>
     <div class="form-grid">
       <span class="lbl req">店铺名称</span>
@@ -136,7 +137,7 @@
       <span class="lbl req" style="text-align:left">ASIN 列表</span>
       <span class="note" style="font-size:.78rem">逗号 / 空格 / 换行分隔, 自动转大写</span>
     </div>
-    <textarea id="asins" rows="6" placeholder="输入格式：逗号/空格/换行分隔, 如 B0HHRWYPTD,B0HHWJB3X9,B0HHWM14MF"></textarea>
+    <textarea id="asins" rows="5" placeholder="输入格式：逗号/空格/换行分隔, 如 B0HHRWYPTD,B0HHWJB3X9,B0HHWM14MF"></textarea>
     <div class="hint-row">
       <span id="asinCnt">已识别 0 个 ASIN</span>
       <span class="inline-chk" style="gap:12px">
