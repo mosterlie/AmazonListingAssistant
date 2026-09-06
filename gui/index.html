@@ -209,8 +209,33 @@
 function B() {
   if (window.pywebview && window.pywebview.api) return window.pywebview.api;
   if (window.py_bridge) return window.py_bridge;
-  toast('桥接未就绪, 稍候...'); throw new Error('bridge not ready');
+  throw new Error('bridge not ready');
 }
+
+/* 全局 api: onclick 内联调用的统一入口 (pywebview/py_bridge/serve 三模式通吃) */
+window.api = {
+  launch_browser: () => B().launch_browser(),
+  open_sellfox:   () => B().open_sellfox(),
+  stop:           () => B().stop(),
+  clear_log:      () => { $('logBox').innerText = ''; return B().clear_log(); },
+  modal:          show => $('modal').classList.toggle('show', !!show),
+  set_user_dir:   d  => B().set_user_dir(d),
+  /* 开始投放: 收集参数 → Python 校验 → 通过则弹确认框 */
+  confirm_run: async () => {
+    const p = collectParams();
+    let r;
+    try { r = await B().confirm_run(p); }
+    catch (e) { toast('调用失败: ' + e.message); return; }
+    if (r && r.error) { toast(r.error); return; }
+    window._pendingParams = p;
+    showModal('确认投放',
+      '店铺: ' + (p.shop || '-') + '\n' +
+      'ASIN: ' + p.asins.length + ' 个 (批次上限 ' + (p.batch || '不分批') + ')\n' +
+      '预算 ' + (p.budget || '-') + ' / 竞价 ' + (p.bid || '-') +
+      '\n裁剪: ' + (p.trim_variants ? '开, 保留 ' + p.trim_keep + ' 个' : '不裁剪') +
+      '\n\n将驱动赛狐向导录入, 不提交, 停在提交前供人工检查。\n执行期间请勿操作调试 Chrome 窗口。');
+  },
+};
 
 const $ = id => document.getElementById(id);
 const esc = s => (s===null||s===undefined) ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -286,13 +311,20 @@ function collectParams() {
 }
 
 async function doConfirm() {
-  const p = collectParams();
-  const r = await B().confirm_run(p);
-  if (r && r.error) { toast(r.error); return; }
   $('modal').classList.remove('show');
   $('btnRun').disabled = true; $('btnStop').disabled = false;
-  await B().modal_ok();
-  pollState();
+  try {
+    const r = await B().modal_ok();
+    if (r === 'no-params' || r === 'running') {
+      $('btnRun').disabled = false; $('btnStop').disabled = true;
+      toast(r === 'running' ? '任务正在执行中' : '参数已失效, 请重新点击开始投放');
+      return;
+    }
+    pollState();
+  } catch (e) {
+    $('btnRun').disabled = false; $('btnStop').disabled = true;
+    toast('启动失败: ' + e.message);
+  }
 }
 let pollTimer = null;
 async function pollState() {
@@ -325,7 +357,10 @@ function startLogPolling() {
   }, 900);
 }
 
-window.addEventListener('pywebviewready', async () => {
+async function initUI() {
+  try { B(); } catch (e) { return false; }   // 桥接未就绪则稍后重试
+  if (window.__uiInited) return true;
+  window.__uiInited = true;
   segRender('segCreate','cm', await B().get_create_modes(), await B().get_default('cm'));
   segRender('segBid','bs', await B().get_bid_strategies(), await B().get_default('bs'));
   const o = await B().get_options();
@@ -338,7 +373,13 @@ window.addEventListener('pywebviewready', async () => {
   $('userDir').addEventListener('change', () => B().set_user_dir($('userDir').value));
   if (!window.pywebview) startLogPolling();   // 浏览器模式
   checkCdp();
-});
+  return true;
+}
+window.addEventListener('pywebviewready', () => { initUI(); });
+/* 兜底: 事件错过/浏览器模式 → 轮询直到桥接就绪 */
+(function waitBridge() {
+  initUI().then(ok => { if (!ok) setTimeout(waitBridge, 300); });
+})();
 
 /* ───────── CDP 状态 ───────── */
 async function checkCdp() {
