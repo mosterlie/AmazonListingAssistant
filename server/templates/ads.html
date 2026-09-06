@@ -108,9 +108,12 @@
 
         <div class="form-group">
           <label class="form-label" style="font-weight:700;">1. 店铺名称 <span style="color:#ef4444;">*</span></label>
-          <input type="text" class="form-input" id="adShopName" list="adShopNameList" required
+          <input type="text" class="form-input" id="adShopName" required
                  placeholder="点击选择或直接输入店铺名称" autocomplete="off" style="width:100%;">
-          <datalist id="adShopNameList"></datalist>
+          <div id="adShopDropdown"
+               style="display:none; position:relative; margin-top:2px; max-height:170px; overflow:auto;
+                      border:1px solid #e2e8f0; border-radius:8px; background:#fff; box-shadow:0 4px 14px rgba(15,23,42,.12); z-index:60;">
+          </div>
           <div id="adShopHint" style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;"></div>
         </div>
 
@@ -119,10 +122,26 @@
             <label class="form-label" style="font-weight:700; margin-bottom:0;">7. ASIN 列表 <span style="color:#ef4444;">*</span></label>
             <div id="adDedupGroup" style="display:flex; gap:6px; align-items:center;"></div>
           </div>
-          <textarea class="form-input" id="adAsinsText" rows="12" required
+          <textarea class="form-input" id="adAsinsText" rows="8" required
             placeholder="支持批量输入，逗号分隔：B0XXXXXXXX,B0YYYYYYYY,B0ZZZZZZZZ&#10;也支持换行 / 空格 / 分号分隔，自动转大写"
             style="width:100%; resize:vertical; font-family:inherit; margin-top:6px;" oninput="updateAsinCounter()"></textarea>
           <div id="adAsinCounter" style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">已识别 0 个 ASIN</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="font-weight:700;">ASIN 变体裁剪</label>
+          <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+            <div id="adTrimGroup" style="display:flex; gap:10px; flex-wrap:wrap;"></div>
+            <div id="adTrimKeepWrap" style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:0.82rem; color:#475569;">保留数量</span>
+              <input type="number" class="form-input" id="adTrimKeep" value="5" min="1" max="50" step="1"
+                     style="width:76px; padding:6px 10px; font-size:0.84rem;">
+              <span style="font-size:0.78rem; color:var(--text-muted);">个 (变体超出按输入顺序保留前 N 个, 其余裁掉)</span>
+            </div>
+          </div>
+          <div id="adTrimNoWrap" style="font-size:0.75rem; color:var(--text-muted); margin-top:4px; display:none;">
+            已选择不裁剪：ASIN 连带的全部变体都会加入广告, 不设上限。
+          </div>
         </div>
 
         <div class="form-group">
@@ -263,6 +282,38 @@
 
 {% block extra_scripts %}
 <script>
+/* ===================== 店铺自定义下拉 ===================== */
+function renderShopDropdown() {
+  const box = document.getElementById('adShopDropdown');
+  if (!box) return;
+  const names = adState.options.shop_names || [];
+  box.innerHTML = names.length
+    ? names.map(n => '<div class="shop-opt" data-v="' + esc(n) +
+        '" style="padding:7px 12px; font-size:0.84rem; color:#334155; cursor:pointer;" onmouseover="this.style.background=\'#eff6ff\'" onmouseout="this.style.background=\'#fff\'">' +
+        esc(n) + '</div>').join('')
+    : '<div style="padding:8px 12px; font-size:0.8rem; color:#94a3b8;">暂无店铺, 请先到「系统管理」维护</div>';
+  box.querySelectorAll('.shop-opt').forEach(el => {
+    el.onclick = function () {
+      document.getElementById('adShopName').value = el.dataset.v;
+      closeShopDropdown();
+    };
+  });
+}
+function openShopDropdown() {
+  renderShopDropdown();   // 每次点击都重建选项: 即使已有值也显示全部店铺
+  document.getElementById('adShopDropdown').style.display = 'block';
+}
+function closeShopDropdown() {
+  const box = document.getElementById('adShopDropdown');
+  if (box) box.style.display = 'none';
+}
+document.addEventListener('click', function (e) {
+  const dd = document.getElementById('adShopDropdown');
+  if (!dd) return;
+  if (e.target.id === 'adShopName') { openShopDropdown(); return; }
+  if (!dd.contains(e.target)) closeShopDropdown();
+}, true);
+
 /* 当前登录用户角色 (由服务端模板渲染注入) */
 const CURRENT_USER_ROLE = "{{ current_user.role if current_user else '' }}";
 
@@ -289,7 +340,7 @@ async function loadAdOptions() {
     if (j.code === 0) adState.options = j.data || adState.options;
   } catch (e) { console.error('加载广告选项失败', e); }
 
-  fillDatalist('adShopNameList', adState.options.shop_names || []);
+  renderShopDropdown();
   renderRadioGroup('adCreateModeGroup', adState.options.create_modes || ['所有产品合并创建广告', '每个产品单独创建广告'],
     '所有产品合并创建广告', 'adCreateMode');
   renderRadioGroup('adBidStrategyGroup', adState.options.bid_strategies || ['动态竞价-只降低'],
@@ -349,6 +400,13 @@ function renderRadioGroup(containerId, options, selected, name, small) {
     input.checked = true;
     paintRadioGroup(box);
     if (name === 'adDedup') updateAsinCounter();
+    if (name === 'adTrim') {
+      const noTrim = (getCheckedValue('adTrim') === 'no');
+      const keepWrap = document.getElementById('adTrimKeepWrap');
+      const noWrap = document.getElementById('adTrimNoWrap');
+      if (keepWrap) keepWrap.style.display = noTrim ? 'none' : 'flex';
+      if (noWrap) noWrap.style.display = noTrim ? 'block' : 'none';
+    }
   };
 }
 
@@ -476,7 +534,8 @@ function renderAdTable(tasks) {
       '<td><div style="font-size:0.78rem; white-space:nowrap;">预算 <b>' + t.daily_budget + '</b> / 竞价 <b>' + t.default_bid + '</b></div>' +
         ellip(t.bid_strategy, '0.7rem', '#94a3b8') + '</td>' +
       '<td style="text-align:center;"><span title="' + esc(asins.join(', ')) + '" style="font-weight:700; color:#2563eb;">' + asins.length + '</span>' +
-        (t.auto_dedup ? '<div style="font-size:0.68rem; color:#64748b; margin-top:2px;">已去重</div>' : '') + '</td>' +
+        (t.auto_dedup ? '<div style="font-size:0.68rem; color:#64748b; margin-top:2px;">已去重</div>' : '') +
+        (!t.trim_variants ? '<div style="font-size:0.7rem; color:#64748b; margin-top:2px;">不裁剪</div>' : '') + '</td>' +
       '<td style="text-align:center; font-size:0.8rem;">' + (t.batch_size || '不分批') + '</td>' +
       '<td style="text-align:center;">' + statusBadge(t.running ? 'running' : t.status) + '</td>' +
       '<td>' + lastRun + '</td>' +
@@ -517,9 +576,15 @@ function openAdTaskModal(taskId) {
   document.getElementById('adBudget').value = 300;
   document.getElementById('adDefaultBid').value = 15;
   document.getElementById('adBatchSize').value = 20;
+  document.getElementById('adTrimKeep').value = 5;
+  document.getElementById('adTrimKeep').disabled = false;
+  document.getElementById('adTrimKeepWrap').style.display = 'flex';
+  document.getElementById('adTrimNoWrap').style.display = 'none';
   document.getElementById('adStartDate').value = adState.options.today || '';
   document.getElementById('adEndDate').value = '';
   document.getElementById('adShopName').value = '';   // 默认不选中店铺(占位态)
+  renderRadioGroup('adTrimGroup',
+    [{ v: 'yes', label: '裁剪' }, { v: 'no', label: '不裁剪' }], 'yes', 'adTrim');
   renderRadioGroup('adCreateModeGroup', adState.options.create_modes || [],
     '所有产品合并创建广告', 'adCreateMode');
   renderRadioGroup('adBidStrategyGroup', adState.options.bid_strategies || [],
@@ -547,6 +612,13 @@ function openAdTaskModal(taskId) {
     renderRadioGroup('adDedupGroup',
       [{ v: 'no', label: '不去重' }, { v: 'yes', label: '自动去重' }],
       t.auto_dedup ? 'yes' : 'no', 'adDedup', true);
+    renderRadioGroup('adTrimGroup',
+      [{ v: 'yes', label: '裁剪' }, { v: 'no', label: '不裁剪' }],
+      t.trim_variants ? 'yes' : 'no', 'adTrim');
+    const tkEl = document.getElementById('adTrimKeep');
+    tkEl.value = t.trim_keep || 5;
+    document.getElementById('adTrimKeepWrap').style.display = t.trim_variants ? 'flex' : 'none';
+    document.getElementById('adTrimNoWrap').style.display = t.trim_variants ? 'none' : 'block';
     document.getElementById('adBatchSize').value = t.batch_size || 20;
   } else {
     // 新增模式: 自动生成任务名 task+2位年份+4位日期-n (n=今日第n个任务, 后端计数)
@@ -583,6 +655,8 @@ async function handleAdTaskSubmit(e) {
     default_bid: parseFloat(document.getElementById('adDefaultBid').value),
     asins_text: document.getElementById('adAsinsText').value,
     auto_dedup: getCheckedValue('adDedup') === 'yes',
+    trim_variants: getCheckedValue('adTrim') === 'yes',
+    trim_keep: parseInt(document.getElementById('adTrimKeep').value || '5', 10) || 5,
     batch_size: parseInt(document.getElementById('adBatchSize').value || '0', 10) || 0,
   };
   if (!payload.shop_name) { showToast('请选择店铺名称', 'error'); return; }
