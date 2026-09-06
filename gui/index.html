@@ -11,8 +11,8 @@
     font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;
     background:#f1f5f9; color:#0f172a; display:flex; flex-direction:column; overflow:hidden;
   }
-  .wrap { max-width:920px; width:100%; margin:0 auto; padding:10px 16px 12px;
-          display:flex; flex-direction:column; height:100%; gap:10px; }
+  .wrap { max-width:920px; width:100%; margin:0 auto; padding:8px 16px 10px;
+          display:flex; flex-direction:column; height:100%; gap:8px; }
 
   /* 头部 */
   .hdr { display:flex; align-items:center; gap:10px; background:linear-gradient(135deg,#3b82f6,#2563eb);
@@ -36,7 +36,7 @@
   .btn-d { background:#fef2f2; color:#dc2626; border:1px solid #fecaca; }
 
   /* 卡片 */
-  .card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:12px 16px; }
+  .card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:10px 14px; }
   .card-title { display:flex; align-items:center; gap:6px; font-size:.92rem; font-weight:700; color:#0f172a; margin-bottom:8px; }
   .form-grid { display:grid; grid-template-columns:110px 1fr 90px 1fr; gap:8px 10px; align-items:center; }
   .lbl { font-size:.85rem; font-weight:600; color:#334155; text-align:right; }
@@ -78,8 +78,8 @@
   /* 日志 */
   .log-card { flex:1; display:flex; flex-direction:column; min-height:0; }
   #logBox {
-    flex:1; background:#0f172a; color:#cbd5e1; border-radius:8px; padding:10px 12px;
-    font-family:"Menlo",monospace; font-size:.76rem; line-height:1.6; overflow-y:auto;
+    flex:1; min-height:110px; background:#0f172a; color:#cbd5e1; border-radius:8px; padding:8px 10px;
+    font-family:"Menlo",monospace; font-size:.74rem; line-height:1.55; overflow-y:auto;
     white-space:pre-wrap; word-break:break-all;
   }
   .log-card .card-title { margin-bottom:6px; }
@@ -136,11 +136,11 @@
       <span class="lbl req" style="text-align:left">ASIN 列表</span>
       <span class="note" style="font-size:.78rem">逗号 / 空格 / 换行分隔, 自动转大写</span>
     </div>
-    <textarea id="asins" rows="7" placeholder="输入格式：逗号/空格/换行分隔, 如 B0HHRWYPTD,B0HHWJB3X9,B0HHWM14MF"></textarea>
+    <textarea id="asins" rows="6" placeholder="输入格式：逗号/空格/换行分隔, 如 B0HHRWYPTD,B0HHWJB3X9,B0HHWM14MF"></textarea>
     <div class="hint-row">
       <span id="asinCnt">已识别 0 个 ASIN</span>
       <span class="inline-chk" style="gap:12px">
-        <label><input type="checkbox" id="dedup"> 自动去重</label>
+        <label><input type="checkbox" id="dedup" checked> 自动去重</label>
         <label><input type="checkbox" id="trimVar" checked onchange="document.getElementById('trimKeep').disabled=!this.checked; document.getElementById('trimKeep').parentElement.style.opacity=this.checked?1:.45">
           裁剪变体</label>
         <span>保留 <input type="number" id="trimKeep" value="5" min="1" max="50" style="width:58px; padding:4px 6px;"> 个</span>
@@ -157,9 +157,10 @@
 
     <div class="form-grid" style="margin-top:8px;">
       <span class="lbl req">开始时间</span>
-      <input type="text" id="startDate" value="" style="width:140px">
+      <input type="date" id="startDate" value="" style="width:150px">
       <span class="lbl">结束时间</span>
-      <input type="text" id="endDate" placeholder="不填 = 不限" style="width:140px">
+      <input type="date" id="endDate" style="width:150px">
+      <span class="note" style="grid-column:1/5">结束时间留空 = 不限 (日期框可一键清除)</span>
     </div>
 
     <div class="form-grid" style="margin-top:8px;">
@@ -342,16 +343,17 @@ async function pollState() {
 }
 
 /* 日志输出 (Python 侧直调 window.pushLog; 浏览器模式走轮询) */
-window.pushLog = line => showLog(line);
-let logSeen = 0;
+let logSeen = 0, logTimer = null;
+/* 统一日志轮询: pywebview 与浏览器模式都走 bridge.poll_logs (增量) */
 function startLogPolling() {
-  setInterval(async () => {
+  if (logTimer) return;
+  logTimer = setInterval(async () => {
     try {
-      const r = await fetch('/api/poll?seen=' + logSeen);
-      const j = await r.json();
-      if (j.lines && j.lines.length) {
-        showLog(j.lines.join('\n'));
-        logSeen = j.seen + j.lines.length;
+      const r = await B().poll_logs(logSeen);
+      const lines = (r && r.lines) || [];
+      if (lines.length) {
+        showLog(lines.join('\n'));
+        logSeen = (r.seen || logSeen) + lines.length;
       }
     } catch (e) { /* ignore */ }
   }, 900);
@@ -371,7 +373,7 @@ async function initUI() {
   $('asins').addEventListener('input', countAsins);
   $('dedup').addEventListener('change', countAsins);
   $('userDir').addEventListener('change', () => B().set_user_dir($('userDir').value));
-  if (!window.pywebview) startLogPolling();   // 浏览器模式
+  startLogPolling();   // 桌面/浏览器模式统一轮询
   checkCdp();
   return true;
 }

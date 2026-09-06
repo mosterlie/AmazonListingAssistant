@@ -406,7 +406,7 @@ def main():
     webview.create_window(
         "赛狐广告批量投放助手",
         os.path.join(GUI_DIR, "index.html"),
-        js_api=bridge, width=960, height=860, min_size=(820, 720))
+        js_api=bridge, width=960, height=800, min_size=(820, 680))
     webview.start()
 
 
