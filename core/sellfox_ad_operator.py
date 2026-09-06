@@ -7,6 +7,8 @@
   - 点击后校验「已添加 N 个产品」计数区域严格增长, 未增长视为假添加并跳过
   - 单个ASIN连带产品超过 MAX_VARIANTS(5) 时, 右栏裁剪保留前5个(裁剪后复核计数)
   - 弹窗归属校验 + el-dialog 确定按钮真实鼠标点击, 完成后立即提交弹窗
+  - 搜索失败(not_found/timeout)不关弹窗: 复用同一弹窗直接搜下一个 ASIN,
+    省去"关弹窗→重开"两步; 添加/提交类失败仍关弹窗防右栏残留
   - 跳过的ASIN活动回池复用, 收尾统一清除未配置活动
 
 流程 (每批 = 一次完整三步向导):
@@ -876,6 +878,10 @@ class SellfoxAdOperator:
 
     async def open_product_dialog(self, campaign, retries=3):
         for attempt in range(retries):
+            # 弹窗复用: 上一 ASIN 搜索失败后弹窗保持打开, 归属一致则直接复用
+            # (省去"关弹窗→重新点设置广告产品→重开"两步); 归属不符才关掉重开
+            if await self.wait_dialog(campaign, timeout=1):
+                return True
             await self._close_dialog_any()
             st = await self.locate_campaign(campaign, from_bottom=False)
             if st == 'folded':
@@ -1167,14 +1173,14 @@ class SellfoxAdOperator:
             state = st['state'] if isinstance(st, dict) else st
             if state == 'empty':
                 self.skips.add(asin, campaign, "not_found", "搜索暂无数据")
-                await self._close_dialog_any()
+                # 弹窗保持打开: 外层下一个 ASIN 复用同一弹窗直接搜索
                 return 'skipped'
             if state == 'no_dialog':
                 self.skips.add(asin, campaign, "dialog_lost", "搜索时弹窗已关闭")
                 return 'skipped'
             if state == 'timeout':
                 self.skips.add(asin, campaign, "search_timeout", "搜索结果轮询超时")
-                await self._close_dialog_any()
+                # 弹窗可能仍在: 保持打开, 下个 ASIN 复用 (丢失则自动重开)
                 return 'skipped'
 
             # ② 添加前计数基线 (通常为 0, 即「已添加 0 个产品」)
