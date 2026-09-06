@@ -19,6 +19,8 @@
       <span id="cdpStatusBadge" style="font-size:0.78rem; padding:4px 10px; border-radius:9999px; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b;">
         🔌 检测调试浏览器中...
       </span>
+      <button id="cdpLaunchBtn" class="btn btn-outline btn-sm" onclick="launchDebugBrowser()"
+              style="display:none; color:#b45309; border-color:#fde68a;">🚀 启动调试浏览器</button>
       <button class="btn btn-outline btn-sm" onclick="loadAdTasks()" style="display:inline-flex; align-items:center; gap:4px;">
         <span>🔄</span> 刷新
       </button>
@@ -426,6 +428,7 @@ function getCheckedValue(name) {
 
 async function checkCdpStatus() {
   const badge = document.getElementById('cdpStatusBadge');
+  const btn = document.getElementById('cdpLaunchBtn');
   try {
     const j = await (await fetch('/api/ads/cdp-status')).json();
     const ok = j.data && j.data.available;
@@ -433,8 +436,26 @@ async function checkCdpStatus() {
     badge.style.color = ok ? '#059669' : '#dc2626';
     badge.style.borderColor = ok ? '#a7f3d0' : '#fecaca';
     badge.style.background = ok ? '#ecfdf5' : '#fef2f2';
+    if (btn) btn.style.display = ok ? 'none' : 'inline-block';
   } catch (e) {
     badge.innerText = '🟡 状态检测失败';
+    if (btn) btn.style.display = 'inline-block';
+  }
+}
+
+async function launchDebugBrowser() {
+  const btn = document.getElementById('cdpLaunchBtn');
+  btn.disabled = true; btn.innerText = '🚀 启动中...';
+  try {
+    const r = await fetch('/api/ads/launch-browser', { method: 'POST' });
+    const j = await r.json();
+    if (j.code !== 0) throw new Error(j.detail || '启动失败');
+    showToast('调试浏览器已启动, 请在新打开的 Chrome 里确认赛狐登录状态', 'success');
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerText = '🚀 启动调试浏览器';
+    checkCdpStatus();
   }
 }
 

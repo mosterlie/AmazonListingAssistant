@@ -193,6 +193,30 @@ class AdTaskService:
         except Exception:
             return False
 
+    @staticmethod
+    def launch_debug_browser() -> Tuple[bool, str]:
+        """拉起 9222 调试 Chrome (与店小秘上件共用同一实例/用户数据目录)。
+
+        已在运行则直接返回成功 (复用); 未运行则启动并打开批量创建页。
+        """
+        import config as server_config
+        from core.browser_manager import BrowserManager
+        try:
+            from core.sellfox_ad_operator import PAGE_URL as SELLFOX_PAGE_URL
+        except Exception:
+            SELLFOX_PAGE_URL = None
+        bm = BrowserManager(port=9222, user_data_dir=server_config.USER_DATA_DIR)
+        try:
+            ok, msg = bm.launch_browser(SELLFOX_PAGE_URL or "about:blank")
+            if ok and SELLFOX_PAGE_URL:
+                try:
+                    bm.open_or_focus_url(SELLFOX_PAGE_URL)
+                except Exception:
+                    pass
+            return ok, msg
+        finally:
+            bm.close()
+
     # ================= 查询 =================
 
     @staticmethod
@@ -294,14 +318,16 @@ class AdTaskService:
                 task_name, shop_name, create_mode, start_date, end_date,
                 daily_budget, bid_strategy, default_bid,
                 asins_json, asin_count, batch_size, auto_dedup,
+                trim_variants, trim_keep,
                 status, last_result, created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?)
             """, (
                 data.task_name.strip(), data.shop_name.strip(), data.create_mode,
                 data.start_date, (data.end_date or "").strip(),
                 data.daily_budget, data.bid_strategy, data.default_bid,
                 json.dumps(asins, ensure_ascii=False), len(asins),
                 int(data.batch_size or 0), 1 if data.auto_dedup else 0,
+                1 if data.trim_variants else 0, int(data.trim_keep or 5),
                 (current_user or {}).get("username", ""), now, now,
             ))
             task_id = cursor.lastrowid
@@ -339,6 +365,8 @@ class AdTaskService:
             "end_date": _pick(data.end_date, task.get("end_date")),
             "asins": asins,
             "batch_size": _pick(data.batch_size, task.get("batch_size")),
+            "trim_variants": _pick(data.trim_variants, bool(task.get("trim_variants", 1))),
+            "trim_keep": _pick(data.trim_keep, task.get("trim_keep", 5)),
         }
         errors = AdTaskService.validate_payload(payload)
         if errors:
@@ -352,7 +380,8 @@ class AdTaskService:
                 task_name = ?, shop_name = ?, create_mode = ?,
                 start_date = ?, end_date = ?, daily_budget = ?,
                 bid_strategy = ?, default_bid = ?, asins_json = ?,
-                asin_count = ?, batch_size = ?, auto_dedup = ?, updated_at = ?
+                asin_count = ?, batch_size = ?, auto_dedup = ?,
+                trim_variants = ?, trim_keep = ?, updated_at = ?
             WHERE id = ?;
             """, (
                 payload["task_name"].strip(), payload["shop_name"].strip(), payload["create_mode"],
@@ -360,6 +389,7 @@ class AdTaskService:
                 payload["bid_strategy"], float(payload["default_bid"]),
                 json.dumps(asins, ensure_ascii=False), len(asins),
                 int(payload["batch_size"] or 0), 1 if auto_dedup else 0,
+                1 if payload["trim_variants"] else 0, int(payload["trim_keep"] or 5),
                 _now_str(), task_id,
             ))
             conn.commit()
@@ -528,6 +558,8 @@ class AdTaskService:
             return await op.run_batch(
                 asins=asins,
                 batch_size=batch_size,
+                trim_variants=bool(task.get("trim_variants", 1)),
+                trim_keep=int(task.get("trim_keep", 5) or 5),
                 submit=SUBMIT_ENABLED,
                 shop=task.get("shop_name", ""),
                 budget=_num_str(task.get("daily_budget", 300)),

@@ -132,3 +132,16 @@ async def get_ad_run(run_id: int, user: dict = Depends(require_admin)):
 async def get_cdp_status(user: dict = Depends(require_admin)):
     ok = AdTaskService.check_cdp_available()
     return {"code": 0, "msg": "success", "data": {"available": ok}}
+
+
+@router.post("/launch-browser", summary="启动 9222 调试浏览器并打开批量创建页")
+async def launch_debug_browser(user: dict = Depends(require_admin)):
+    try:
+        ok, msg = AdTaskService.launch_debug_browser()
+        if not ok:
+            raise HTTPException(status_code=500, detail=msg)
+        return {"code": 0, "msg": msg, "data": {"available": AdTaskService.check_cdp_available()}}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"启动调试浏览器失败: {str(e)}")
