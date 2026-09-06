@@ -5,7 +5,8 @@
   - 「添加」与「添加变体」同时出现时优先点「添加变体」; 点击后轮询按钮态翻转
     确认生效, 未生效自动补点(最多3次)
   - 点击后校验「已添加 N 个产品」计数区域严格增长, 未增长视为假添加并跳过
-  - 单个ASIN连带产品超过 MAX_VARIANTS(5) 时, 右栏裁剪保留前5个(裁剪后复核计数)
+  - 变体裁剪可配: trim_variants=True 裁到 trim_keep 个(默认5, 裁剪后复核计数);
+    False 全部保留不裁剪
   - 弹窗归属校验 + el-dialog 确定按钮真实鼠标点击, 完成后立即提交弹窗
   - 搜索失败(not_found/timeout)不关弹窗: 复用同一弹窗直接搜下一个 ASIN,
     省去"关弹窗→重开"两步; 添加/提交类失败仍关弹窗防右栏残留
@@ -161,6 +162,8 @@ class SellfoxAdOperator:
                 self.log("✅ 代理模式握手成功")
             else:
                 raise
+        if not self.browser.contexts:
+            raise RuntimeError("调试浏览器没有可用窗口, 请点「启动调试浏览器」重新拉起后重试")
         ctx = self.browser.contexts[0]
         self.page = next((pg for pg in ctx.pages if PAGE_KEY in pg.url), None)
         if self.page is None and visit:
@@ -181,14 +184,34 @@ class SellfoxAdOperator:
             await asyncio.sleep(2)
         raise RuntimeError("登录等待超时, 请先在浏览器中完成登录")
 
-    async def _attach_frame(self):
-        for _ in range(20):
-            self.frame = next((f for f in self.page.frames
-                               if IFRAME_KEY in f.url and f != self.page.main_frame), None)
-            if self.frame:
-                return
-            await asyncio.sleep(0.5)
-        raise RuntimeError("未找到 spBatchCreate iframe")
+    async def _attach_frame(self, retries=2, wait=20):
+        """等待并附加批量创建 iframe。
+
+        轮询失败时主动重新打开目标页再试 (页面可能停在旧向导尾态/过渡页,
+        iframe 未加载); 仍失败则按当前 URL 给出可读错误, 便于自助排查。
+        """
+        last_url = self.page.url
+        for attempt in range(retries):
+            deadline = time.monotonic() + wait
+            while time.monotonic() < deadline:
+                self.frame = next((f for f in self.page.frames
+                                   if IFRAME_KEY in f.url and f != self.page.main_frame), None)
+                if self.frame:
+                    return
+                last_url = self.page.url
+                await asyncio.sleep(0.5)
+            if attempt < retries - 1:
+                self.log(f"  ⚠ 未找到批量创建 iframe (当前页面: {last_url[:70]}), 重新打开...")
+                try:
+                    await self.page.goto(PAGE_URL, wait_until="domcontentloaded")
+                except Exception as e:
+                    self.log(f"  ⚠ 重新打开页面失败: {str(e)[:80]}")
+        low = last_url.lower()
+        if "login" in low or "passport" in low or "sso" in low:
+            raise RuntimeError("赛狐登录态已失效, 请在调试浏览器中重新登录赛狐后再次投放")
+        raise RuntimeError(
+            f"未找到 spBatchCreate iframe (当前页面: {last_url[:80]})。"
+            "请在调试浏览器中手动打开批量创建广告页面并确认登录正常后重试")
 
     async def reload_page(self):
         await self.page.goto(PAGE_URL, wait_until="domcontentloaded")
@@ -1157,7 +1180,7 @@ class SellfoxAdOperator:
 
     # ================= ASIN 录入 =================
 
-    async def fill_asin(self, campaign, asin):
+    async def fill_asin(self, campaign, asin, trim_variants=True, trim_keep=MAX_VARIANTS):
         """单 ASIN 录入完整流程:
         ① 开弹窗搜 ASIN → ② 优先「添加变体」点击并验证生效
         → ③ 校验「已添加 N 个产品」计数增长 → ④ 超 5 个变体裁剪
@@ -1219,19 +1242,23 @@ class SellfoxAdOperator:
                 return 'skipped'
             self.log(f"  [验证] {asin} 已添加计数: {before if before is not None else '?'} → {after} ✓")
 
-            # ④ 超 5 个变体裁剪
-            n = await self.trim_selection(MAX_VARIANTS)
-            if n is not None and n > MAX_VARIANTS:
-                self.skips.add(asin, campaign, "trim_failed", f"裁剪后仍{n}个")
-                await self._close_dialog_any()
-                return 'skipped'
-            # 裁剪后复核计数区域 (与右栏按钮数交叉验证)
-            n2 = await self.added_count()
-            if n2 is not None and n2 > MAX_VARIANTS:
-                self.skips.add(asin, campaign, "trim_failed",
-                               f"裁剪后计数仍{n2}个(> {MAX_VARIANTS})")
-                await self._close_dialog_any()
-                return 'skipped'
+            # ④ 变体裁剪 (trim_variants=False 时全部保留, 不裁剪)
+            n = None
+            if trim_variants:
+                n = await self.trim_selection(trim_keep)
+                if n is not None and n > trim_keep:
+                    self.skips.add(asin, campaign, "trim_failed", f"裁剪后仍{n}个")
+                    await self._close_dialog_any()
+                    return 'skipped'
+                # 裁剪后复核计数区域 (与右栏按钮数交叉验证)
+                n2 = await self.added_count()
+                if n2 is not None and n2 > trim_keep:
+                    self.skips.add(asin, campaign, "trim_failed",
+                                   f"裁剪后计数仍{n2}个(> {trim_keep})")
+                    await self._close_dialog_any()
+                    return 'skipped'
+            else:
+                n2 = await self.added_count()   # 不裁剪: 仅读计数用于日志
 
             # ⑤ 提交: 点弹窗「确定」
             if not await self.confirm_dialog():
@@ -1547,13 +1574,15 @@ class SellfoxAdOperator:
                         bid_strategy="动态竞价-只降低",
                         create_mode="每个产品单独创建广告",
                         template="新品推广低预算",
-                        start_date=None, end_date=None):
+                        start_date=None, end_date=None,
+                        trim_variants=True, trim_keep=MAX_VARIANTS):
         """分批向导式批处理, 返回结构化执行结果 (供服务端登记执行结果)。
 
         submit=False 时全程不提交, 每批执行到提交前停止。
         批间切换通过 open_new_page 开新标签页进行, 上一批页面原样保留,
         全部批次结束后由人工逐个标签页检查提交。
         submit=True 时每批提交后刷新当前页面继续下一批。
+        trim_variants=True 时裁剪变体到 trim_keep 个 (默认 5); False 全部保留。
         """
         remaining = [a.strip() for a in asins if a.strip()]
         B = batch_size or len(remaining)
@@ -1631,7 +1660,9 @@ class SellfoxAdOperator:
                         self.skips.add(asin, "-", "no_campaign",
                                        "无未配置活动可分配(含已烧毁名额)")
                         continue
-                    if await self.fill_asin(target, asin) == 'added':
+                    if await self.fill_asin(target, asin,
+                                            trim_variants=trim_variants,
+                                            trim_keep=trim_keep) == 'added':
                         entered += 1
                         self.log(f"  名额 {entered + len(burned)}/{k} ← {asin} @ {target}")
                     else:
