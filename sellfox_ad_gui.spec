@@ -10,13 +10,17 @@ a = Analysis(
     pathex=[os.getcwd()],
     binaries=[],
     # playwright 的 node 驱动与浏览器驱动清单必须完整收集 (CDP 连接必需)
-    datas=collect_data_files('playwright', include_py_files=False),
+    datas=collect_data_files('playwright', include_py_files=False) +
+         [('gui/index.html', 'gui')],
     hiddenimports=[
         'core.browser_manager',
         'core.cdp_proxy',
         'core.sellfox_ad_operator',
         'websockets',
-    ] + collect_submodules('playwright'),
+        'webview',
+        'webview.platforms.cocoa',
+        'webview.platforms.winforms',
+    ] + collect_submodules('playwright') + collect_submodules('webview'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
