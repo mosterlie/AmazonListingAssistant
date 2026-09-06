@@ -32,12 +32,13 @@ else:
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-from core.browser_manager import BrowserManager  # noqa: E402
-from core.sellfox_ad_operator import SellfoxAdOperator, MAX_VARIANTS, PAGE_URL  # noqa: E402
+# 重模块 (playwright/node driver) 惰性导入: 加快窗口显示速度
 
 CREATE_MODES = ["所有产品合并创建广告", "每个产品单独创建广告"]
 BID_STRATEGIES = ["动态竞价-只降低", "动态竞价-提高和降低", "固定竞价"]
-SELLFOX_URL = PAGE_URL  # 与算子完全一致的批量创建页地址
+# 与 core/sellfox_ad_operator.py 的 PAGE_URL 保持一致
+SELLFOX_URL = ("https://www.sellfox.com/amzup-web-main/amzup-web-cpc/index.html"
+               "#/spBatchCreate?source=leftMenu_cpc_advertisement")
 DEFAULT_USER_DATA_DIR = os.path.expanduser("~/ChromeDebugUser")
 CDP_PORT = 9222
 ASIN_HINT_TEXT = "输入格式：逗号/空格/换行分隔，如 B0HHRWYPTD,B0HHWJB3X9,B0HHWM14MF"
@@ -62,10 +63,10 @@ class AdGuiApp:
         self.root.minsize(760, 680)
 
         self.log_q: "queue.Queue[str]" = queue.Queue()
-        self.op: SellfoxAdOperator = None
+        self.op = None
         self.worker: threading.Thread = None
-        self.bm = BrowserManager(port=CDP_PORT, user_data_dir=DEFAULT_USER_DATA_DIR)
-        self._bm_dir = DEFAULT_USER_DATA_DIR
+        self.bm = None          # 惰性: 首次点浏览器按钮时才拉起 playwright
+        self._bm_dir = None
 
         self._build_ui()
         self.root.after(150, self._drain_log_queue)
@@ -348,9 +349,10 @@ class AdGuiApp:
     # ────────────────── 动作 ──────────────────
 
     def _ensure_browser_manager(self):
-        """按输入框的用户数据目录重建 BrowserManager (目录变更时)"""
+        """按输入框的用户数据目录重建 BrowserManager (首次调用/目录变更时)"""
         d = os.path.expanduser(self.dir_var.get().strip() or DEFAULT_USER_DATA_DIR)
-        if d != self._bm_dir:
+        if self.bm is None or d != self._bm_dir:
+            from core.browser_manager import BrowserManager   # 惰性导入
             self.bm = BrowserManager(port=CDP_PORT, user_data_dir=d)
             self._bm_dir = d
         return self.bm
@@ -416,6 +418,7 @@ class AdGuiApp:
             self.log(line)
 
         async def job():
+            from core.sellfox_ad_operator import SellfoxAdOperator   # 惰性导入
             op = SellfoxAdOperator(on_log=on_log)
             self.op = op
             try:
@@ -477,10 +480,17 @@ class AdGuiApp:
             if self.op:
                 self.op.request_stop()
         try:
-            self.bm.close()
+            if self.bm:
+                self.bm.close()
+        except Exception:
+            pass
+        try:
+            from core.browser_manager import cleanup_stale_drivers   # 清理本进程登记的驱动
+            cleanup_stale_drivers()
         except Exception:
             pass
         self.root.destroy()
+        os._exit(0)   # 确保全部子进程退出, 无终端/后台残留
 
 
 def selftest():

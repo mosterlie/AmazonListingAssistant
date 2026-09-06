@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 # 赛狐广告批量投放助手 (mac) 打包配置
-# 构建: pyinstaller sellfox_ad_gui.spec --noconfirm
+# 构建: python3 -m PyInstaller sellfox_ad_gui.spec --noconfirm
+# 产物: dist/赛狐广告投放助手.app  (onedir, 双击启动, 无终端残留, 秒开)
 import os
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
@@ -25,24 +26,39 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-# 注: macOS 不支持 Splash 启动画面, 此处不使用
+# onedir 模式: 免去 onefile 每次启动解压 51MB 的等待 (启动秒开)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='赛狐广告投放助手',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='赛狐广告投放助手',
+)
+
+# .app 包: 双击启动不经过终端 (无 exec/终端残留窗口), Launchpad 可见
+app = BUNDLE(
+    coll,
+    name='赛狐广告投放助手.app',
+    icon=None,
+    bundle_identifier='com.browsertoolkit.sellfox-ad',
 )
