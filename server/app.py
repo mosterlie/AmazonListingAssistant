@@ -92,7 +92,7 @@ from fastapi import HTTPException, Query
 from server.services.file_service import FileService
 
 @app.get("/api/images/preview", summary="预览本地图片")
-async def preview_image_alias(path: str = Query(..., description="图片相对路径或文件名")):
+def preview_image_alias(path: str = Query(..., description="图片相对路径或文件名")):
     abs_path = FileService.resolve_image_path(path)
     if abs_path and os.path.exists(abs_path) and os.path.isfile(abs_path):
         import mimetypes

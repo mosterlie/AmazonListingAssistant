@@ -87,7 +87,7 @@ async def delete_ad_task(task_id: int, admin: dict = Depends(require_admin)):
 
 
 @router.post("/tasks/{task_id}/run", summary="执行自动投放（调用赛狐自动化，暂不提交）")
-async def run_ad_task(task_id: int, user: dict = Depends(require_admin)):
+def run_ad_task(task_id: int, user: dict = Depends(require_admin)):
     try:
         res = AdTaskService.start_run(task_id, operator=user)
         return {"code": 0, "msg": "自动投放任务已启动，请轮询执行状态获取进度", "data": res}
@@ -129,13 +129,13 @@ async def get_ad_run(run_id: int, user: dict = Depends(require_admin)):
 
 
 @router.get("/cdp-status", summary="检测 CDP 调试浏览器是否可用")
-async def get_cdp_status(user: dict = Depends(require_admin)):
+def get_cdp_status(user: dict = Depends(require_admin)):
     ok = AdTaskService.check_cdp_available()
     return {"code": 0, "msg": "success", "data": {"available": ok}}
 
 
 @router.post("/launch-browser", summary="启动 9222 调试浏览器并打开批量创建页")
-async def launch_debug_browser(user: dict = Depends(require_admin)):
+def launch_debug_browser(user: dict = Depends(require_admin)):
     try:
         ok, msg = AdTaskService.launch_debug_browser()
         if not ok:

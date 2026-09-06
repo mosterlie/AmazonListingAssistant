@@ -57,6 +57,32 @@ COPY_DLG = """[...document.querySelectorAll('.el-dialog')].find(d =>
     d.offsetParent!==null && ((d.textContent||'').includes('将生成')
         || (d.querySelector('.el-dialog__header')?.textContent||'').includes('批量复制')))"""
 
+# 公告/提示类弹窗关闭: 覆盖可见 el-dialog 与 el-message-box,
+# 优先右上角 X (el-dialog__headerbtn), 其次常见确认/关闭类按钮
+CLOSE_POPUP_JS = """() => {
+    const ACTS = ['确定','确认','是','OK','我知道了','知道了','关闭','取消','以后再说','不再提示'];
+    let closed = 0;
+    const handle = (doc) => {
+        if (!doc || !doc.querySelectorAll) return;
+        for (const d of doc.querySelectorAll('.el-dialog')) {
+            if (d.offsetParent===null || d.getBoundingClientRect().width<=0) continue;
+            const x = d.querySelector('.el-dialog__headerbtn');
+            if (x) { x.click(); closed++; continue; }
+            const btn = [...d.querySelectorAll('button')].find(
+                b => ACTS.includes((b.textContent||'').trim()));
+            if (btn) { btn.click(); closed++; }
+        }
+        for (const mb of doc.querySelectorAll('.el-message-box')) {
+            if (mb.offsetParent===null) continue;
+            const btn = [...mb.querySelectorAll('button')].find(
+                b => ACTS.includes((b.textContent||'').trim()));
+            if (btn) { btn.click(); closed++; }
+        }
+    };
+    handle(document);
+    return closed;
+}"""
+
 STEP1 = "基本信息填写"
 STEP2 = "选择广告结构"
 STEP3 = "预览并提交广告"
@@ -294,6 +320,33 @@ class SellfoxAdOperator:
                 return True
             await asyncio.sleep(0.2)
         return False
+
+    async def dismiss_popups(self, settle=3.5):
+        """关闭打开批量创建页后系统偶尔弹出的公告/提示弹窗。
+
+        弹窗不关闭会遮挡「选择店铺」等表单导致 Step1 填写失败, 因此每批
+        进入向导前先轮询清理: 主页面与批量创建 iframe 两个层级都检查,
+        优先点右上角 X, 其次常见确认类按钮; 有弹窗则关闭后顺延窗口继续
+        观察 (防多层/延迟连发), 无弹窗轮询 settle 秒后直接返回, 不影响
+        正常流程节奏。返回累计关闭数量。
+        """
+        deadline = time.monotonic() + settle
+        closed_total = 0
+        while time.monotonic() < deadline:
+            self._check_stop()
+            closed = 0
+            for ev in (self.frame, self.page):
+                try:
+                    closed += int(await ev.evaluate(CLOSE_POPUP_JS) or 0)
+                except Exception:
+                    pass  # 页面导航中/层级未就绪时跳过本轮
+            if closed:
+                closed_total += closed
+                deadline = max(deadline, time.monotonic() + 1.5)
+            await asyncio.sleep(0.4)
+        if closed_total:
+            self.log(f"  已自动关闭 {closed_total} 个系统弹窗")
+        return closed_total
 
     # ================= Step1 =================
 
@@ -1603,10 +1656,15 @@ class SellfoxAdOperator:
                 self.log(f"  供给预览: {batch}")
                 self._t = time.monotonic()
 
+                # 弹窗预清理: 页面打开后系统偶尔先弹公告/提示弹窗,
+                # 有则先关闭再从选择店铺开始, 无则直接继续
+                await self.dismiss_popups()
+
                 # 向导位置校正: 不在Step1则刷新重置
                 if not await self.wait_step(STEP1, timeout=3):
                     self.log("  不在Step1, 刷新页面重置向导...")
                     await self.reload_page()
+                    await self.dismiss_popups()
                     if not await self.wait_step(STEP1):
                         self.log("✗ 刷新后仍不在Step1")
                         fail_stage = "向导重置失败(刷新后未回到Step1)"

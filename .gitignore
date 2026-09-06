@@ -50,6 +50,8 @@ npm-debug.log*
 .pytest_cache/
 htmlcov/
 .coverage
+screenshots/
+_tmp_*
 
 # Jupyter
 .ipynb_checkpoints/

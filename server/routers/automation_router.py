@@ -118,7 +118,7 @@ def get_publish_status(product_id: int, since: int = 0):
 
 
 @router.get("/publish-logs/{product_id}", summary="获取商品上件执行日志（数据库历史记录）")
-async def get_publish_logs(product_id: int):
+def get_publish_logs(product_id: int):
     """查询指定商品的自动化上件历史与最新执行日志"""
     from server.database import get_db_connection
     conn = get_db_connection()
@@ -133,7 +133,7 @@ async def get_publish_logs(product_id: int):
 
 
 @router.post("/deepseek-generate", summary="自动跳转 DeepSeek 填入提示词、提交、点击复制并回填")
-async def generate_deepseek_prompt(data: DeepSeekPromptSchema):
+def generate_deepseek_prompt(data: DeepSeekPromptSchema):
     """调起 Chrome 浏览器打开 DeepSeek 目标会话，自动填入提示词、点击发送并在完成后点击复制"""
     res = DeepSeekService.send_prompt_to_deepseek(prompt=data.prompt, target_url=data.target_url)
     return {"code": 0 if res.get("success") else 1, "msg": res.get("msg"), "data": res.get("data", {})}

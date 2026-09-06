@@ -138,16 +138,20 @@ async def extract_identifier_ai(request: Request):
     from server.database import get_setting as _get_setting
     configured_model = (_get_setting("ai_ollama_model", "") or "").strip()
     model = ""
-    try:
+    def _probe_ollama_tags():
         with urllib.request.urlopen(f"{OLLAMA_BASE}/api/tags", timeout=5) as resp:
-            tags = _json.loads(resp.read().decode("utf-8"))
-            models = [m.get("name", "") for m in tags.get("models", []) if m.get("name")]
-            if configured_model:
-                matched = [m for m in models if m.lower() == configured_model.lower() or m.split(":")[0].lower() == configured_model.lower()]
-                model = matched[0] if matched else configured_model
-            else:
-                preferred = [m for m in models if "qwen2.5:1.5b" in m.lower()]
-                model = (preferred or models)[0] if models else ""
+            return _json.loads(resp.read().decode("utf-8"))
+
+    try:
+        # 探测请求放入线程池: Ollama 未启动时同步等待 5s 会卡死事件循环
+        tags = await asyncio.to_thread(_probe_ollama_tags)
+        models = [m.get("name", "") for m in tags.get("models", []) if m.get("name")]
+        if configured_model:
+            matched = [m for m in models if m.lower() == configured_model.lower() or m.split(":")[0].lower() == configured_model.lower()]
+            model = matched[0] if matched else configured_model
+        else:
+            preferred = [m for m in models if "qwen2.5:1.5b" in m.lower()]
+            model = (preferred or models)[0] if models else ""
     except Exception:
         model = configured_model  # Ollama 不可达时仍尝试用配置的模型名调用, 由后续请求报错
     if not model:

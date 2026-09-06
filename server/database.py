@@ -16,9 +16,17 @@ if sys.platform == "win32":
 
 
 def get_db_connection() -> sqlite3.Connection:
-    """获取 SQLite 连接并配置行字典解析"""
-    conn = sqlite3.connect(DB_PATH)
+    """获取 SQLite 连接并配置行字典解析
+
+    timeout=30: 后台自动化线程写库持锁时, 前台请求等待锁上限从默认 5s 提升到 30s;
+    WAL 模式: 读写不互斥, 后台写入不再阻塞前台页面查询。
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.DatabaseError:
+        pass
     return conn
 
 
