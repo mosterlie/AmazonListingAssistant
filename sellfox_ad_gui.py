@@ -135,6 +135,17 @@ class AdGuiApp:
         ttk.Checkbutton(cnt_row, text="自动去重",
                         variable=self.dedup_var,
                         command=self._count_asins).pack(side="left", padx=10)
+        self.trim_var = tk.BooleanVar(value=True)          # 裁剪变体(默认开)
+        ttk.Checkbutton(cnt_row, text="裁剪变体",
+                        variable=self.trim_var,
+                        command=self._sync_trim).pack(side="left", padx=10)
+        ttk.Label(cnt_row, text="保留").pack(side="left")
+        self.trim_keep_var = tk.StringVar(value="5")
+        self.trim_keep_spin = tk.Spinbox(cnt_row, from_=1, to=50, width=4,
+                                         textvariable=self.trim_keep_var,
+                                         justify="center")
+        self.trim_keep_spin.pack(side="left", padx=3)
+        ttk.Label(cnt_row, text="个(超出按顺序保留前N, 其余裁掉)").pack(side="left")
 
         ttk.Label(frm, text="批次数量:").grid(row=3, column=0, sticky="e", pady=1)
         batch_cell = ttk.Frame(frm)
@@ -251,6 +262,10 @@ class AdGuiApp:
             return out
         return parts
 
+    def _sync_trim(self):
+        """裁剪开关联动: 不裁剪时禁用数量"""
+        self.trim_keep_spin.configure(state=("disabled" if not self.trim_var.get() else "normal"))
+
     def _count_asins(self):
         lst = self._parse_asins()
         seen, dup = set(), 0
@@ -295,6 +310,12 @@ class AdGuiApp:
                 raise ValueError
         except ValueError:
             return None, "默认竞价必须大于 0"
+        try:
+            trim_keep = int(self.trim_keep_var.get() or "5")
+            if not (1 <= trim_keep <= 50):
+                raise ValueError
+        except ValueError:
+            return None, "裁剪保留数量需为 1~50 的整数"
         start = self.start_var.get().strip()
         if not start:
             return None, "开始时间不能为空"
@@ -320,6 +341,8 @@ class AdGuiApp:
             "bid": ("%d" % int(bid)) if bid == int(bid) else ("%g" % bid),
             "start_date": start,
             "end_date": end or None,
+            "trim_variants": self.trim_var.get(),
+            "trim_keep": trim_keep,
         }, None
 
     # ────────────────── 动作 ──────────────────
@@ -338,7 +361,16 @@ class AdGuiApp:
             self.log(f"正在启动调试浏览器 (用户数据目录: {self._bm_dir})...")
             try:
                 ok, msg = bm.launch_browser("about:blank")
-                self.log(("✅ " if ok else "❌ ") + msg)
+                if not ok:
+                    self.log("❌ " + msg)
+                    return
+                self.log("✅ " + msg)
+                # 与 ERP 中台同步: 启动后直接打开赛狐批量创建页 (已开则聚焦)
+                try:
+                    bm.open_or_focus_url(SELLFOX_URL)
+                    self.log("✅ 已打开赛狐批量创建页 (首次需在该 Chrome 中登录赛狐)")
+                except Exception as e:
+                    self.log(f"⚠ 打开赛狐页失败: {str(e)[:80]} (可手动在 Chrome 里打开)")
             except Exception as e:
                 self.log(f"❌ 启动浏览器失败: {e}")
         threading.Thread(target=work, daemon=True).start()
@@ -401,7 +433,8 @@ class AdGuiApp:
                     asins=p["asins"], batch_size=p["batch_size"], submit=False,
                     shop=p["shop"], budget=p["budget"], bid=p["bid"],
                     bid_strategy=p["bid_strategy"], create_mode=p["create_mode"],
-                    start_date=p["start_date"], end_date=p["end_date"])
+                    start_date=p["start_date"], end_date=p["end_date"],
+                    trim_variants=p["trim_variants"], trim_keep=p["trim_keep"])
                 skipped = result.get("skipped_count", 0)
                 audit = result.get("audit") or {}
                 on_log("\n════════ 执行汇总 ════════")
