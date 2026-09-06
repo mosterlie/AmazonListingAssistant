@@ -289,6 +289,8 @@ def init_db():
         asin_count INTEGER NOT NULL DEFAULT 0,
         batch_size INTEGER NOT NULL DEFAULT 0,
         auto_dedup INTEGER NOT NULL DEFAULT 0,
+        trim_variants INTEGER NOT NULL DEFAULT 1,
+        trim_keep INTEGER NOT NULL DEFAULT 5,
         status TEXT NOT NULL DEFAULT 'pending',
         last_run_id INTEGER DEFAULT 0,
         last_result TEXT DEFAULT '',
@@ -305,6 +307,10 @@ def init_db():
     _ad_cols = [col["name"] for col in cursor.fetchall()]
     if "auto_dedup" not in _ad_cols:
         cursor.execute("ALTER TABLE ad_campaign_tasks ADD COLUMN auto_dedup INTEGER NOT NULL DEFAULT 0;")
+    if "trim_variants" not in _ad_cols:
+        cursor.execute("ALTER TABLE ad_campaign_tasks ADD COLUMN trim_variants INTEGER NOT NULL DEFAULT 1;")
+    if "trim_keep" not in _ad_cols:
+        cursor.execute("ALTER TABLE ad_campaign_tasks ADD COLUMN trim_keep INTEGER NOT NULL DEFAULT 5;")
 
     # 9. 广告任务执行记录表 (每次「自动投放」登记一条执行结果)
     cursor.execute("""

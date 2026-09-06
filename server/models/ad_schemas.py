@@ -53,6 +53,8 @@ class AdTaskCreateSchema(BaseModel):
     default_bid: float = Field(15, description="6. 默认竞价 (默认 15)")
     asins_text: str = Field(..., min_length=1, description="7. ASIN 列表 (逗号分隔)")
     auto_dedup: bool = Field(False, description="是否自动去除重复 ASIN (默认否)")
+    trim_variants: bool = Field(True, description="是否裁剪 ASIN 变体 (默认是)")
+    trim_keep: int = Field(5, description="裁剪保留的变体数量 (默认 5, 1~50)", ge=1, le=50)
     batch_size: int = Field(20, description="8. 批次数量 (每批最多处理的 ASIN 数, 默认 20)")
 
     @field_validator("task_name", "shop_name")
@@ -137,6 +139,8 @@ class AdTaskUpdateSchema(BaseModel):
     default_bid: Optional[float] = Field(None, description="默认竞价")
     asins_text: Optional[str] = Field(None, description="ASIN 列表")
     auto_dedup: Optional[bool] = Field(None, description="是否自动去除重复 ASIN")
+    trim_variants: Optional[bool] = Field(None, description="是否裁剪 ASIN 变体")
+    trim_keep: Optional[int] = Field(None, description="裁剪保留的变体数量 (1~50)")
     batch_size: Optional[int] = Field(None, description="批次数量")
 
 
