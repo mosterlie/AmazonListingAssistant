@@ -16,22 +16,25 @@
   Step0 访问页面(已登录) → Step1 基本信息(店铺/创建方式/预算/竞价/起止日期, 不加产品)
   → Step2 选广告结构模板 → 生成预览 → Step3 移除手动投放
   → 自动活动复制校齐到本批条数k → 逐ASIN经「设置广告产品」弹窗搜索录入
-  → 清除未配置活动 → 终态对账 → 提交(--submit)
+  → 清除未配置活动 → 终态对账 → 点「提交」打开「批量提交广告」确认弹窗
 
 服务端调用:
   run_batch() 返回结构化结果 dict (成功/中断/录入数/跳过明细/终态对账/完整日志),
   供 server/services/ad_service.py 登记到 ad_task_runs 表。
-  默认 submit=False: 每批执行到提交前停止; 多批时通过 open_new_page 逐批开
-  新标签页执行, 上一批页面原样保留, 结束后由人工逐个标签页检查提交。
+  两种模式每批均点击「提交」打开确认弹窗, 是否自动点弹窗「确认」生效由配置决定:
+  - submit=False: 不自动确认, 弹窗保留; 多批时通过 open_new_page 逐批开
+    新标签页执行, 上一批页面 (含确认弹窗) 原样保留, 供人工逐个标签页检查确认。
+  - submit=True: 自动点弹窗「确认」立即生效, 提交后刷新当前页面继续下一批。
   注意: close() 只断开本地 Playwright 驱动, 不会关闭用户的 CDP 浏览器。
 
 用法:
   python -m core.sellfox_ad_operator --asins B0xxx,B0yyy --batch-size 10 \
       --shop 金梧汇辰 --budget 300 --bid 15
-  (不加 --submit 时跑完第一批停在提交前)
+  (不加 --submit 时每批停在「批量提交广告」确认弹窗, 待人工确认)
 """
 import argparse
 import asyncio
+import os
 import sys
 import time
 
@@ -47,6 +50,34 @@ PAGE_KEY = "spBatchCreate"
 IFRAME_KEY = "spBatchCreatePage/index.html"
 MAX_VARIANTS = 5  # 单个ASIN最多录入的产品数(含主ASIN)
 
+
+def _kill_stale_drivers() -> list:
+    """清理其它进程遗留的 Playwright node 驱动 (cmdline 含 run-driver 且父进程非当前进程)。
+
+    冻结/阻塞的驱动仍 attach 在 CDP 浏览器上, 会让所有新标签页停在渲染暂停态
+    (页面白屏, goto 超时); 杀掉后 Chrome 自动恢复。返回被杀的 PID 列表。
+    """
+    killed = []
+    try:
+        import psutil
+        me = os.getpid()
+        for p in psutil.process_iter(["pid", "ppid", "name", "cmdline"]):
+            try:
+                if (p.info.get("name") or "").lower() != "node.exe":
+                    continue
+                if p.info.get("ppid") == me:
+                    continue  # 当前进程自己的驱动, 不能杀
+                if "run-driver" not in " ".join(p.info.get("cmdline") or []):
+                    continue
+                p.kill()
+                killed.append(p.info["pid"])
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return killed
+
+
 # 可见的「设置广告产品」弹窗
 DLG = """[...document.querySelectorAll('.el-dialog')].find(d => d.offsetParent!==null
     && (d.querySelector('.el-dialog__title')?.textContent||'').includes('设置广告产品')
@@ -56,6 +87,70 @@ DLG = """[...document.querySelectorAll('.el-dialog')].find(d => d.offsetParent!=
 COPY_DLG = """[...document.querySelectorAll('.el-dialog')].find(d =>
     d.offsetParent!==null && ((d.textContent||'').includes('将生成')
         || (d.querySelector('.el-dialog__header')?.textContent||'').includes('批量复制')))"""
+
+# 「批量提交广告」确认弹窗相关 JS (真实 DOM: .el-dialog 标题=批量提交广告,
+# 含任务名称输入框[已有默认值]与店铺表格; 按钮为「取消」/「确认」el-button--primary)
+
+# 给「提交」按钮打标记, 供 Playwright frame.locator 真实点击 (自动处理嵌套坐标/滚动/遮挡)
+SUBMIT_BTN_MARK_JS = """() => {
+    document.querySelectorAll('[data-sf-op]').forEach(e => e.removeAttribute('data-sf-op'));
+    const btn = [...document.querySelectorAll('button')]
+        .find(b => (b.textContent||'').trim()==='提交' && b.getBoundingClientRect().width>0);
+    if (!btn) return false;
+    btn.setAttribute('data-sf-op', 'submit');
+    return true;
+}"""
+
+# 给「批量提交广告」弹窗内的「确认」按钮打标记
+SUBMIT_CONFIRM_MARK_JS = """() => {
+    document.querySelectorAll('[data-sf-op]').forEach(e => e.removeAttribute('data-sf-op'));
+    for (const d of document.querySelectorAll('.el-dialog')) {
+        if (d.offsetParent===null || d.getBoundingClientRect().width<=0) continue;
+        if (!(d.querySelector('.el-dialog__title')?.textContent||'').includes('批量提交')) continue;
+        const btn = [...d.querySelectorAll('button')]
+            .find(b => (b.textContent||'').trim()==='确认');
+        if (btn) { btn.setAttribute('data-sf-op', 'confirm'); return true; }
+    }
+    return false;
+}"""
+
+# 「批量提交广告」确认弹窗当前是否可见
+SUBMIT_DLG_OPEN_JS = """() => {
+    for (const d of document.querySelectorAll('.el-dialog')) {
+        if (d.offsetParent===null || d.getBoundingClientRect().width<=0) continue;
+        if ((d.querySelector('.el-dialog__title')?.textContent||'').includes('批量提交'))
+            return true;
+    }
+    return false;
+}"""
+
+# 弹窗状态: 是否可见 + 是否提交处理中 (loading 遮罩 / 确认按钮禁用或转圈)
+SUBMIT_DLG_STATE_JS = """() => {
+    for (const d of document.querySelectorAll('.el-dialog')) {
+        if (d.offsetParent===null || d.getBoundingClientRect().width<=0) continue;
+        if (!(d.querySelector('.el-dialog__title')?.textContent||'').includes('批量提交')) continue;
+        const btn = [...d.querySelectorAll('button')]
+            .find(b => (b.textContent||'').trim()==='确认');
+        return {
+            open: true,
+            loadingMask: !!d.querySelector('.el-loading-mask'),
+            btnBusy: btn ? (btn.disabled
+                             || btn.classList.contains('is-disabled')
+                             || btn.classList.contains('is-loading')) : false,
+        };
+    }
+    return {open: false, loadingMask: false, btnBusy: false};
+}"""
+
+# 读取弹窗当前文本 (弹窗未关闭时用于诊断错误原因, 如任务名称重复等)
+SUBMIT_DLG_INFO_JS = """() => {
+    for (const d of document.querySelectorAll('.el-dialog')) {
+        if (d.offsetParent===null || d.getBoundingClientRect().width<=0) continue;
+        if ((d.querySelector('.el-dialog__title')?.textContent||'').includes('批量提交'))
+            return (d.textContent||'').replace(/\\s+/g,' ').trim().slice(0, 200);
+    }
+    return null;
+}"""
 
 # 公告/提示类弹窗关闭: 覆盖可见 el-dialog 与 el-message-box,
 # 优先右上角 X (el-dialog__headerbtn), 其次常见确认/关闭类按钮
@@ -172,6 +267,10 @@ class SellfoxAdOperator:
     # ================= 基础 =================
 
     async def connect(self, visit=True, login_timeout=120):
+        # 残留的冻结驱动会让后续所有新标签页白屏(goto超时), 连接前先清理
+        _killed = _kill_stale_drivers()
+        if _killed:
+            self.log(f"🧹 已清理 {len(_killed)} 个残留自动化驱动进程 {_killed} (避免其阻塞新标签页渲染)")
         self.pw = await async_playwright().start()
         try:
             self.browser = await self.pw.chromium.connect_over_cdp(self.cdp_url, timeout=20000)
@@ -258,15 +357,27 @@ class SellfoxAdOperator:
         已录入但未提交的数据; 新开标签页则让上一批保留在原页面, 供人工检查提交。
         """
         ctx = self.browser.contexts[0]
-        self.page = await ctx.new_page()
-        await self.page.goto(PAGE_URL, wait_until="domcontentloaded")
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            self.frame = next((f for f in self.page.frames
-                               if IFRAME_KEY in f.url and f != self.page.main_frame), None)
-            if self.frame:
-                return
-            await asyncio.sleep(0.2)
+        for _attempt in (0, 1):
+            self.page = await ctx.new_page()
+            try:
+                await self.page.goto(PAGE_URL, wait_until="domcontentloaded")
+            except Exception as _e:
+                # goto 超时多因其它冻结驱动仍 attach 在浏览器上, 新标签页渲染被暂停;
+                # 清理残留驱动后 Chrome 立即恢复, 重开一次即可
+                _killed = _kill_stale_drivers()
+                if _attempt == 0 and _killed and "Timeout" in str(_e):
+                    self.log(f"⚠ 新页面 goto 超时, 已清理 {len(_killed)} 个残留自动化驱动进程 "
+                             f"{_killed}, 自动重试开新页...")
+                    continue
+                raise
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                self.frame = next((f for f in self.page.frames
+                                   if IFRAME_KEY in f.url and f != self.page.main_frame), None)
+                if self.frame:
+                    return
+                await asyncio.sleep(0.2)
+            raise RuntimeError("新页面未找到 spBatchCreate iframe")
         raise RuntimeError("新页面未找到 spBatchCreate iframe")
 
     async def close(self):
@@ -674,30 +785,119 @@ class SellfoxAdOperator:
         self.log("  手动投放活动已全部移除")
         return True
 
-    async def submit_batch(self):
-        """第3步提交 (默认不调用)"""
-        pos = await self.js("""() => {
-            const btn = [...document.querySelectorAll('button')]
-                .find(b => (b.textContent||'').trim()==='提交' && b.getBoundingClientRect().width>0);
-            if (!btn) return null;
-            const r = btn.getBoundingClientRect();
-            return {x: r.x + r.width/2, y: r.y + r.height/2};
-        }""")
-        if not pos:
+    async def _click_frame_btn(self, mark_js, locator_sel, timeout=5000):
+        """iframe 内按钮三级点击降级: 坐标鼠标 → Playwright locator → 原生 JS click。
+
+        mark_js: 给目标按钮设置 data-sf-op 标记 (返回 False 表示按钮未找到)。
+        locator_sel: 标记选择器。三级依次尝试, 任一级执行即返回 True。
+
+        坐标点击放第一优先: 本页嵌套 iframe 下 Playwright locator 的 actionability
+        检查基本必超时, 放前面会每次点击白等 timeout 秒 (提交前明显卡顿的元凶)。
+        """
+        if not await self.js(mark_js):
             return False
-        await self.click_at(pos)
-        await asyncio.sleep(2)
-        # 确认弹窗
-        await self.js("""() => {
-            for (const box of document.querySelectorAll('.el-message-box')) {
-                if (box.offsetParent===null) continue;
-                const btn = [...box.querySelectorAll('button')]
-                    .find(b => ['确定','确认','是'].includes((b.textContent||'').trim()));
-                if (btn) { btn.click(); break; }
-            }
-        }""")
-        await asyncio.sleep(3)
-        return True
+        # ① 中心坐标 + 真实鼠标 (历史验证可点中「提交」按钮的路径)
+        #    先 scrollIntoView 再取坐标, 避免按钮在可视区外时点空
+        pos = await self.js(f"""() => {{
+            const b = document.querySelector('{locator_sel}');
+            if (!b) return null;
+            b.scrollIntoView({{block: 'center', behavior: 'instant'}});
+            const r = b.getBoundingClientRect();
+            return r.width > 0 ? {{x: r.x + r.width/2, y: r.y + r.height/2}} : null;
+        }}""")
+        if pos:
+            try:
+                await self.click_at(pos)
+                return True
+            except Exception:
+                pass
+        # ② Playwright locator: actionability 检查最完整, 作为坐标点击失败时的兜底
+        try:
+            await self.frame.locator(locator_sel).click(timeout=timeout)
+            return True
+        except Exception:
+            pass
+        # ③ 原生 JS click (直接派发 click 事件, 触发 Vue @click)
+        try:
+            return bool(await self.js(f"""() => {{
+                const b = document.querySelector('{locator_sel}');
+                if (!b) return false;
+                b.click();
+                return true;
+            }}"""))
+        except Exception:
+            return False
+
+    async def submit_batch(self, confirm: bool = True):
+        """第3步提交: 点「提交」→ 等待「批量提交广告」确认弹窗。
+
+        confirm=True: 自动点弹窗「确认」(点击后立即生效); 弹窗未关闭自动补点(最多3次)。
+        confirm=False: 不点「确认」, 弹窗保留在页面供人工检查表格后确认。
+        点击统一走三级降级 (_click_frame_btn), 保证任一环境路径可点中。
+        """
+        # ① 点「提交」按钮
+        if not await self._click_frame_btn(SUBMIT_BTN_MARK_JS, '[data-sf-op="submit"]'):
+            self.log("  ✗ 未找到「提交」按钮")
+            return False
+        # ② 轮询等待确认弹窗出现 (任务名称输入框已有默认值, 无需填写)
+        t_submit = time.monotonic()
+        deadline = t_submit + 15
+        dlg_open = False
+        while time.monotonic() < deadline:
+            self._check_stop()
+            if await self.js(SUBMIT_DLG_OPEN_JS):
+                dlg_open = True
+                break
+            await asyncio.sleep(0.3)
+        if not dlg_open:
+            self.log("  ✗ 未出现「批量提交广告」确认弹窗, 放弃提交")
+            return False
+        if not confirm:
+            self.log(f"  提交弹窗已打开 (耗时 {time.monotonic() - t_submit:.1f}s, "
+                     f"按配置不自动确认, 请人工检查表格后点击「确认」)")
+            return True
+        # ③ 点「确认」生效。
+        #    点确认后赛狐要在服务端完成提交 (数秒~数十秒), 期间弹窗保持打开:
+        #    检测到处理中 (loading 遮罩/按钮禁用转圈) 只等待不补点, 防止重复提交;
+        #    非处理中且弹窗未关才按 6s 间隔补点 (最多3次, 应对点击被吞)。
+        t0 = time.monotonic()
+        click_count = 0
+        last_click_t = 0.0
+        reported = False
+        while True:
+            self._check_stop()
+            st = await self.js(SUBMIT_DLG_STATE_JS)
+            if not st or not st.get("open"):
+                return True  # 弹窗已关闭 = 提交生效
+            processing = bool(st.get("loadingMask")) or \
+                (click_count > 0 and bool(st.get("btnBusy")))
+            if processing:
+                if not reported:
+                    self.log("  提交处理中, 等待服务端完成...")
+                    reported = True
+                if time.monotonic() - t0 > 90:
+                    self.log("  ⚠ 提交处理超 90s 未返回, 请稍后在页面确认结果")
+                    return True
+                await asyncio.sleep(0.5)
+                continue
+            # 非处理中: 补点 (最多3次, 间隔6s); 补满仍开着 → 读取内容报错
+            if click_count >= 3:
+                break
+            if click_count == 0 or time.monotonic() - last_click_t >= 6:
+                clicked = await self._click_frame_btn(
+                    SUBMIT_CONFIRM_MARK_JS, '[data-sf-op="confirm"]')
+                if not clicked:
+                    self.log("  ✗ 弹窗内未找到「确认」按钮")
+                    return False
+                click_count += 1
+                last_click_t = time.monotonic()
+                if click_count > 1:
+                    self.log(f"  ⚠ 确认后弹窗未关闭, 自动补点 ({click_count}/3)...")
+            await asyncio.sleep(0.3)
+        # 3次仍未关闭: 读取弹窗内容辅助定位原因 (如任务名称重复等)
+        info = await self.js(SUBMIT_DLG_INFO_JS)
+        self.log(f"  ✗ 确认后弹窗仍未关闭, 弹窗当前内容: {info}")
+        return False
 
     # ---------- 按钮工具 ----------
 
@@ -1631,10 +1831,10 @@ class SellfoxAdOperator:
                         trim_variants=True, trim_keep=MAX_VARIANTS):
         """分批向导式批处理, 返回结构化执行结果 (供服务端登记执行结果)。
 
-        submit=False 时全程不提交, 每批执行到提交前停止。
-        批间切换通过 open_new_page 开新标签页进行, 上一批页面原样保留,
-        全部批次结束后由人工逐个标签页检查提交。
-        submit=True 时每批提交后刷新当前页面继续下一批。
+        两种模式每批录入完成后均清除空活动并点击「提交」, 打开「批量提交广告」确认弹窗:
+        - submit=False: 不自动点弹窗「确认」, 弹窗保留供人工检查后确认;
+          批间通过 open_new_page 开新标签页, 上一批页面原样保留。
+        - submit=True: 自动点弹窗「确认」生效, 提交后刷新当前页面继续下一批。
         trim_variants=True 时裁剪变体到 trim_keep 个 (默认 5); False 全部保留。
         """
         remaining = [a.strip() for a in asins if a.strip()]
@@ -1645,7 +1845,7 @@ class SellfoxAdOperator:
         fail_stage = ""
         aborted = False
         audit = {}
-        self._batch_pages = []  # 不提交模式: 各批次页面的 (page, frame) 引用, 供最后统一清除
+        self._batch_pages = []  # 不自动确认模式: 各批次页面的 (page, frame) 引用 (弹窗待人工确认)
         try:
             while remaining:
                 self._check_stop()
@@ -1745,41 +1945,28 @@ class SellfoxAdOperator:
                     self.log(f"  ⚠ 未配置活动: {audit['unconfigured_names']}")
 
                 remaining = remaining[consumed:]
+                # 每批录入完成后总是点「提交」打开「批量提交广告」确认弹窗;
+                # 是否自动点弹窗「确认」生效由「是否提交广告」配置 (submit) 决定。
+                # 提交前必须清掉空活动 (否则空活动会随批次一起提交)
+                await self.clear_unconfigured()
+                self.lap("清除未配置")
+                if not await self.submit_batch(confirm=submit):
+                    self.log("✗ 提交失败, 中断")
+                    fail_stage = "提交失败"
+                    aborted = True
+                    break
                 if submit:
-                    # 提交模式: 提交前必须清掉空活动 (否则空活动会随批次一起提交)
-                    await self.clear_unconfigured()
-                    self.lap("清除未配置")
-                    if not await self.submit_batch():
-                        self.log("✗ 提交失败, 中断")
-                        fail_stage = "提交失败"
-                        aborted = True
-                        break
                     self.log(f"  第{batch_no}批已提交")
                     if remaining:
                         self.log("  刷新页面开始下一轮向导...")
                         await self.reload_page()
                 else:
-                    # 不提交模式: 本批页面原样保留 (含未配置活动), 清除统一放到全部批次结束后
+                    # 确认弹窗保留在当前标签页, 供人工检查表格后点击「确认」生效
                     self._batch_pages.append((self.page, self.frame))
-                    self.log(f"  第{batch_no}批完成 (不提交, 停留在提交前待人工确认;"
-                             f" 未配置活动 {audit.get('unconfigured', 0)} 个留待最后统一清除)")
+                    self.log(f"  第{batch_no}批完成 (提交弹窗已打开, 待人工确认)")
                     if remaining:
                         self.log("  打开新页面开始下一批 (本批已保留在当前标签页)...")
                         await self.open_new_page()
-
-            # 不提交模式: 全部批次录入完毕, 统一回各批次页面清除未配置活动
-            if not submit and self._batch_pages and not aborted:
-                self.log("\n── 统一清除未配置活动 ──")
-                for pi, (page, frame) in enumerate(self._batch_pages, 1):
-                    self._check_stop()
-                    self.page, self.frame = page, frame
-                    try:
-                        await self.clear_unconfigured()
-                        self.lap(f"第{pi}批页面清除完成")
-                    except OperatorStopped:
-                        raise
-                    except Exception as e:
-                        self.log(f"  ⚠ 第{pi}批页面清除异常: {type(e).__name__}: {str(e)[:100]}")
 
         except OperatorStopped:
             aborted = True
@@ -1796,7 +1983,8 @@ class SellfoxAdOperator:
         duration = time.monotonic() - run_t0
         self.log(f"\n{'全部批次完成' if not aborted else '任务中断: ' + fail_stage}")
         if not submit and not aborted:
-            self.log(f"共 {batch_no} 批已全部执行到提交前, 请在浏览器中逐个标签页人工检查并提交")
+            self.log(f"共 {batch_no} 批提交确认弹窗已打开, "
+                     f"请在浏览器中逐个标签页检查表格后点击「确认」")
         self.log(f"总耗时: {duration:.1f}s, 共录入 {total_entered} 条")
         self.skips.report()
 

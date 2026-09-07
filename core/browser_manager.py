@@ -189,8 +189,43 @@ class BrowserManager:
         except Exception:
             return False
 
+    def _kill_profile_chrome(self) -> int:
+        """终止所有使用本 user_data_dir 的 Chrome 进程 (优雅终止→超时强杀)。
+
+        残留未死透的 chrome 会让新 launcher 把参数转交后退出 (无 CDP 监听),
+        表现为"启动后立即退出 code=21/0"。返回终止的进程数。
+        """
+        killed = 0
+        try:
+            import psutil
+            targets = []
+            for p in psutil.process_iter(["pid", "name", "cmdline"]):
+                try:
+                    if (p.info.get("name") or "").lower() not in ("chrome.exe", "msedge.exe"):
+                        continue
+                    cmd = " ".join(p.info.get("cmdline") or [])
+                    if self.user_data_dir.lower() in cmd.lower() or f"--remote-debugging-port={self.port}" in cmd:
+                        targets.append(p)
+                except Exception:
+                    continue
+            for p in targets:
+                try:
+                    p.terminate()
+                except Exception:
+                    continue
+            _, alive = psutil.wait_procs(targets, timeout=5)
+            for p in alive:
+                try:
+                    p.kill()
+                except Exception:
+                    continue
+            killed = len(targets)
+        except Exception:
+            pass
+        return killed
+
     def launch_browser(self, target_url: str = "about:blank") -> Tuple[bool, str]:
-        """以 CDP 调试模式启动独立 Chrome 浏览器"""
+        """以 CDP 调试模式启动独立 Chrome 浏览器 (失败自动清残留重试, 最多3次)"""
         if self.is_port_open():
             ok, msg = self.connect()
             if ok:
@@ -202,6 +237,21 @@ class BrowserManager:
 
         os.makedirs(self.user_data_dir, exist_ok=True)
 
+        last_msg = ""
+        for attempt in range(1, 4):
+            if attempt > 1:
+                # 重试前清掉该 profile 的残留 chrome (转交退出/端口未监听的元凶)
+                self._kill_profile_chrome()
+                time.sleep(1.5)
+            ok, msg = self._launch_once(browser_exe, target_url)
+            if ok:
+                return True, msg
+            last_msg = msg
+        return False, f"{last_msg} (已自动清残留重试 3 次)"
+
+    def _launch_once(self, browser_exe: str, target_url: str) -> Tuple[bool, str]:
+        """单次启动 Chrome 并等待 CDP 端口就绪"""
+
         args = [
             browser_exe,
             f"--remote-debugging-port={self.port}",
@@ -211,28 +261,46 @@ class BrowserManager:
             "--disable-background-networking",
             "--disable-features=Translate,OptimizationHints",
             "--disable-popup-blocking",
+            # 服务进程环境下 Chromium launcher 的 sandbox 初始化可能失败 (退出码 21,
+            # browser 子进程降级存活但 CDP 端口不监听); 自动化专用实例禁用 sandbox。
+            "--no-sandbox",
         ]
 
         if target_url and target_url != "about:blank":
             args.append(target_url)
 
         try:
-            subprocess.Popen(
+            # Chrome 自身报错 (profile 锁/策略/崩溃) 会写 stderr, 落盘以便诊断启动超时
+            err_path = os.path.join(self.user_data_dir, "chrome_launch_stderr.log")
+            err_file = open(err_path, "ab")
+            proc = subprocess.Popen(
                 args,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=err_file,
                 start_new_session=True
             )
         except Exception as e:
             return False, f"启动浏览器进程失败: {e}"
 
-        # 等待端口就绪
+        # 等待端口就绪; 超时时区分三种死因 (进程秒退/进程在但端口未开/进程消失)
         for _ in range(30):
             time.sleep(0.3)
             if self.is_port_open():
                 break
+            rc = proc.poll()
+            if rc is not None:
+                tail = ""
+                try:
+                    with open(err_path, "rb") as f:
+                        tail = f.read()[-300:].decode("utf-8", "ignore")
+                except Exception:
+                    pass
+                return False, (f"浏览器进程启动后立即退出 (code={proc.returncode})。"
+                               f"Chrome stderr: {tail or '无输出'}")
         else:
-            return False, f"浏览器启动超时，无法在 {self.port} 端口建立 CDP 连接！"
+            alive = proc.poll() is None
+            return False, (f"浏览器启动超时，无法在 {self.port} 端口建立 CDP 连接！"
+                           f"(Chrome 进程{'仍在运行' if alive else '已消失'})")
 
         time.sleep(0.5)
         ok, msg = self.connect()

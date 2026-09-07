@@ -52,6 +52,7 @@ class SystemSettingsSchema(BaseModel):
     storage_paths: StoragePathsSchema = Field(default_factory=StoragePathsSchema, description="本地归档存储目录")
     session_expire_hours: Optional[float] = Field(1.0, description="登录 Session 有效时长 (小时，默认 1.0h)")
     chrome_user_data_dirs: ChromeUserDataDirsSchema = Field(default_factory=ChromeUserDataDirsSchema, description="Chrome 9222 自动化专属用户数据目录 (mac/win 分平台配置)")
+    submit_ad_enabled: bool = Field(False, description="自动投放是否提交广告 (True=每批录入后自动点击提交并确认; False=停在提交前待人工确认)")
     ai_config: AiConfigSchema = Field(default_factory=AiConfigSchema, description="AI 大模型配置 (自动生成五点描述)")
 
 
@@ -135,6 +136,8 @@ async def get_system_settings():
             "mac": (get_setting("chrome_user_data_dir_mac", "") or "").strip() or "~/ChromeDebugUser",
             "win": (get_setting("chrome_user_data_dir_win", "") or "").strip() or "C:\\ChromeDebugUser"
         }
+        # 自动投放是否提交广告 (默认否: 停在提交前待人工确认)
+        submit_ad_enabled = bool(get_setting("submit_ad_enabled", False))
         # AI 大模型配置 (五点描述生成来源 + 本地 Ollama 模型 + 公共 API)
         bullets_source = (get_setting("ai_bullets_source", "") or "").strip().lower()
         if bullets_source not in ("local", "public"):
@@ -166,6 +169,7 @@ async def get_system_settings():
                 },
                 "session_expire_hours": session_exp,
                 "chrome_user_data_dirs": chrome_dir,
+                "submit_ad_enabled": submit_ad_enabled,
                 "ai_config": ai_config
             }
         }
@@ -219,7 +223,11 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         set_setting("chrome_user_data_dir", chrome_mac if sys.platform == "darwin" else chrome_win)
         chrome_dir = {"mac": chrome_mac, "win": chrome_win}
 
-        # 6. 保存 AI 大模型配置 (来源: local=本地 Ollama / public=公共 API)
+        # 6. 保存自动投放是否提交广告 (默认否)
+        submit_ad_enabled = bool(payload.submit_ad_enabled)
+        set_setting("submit_ad_enabled", submit_ad_enabled)
+
+        # 7. 保存 AI 大模型配置 (来源: local=本地 Ollama / public=公共 API)
         ai = payload.ai_config
         source = (ai.bullets_source or "").strip().lower()
         if source not in ("local", "public"):
@@ -254,6 +262,7 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
                 },
                 "session_expire_hours": session_exp,
                 "chrome_user_data_dirs": chrome_dir,
+                "submit_ad_enabled": submit_ad_enabled,
                 "ai_config": ai_config
             }
         }

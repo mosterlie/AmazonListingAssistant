@@ -296,7 +296,9 @@ async def render_ads_page(request: Request):
 
 def start_server():
     """启动本地开发服务器"""
-    uvicorn.run("server.app:app", host=SERVER_HOST, port=SERVER_PORT, reload=True)
+    # reload=True 会使 Chrome 从 multiprocessing worker 派生时 sandbox 初始化失败
+    # (退出码 21), 且代码热重载会中断运行中的任务; 生产固定关闭。
+    uvicorn.run("server.app:app", host=SERVER_HOST, port=SERVER_PORT, reload=False)
 
 
 if __name__ == "__main__":

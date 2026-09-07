@@ -22,6 +22,7 @@ const settingsState = {
     mac: "~/ChromeDebugUser",
     win: "C:\\ChromeDebugUser"
   },
+  submit_ad_enabled: false,
   ai_config: {
     bullets_source: "public",
     ollama_model: "qwen2.5:1.5b-instruct-q4_K_M",
@@ -70,6 +71,9 @@ async function loadSettings() {
       settingsState.session_expire_hours = result.data.session_expire_hours !== undefined ? parseFloat(result.data.session_expire_hours) : 1.0;
       if (result.data.chrome_user_data_dirs) {
         settingsState.chrome_user_data_dirs = { ...settingsState.chrome_user_data_dirs, ...result.data.chrome_user_data_dirs };
+      }
+      if (result.data.submit_ad_enabled !== undefined) {
+        settingsState.submit_ad_enabled = !!result.data.submit_ad_enabled;
       }
       if (result.data.ai_config) {
         settingsState.ai_config = { ...settingsState.ai_config, ...result.data.ai_config };
@@ -121,6 +125,12 @@ function populateForm() {
   
   if (chromeDirMacInp) chromeDirMacInp.value = settingsState.chrome_user_data_dirs.mac || "~/ChromeDebugUser";
   if (chromeDirWinInp) chromeDirWinInp.value = settingsState.chrome_user_data_dirs.win || "C:\\ChromeDebugUser";
+
+  const submitYes = document.getElementById("submitAdYes");
+  const submitNo = document.getElementById("submitAdNo");
+  if (submitYes && submitNo) {
+    (settingsState.submit_ad_enabled ? submitYes : submitNo).checked = true;
+  }
 
   const aiLocalRadio = document.getElementById("aiSourceLocal");
   const aiPublicRadio = document.getElementById("aiSourcePublic");
@@ -349,6 +359,7 @@ async function saveSettings() {
       mac: (document.getElementById("chromeUserDataDirMacInput")?.value || "").trim(),
       win: (document.getElementById("chromeUserDataDirWinInput")?.value || "").trim()
     },
+    submit_ad_enabled: !!document.getElementById("submitAdYes")?.checked,
     ai_config: {
       bullets_source: document.getElementById("aiSourceLocal")?.checked ? "local" : "public",
       ollama_model: (document.getElementById("aiOllamaModelInput")?.value || "qwen2.5:1.5b-instruct-q4_K_M").trim(),
@@ -375,6 +386,9 @@ async function saveSettings() {
       }
       if (result.data.chrome_user_data_dirs !== undefined) {
         settingsState.chrome_user_data_dirs = result.data.chrome_user_data_dirs;
+      }
+      if (result.data.submit_ad_enabled !== undefined) {
+        settingsState.submit_ad_enabled = !!result.data.submit_ad_enabled;
       }
       if (result.data.ai_config !== undefined) {
         settingsState.ai_config = result.data.ai_config;

@@ -7,6 +7,7 @@
 """
 import asyncio
 import json
+import os
 import sys
 import threading
 import time
@@ -27,8 +28,12 @@ from server.models.ad_schemas import (
 _run_states: Dict[int, Dict[str, Any]] = {}
 _state_lock = threading.Lock()
 
-# 当前阶段固定不提交 (执行到提交前停下, 供人工检查)
-SUBMIT_ENABLED = False
+def _submit_enabled() -> bool:
+    """自动投放是否提交广告 (系统管理页「是否提交广告」配置, 默认否: 停在提交前待人工确认)"""
+    try:
+        return bool(get_setting("submit_ad_enabled", False))
+    except Exception:
+        return False
 
 CDP_URL = "http://127.0.0.1:9222"
 
@@ -194,6 +199,23 @@ class AdTaskService:
             return False
 
     @staticmethod
+    def _resolve_chrome_user_data_dir(server_config) -> str:
+        """解析 Chrome 用户数据目录: 系统管理页配置优先, 未配置回退 config 默认值。
+
+        与店小秘上件共用同一 CDP 实例, 目录必须一致否则登录态分裂。
+        """
+        try:
+            key = "chrome_user_data_dir_mac" if sys.platform == "darwin" else "chrome_user_data_dir_win"
+            udd = (get_setting(key, "") or "").strip()
+            if not udd:
+                udd = (get_setting("chrome_user_data_dir", "") or "").strip()
+            if udd:
+                return os.path.expanduser(udd)
+        except Exception:
+            pass
+        return server_config.USER_DATA_DIR
+
+    @staticmethod
     def launch_debug_browser() -> Tuple[bool, str]:
         """拉起 9222 调试 Chrome (与店小秘上件共用同一实例/用户数据目录)。
 
@@ -205,7 +227,7 @@ class AdTaskService:
             from core.sellfox_ad_operator import PAGE_URL as SELLFOX_PAGE_URL
         except Exception:
             SELLFOX_PAGE_URL = None
-        bm = BrowserManager(port=9222, user_data_dir=server_config.USER_DATA_DIR)
+        bm = BrowserManager(port=9222, user_data_dir=AdTaskService._resolve_chrome_user_data_dir(server_config))
         try:
             ok, msg = bm.launch_browser(SELLFOX_PAGE_URL or "about:blank")
             if ok and SELLFOX_PAGE_URL:
@@ -434,7 +456,7 @@ class AdTaskService:
             "bid_strategies": BID_STRATEGIES,
             "today": _today_str(),
             "next_task_name": auto_task_name,
-            "submit_enabled": SUBMIT_ENABLED,
+            "submit_enabled": _submit_enabled(),
         }
 
     # ================= 自动投放 =================
@@ -479,7 +501,7 @@ class AdTaskService:
                 task_id, task_name, status, submitted, batch_count,
                 total_asins, operator, started_at
             ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?)
-            """, (task_id, task.get("task_name", ""), 0 if not SUBMIT_ENABLED else 1,
+            """, (task_id, task.get("task_name", ""), 1 if _submit_enabled() else 0,
                   0, len(asins), operator_name, now))
             run_id = cursor.lastrowid
             cursor.execute("""
@@ -560,7 +582,7 @@ class AdTaskService:
                 batch_size=batch_size,
                 trim_variants=bool(task.get("trim_variants", 1)),
                 trim_keep=int(task.get("trim_keep", 5) or 5),
-                submit=SUBMIT_ENABLED,
+                submit=_submit_enabled(),
                 shop=task.get("shop_name", ""),
                 budget=_num_str(task.get("daily_budget", 300)),
                 bid=_num_str(task.get("default_bid", 15)),
