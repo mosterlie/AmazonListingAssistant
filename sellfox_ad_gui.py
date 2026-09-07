@@ -30,8 +30,9 @@ if BASE_DIR not in sys.path:
 
 CREATE_MODES = ["所有产品合并创建广告", "每个产品单独创建广告"]
 BID_STRATEGIES = ["动态竞价-只降低", "动态竞价-提高和降低", "固定竞价"]
-SELLFOX_URL = ("https://www.sellfox.com/amzup-web-main/amzup-web-cpc/index.html"
-               "#/spBatchCreate?source=leftMenu_cpc_advertisement")
+# 与 core/sellfox_ad_operator.py 的 PAGE_URL 保持一致 (批量创建页新版地址)
+SELLFOX_URL = ("https://www.sellfox.com/amzup-web-main/amzup-web-cpc"
+               "?amzup-web-cpc=%2Fcpc%2Fweb%2FcpcManage%2FspBatchCreate%2FspBatchCreatePage%2Findex.html")
 DEFAULT_USER_DATA_DIR = os.path.expanduser("~/ChromeDebugUser")
 CDP_PORT = 9222
 SERVE_PORT = 8317
