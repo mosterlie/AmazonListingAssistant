@@ -364,6 +364,25 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_sort ON knowledge_sites(sort_order, id);")
 
+    # 10.1 初始化默认知识库常用网址 (若表为空则自动写入初始条目)
+    cursor.execute("SELECT count(*) FROM knowledge_sites;")
+    if cursor.fetchone()[0] == 0:
+        default_sites = [
+            ("亚马逊-以图搜图", "https://www.amazon.co.jp/stylesnap", "", "", "", "", "", 1, "admin"),
+            ("亚马逊-用户端", "https://www.amazon.co.jp/", "", "", "", "", "", 2, "admin"),
+            ("亚马逊-销量榜", "https://www.amazon.co.jp/gp/bestsellers", "", "", "", "", "", 3, "admin"),
+            ("亚马逊-商标品牌端", "https://brandregistry.amazon.com.au", "", "", "", "", "", 4, "admin"),
+            ("亚马逊-通过asin搜", "https://www.amazon.co.jp/dp/", "{var}", "?th=1", "", "", "", 5, "admin"),
+            ("海关编码", "www.hsbianma.com", "", "", "", "", "查看相关抖音介绍：抖音：9.43 :6pm o@D.us kCU:/ 05/02 亚马逊FBM发货实操教程！ # 亚马逊 # 亚马逊运营 # 亚马逊FBM # 跨境电商 # 亚马逊新手开店  https://v.douyin.com/GaSt0cAABZM/ 复制此链接，打开Dou音搜索，直接观看视频！", 6, "admin"),
+        ]
+        cursor.executemany("""
+        INSERT INTO knowledge_sites (
+            title, url_part1, url_part2, url_part3, url_part4, url_part5,
+            description, sort_order, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+        """, default_sites)
+        print("📚 已初始化默认知识库常用网址 (6 条)")
+
     # 初始化默认管理员用户 (admin / admin)
     cursor.execute("SELECT id FROM users WHERE username = 'admin';")
     if not cursor.fetchone():

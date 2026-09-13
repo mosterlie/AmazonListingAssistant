@@ -31,12 +31,15 @@ Thumbs.db
 *.log
 logs/
 
-# Uploaded files and DB backups (user data, not code)
-data/uploads/
-data/*.backup_*
-data/browser_toolkit.db
+# SQLite Databases & Uploads (local user data, not tracked in git)
+*.db
+*.db-wal
+*.db-shm
+data/*.db
 data/*.db-wal
 data/*.db-shm
+data/uploads/
+data/*.backup_*
 
 
 # Environment variables
