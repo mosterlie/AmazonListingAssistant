@@ -121,9 +121,8 @@ async function onStoreAccountChanged() {
       const baseSku = result.data.parent_sku || "";
       window.autoParentSkuBase = baseSku;
       if (parentSkuInp) {
-        parentSkuInp.dataset.baseSku = baseSku;
-        const rawTrans = (document.getElementById("identifierTranslationInput")?.value || "").trim().replace(/\s+/g, "");
-        const newP = rawTrans ? `${baseSku}-${rawTrans}` : baseSku;
+        const rawTrans = (document.getElementById("identifierTranslationInput")?.value || "").trim();
+        const newP = computeParentSkuWithTranslation(baseSku, rawTrans);
         const oldP = window.lastParentSkuValue || parentSkuInp.value.trim();
         parentSkuInp.value = newP;
         const baseSkuInp = document.getElementById("baseSkuInput");
@@ -142,9 +141,59 @@ async function onStoreAccountChanged() {
 }
 
 /**
+ * 根据商品标识英文翻译计算最新的父 SKU:
+ * 规则:
+ * 1. 如果父 SKU 存在 "-", 则取第一个 "-" 前部分的内容与 "-英文翻译" 做拼接；
+ * 2. 如果父 SKU 不存在 "-", 则直接用父 SKU 与 "-英文翻译" 做拼接。
+ *
+ * 示例:
+ * 1. 父sku: admin, 英文翻译: table -> 拼接结果: admin-table
+ * 2. 父sku: admin-hello, 英文翻译: table -> 拼接结果: admin-table
+ * 3. 父sku: admin-hello-123, 英文翻译: table -> 拼接结果: admin-table
+ * 4. 父sku: admin--hello--123, 英文翻译: table -> 拼接结果: admin-table
+ */
+function computeParentSkuWithTranslation(currentParentSku, rawTranslation) {
+  const trans = (rawTranslation || "").trim().replace(/\s+/g, "");
+  const curParent = (currentParentSku || "").trim();
+
+  // 若当前父 SKU 为空，回退全局自动前缀或直接使用翻译
+  if (!curParent) {
+    const baseFallback = (window.autoParentSkuBase || "").trim();
+    if (baseFallback) {
+      return trans ? `${baseFallback}-${trans.replace(/^-+/, "")}` : baseFallback;
+    }
+    return trans ? trans.replace(/^-+/, "") : "";
+  }
+
+  // 判断是否存在 "-"
+  let prefix = curParent;
+  const firstDashIdx = curParent.indexOf("-");
+  if (firstDashIdx !== -1) {
+    // 存在 -，取第一个 - 前部分的内容
+    prefix = curParent.slice(0, firstDashIdx);
+  }
+
+  prefix = prefix.trim();
+
+  // 若英文翻译为空，则仅保留前缀部分 (如原 admin-table 清空翻译后回退为 admin)
+  if (!trans) {
+    return prefix;
+  }
+
+  // 确保清洗翻译前导的短横线，避免生成类似 admin--table 的双横线
+  const cleanTrans = trans.replace(/^-+/, "");
+
+  if (!prefix) {
+    return cleanTrans;
+  }
+
+  return `${prefix}-${cleanTrans}`;
+}
+
+/**
  * 监听 Parent SKU 与 商品标识翻译联动:
  * 1. 允许自由手动修改父 SKU (卡片 2 或卡片 7 SKU前缀)，修改后实时联动修改所有子 SKU 并双向同步
- * 2. 商品标识翻译变更时，自动在父 SKU 后加上 "-" 和英文翻译，并联动修改子 SKU
+ * 2. 商品标识英文翻译变更时，根据首个 "-" 截取前缀或直接拼接 "-英文翻译"，并联动修改子 SKU
  */
 function bindIdentifierToParentSku() {
   const idTransInp = document.getElementById("identifierTranslationInput");
@@ -159,16 +208,11 @@ function bindIdentifierToParentSku() {
     const updateParentSkuFromTranslation = () => {
       if (window.isLoadingProductForEdit) return;
 
-      let base = (parentSkuInp?.dataset.baseSku || window.autoParentSkuBase || "").trim();
-      if (!base) {
-        const cur = (parentSkuInp?.value || baseSkuInp?.value || "").trim();
-        base = cur.includes("-") ? cur.split("-")[0] : (cur || "SKU");
-        if (parentSkuInp) parentSkuInp.dataset.baseSku = base;
-      }
+      const rawTrans = idTransInp.value;
+      const currentParent = (parentSkuInp?.value || baseSkuInp?.value || window.lastParentSkuValue || "").trim();
+      const oldParent = window.lastParentSkuValue || currentParent;
 
-      const translation = (idTransInp.value || "").trim().replace(/\s+/g, "");
-      const oldParent = window.lastParentSkuValue || parentSkuInp?.value.trim() || "";
-      const newSku = translation ? `${base}-${translation}` : base;
+      const newSku = computeParentSkuWithTranslation(currentParent, rawTrans);
 
       if (newSku !== oldParent) {
         if (parentSkuInp) parentSkuInp.value = newSku;
@@ -188,14 +232,6 @@ function bindIdentifierToParentSku() {
       if (window.isLoadingProductForEdit) return;
       const curVal = parentSkuInp.value.trim();
       const oldVal = window.lastParentSkuValue || "";
-
-      // 智能更新基础段缓存
-      const translation = (idTransInp?.value || "").trim().replace(/\s+/g, "");
-      if (translation && curVal.endsWith("-" + translation)) {
-        parentSkuInp.dataset.baseSku = curVal.slice(0, -(translation.length + 1));
-      } else {
-        parentSkuInp.dataset.baseSku = curVal;
-      }
 
       if (curVal !== oldVal) {
         if (baseSkuInp && baseSkuInp.value !== curVal) {
