@@ -20,10 +20,13 @@
         <a href="/tasks" class="nav-item {% if active_page == 'tasks' %}active{% endif %}">📌 任务管理</a>
         {% if current_user and current_user.role == 'admin' %}
         <a href="/ads" class="nav-item {% if active_page == 'ads' %}active{% endif %}">📢 广告管理</a>
+        {% endif %}
+        <a href="/knowledge" class="nav-item {% if active_page == 'knowledge' %}active{% endif %}">📚 知识库</a>
+        {% if current_user and current_user.role == 'admin' %}
         <a href="/settings" class="nav-item {% if active_page == 'settings' %}active{% endif %}">⚙️ 系统管理</a>
         <a href="/users" class="nav-item {% if active_page == 'users' %}active{% endif %}">👥 用户管理</a>
-        {% endif %}
         <a href="/docs" target="_blank" class="nav-item">⚡ API 文档</a>
+        {% endif %}
       </nav>
 
       {% if current_user %}

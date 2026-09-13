@@ -13,6 +13,7 @@ ERP 自动化系统 - 业务数据与本地归档文件一键清理工具
    - 重置自增 ID 计数器 (sqlite_sequence)，后续新增商品从 ID #1 重新开始
    - 【严格保留】用户账号与角色权限 (users)
    - 【严格保留】系统全局配置 (system_settings: 店铺映射、计价公式、归档路径、Session配置等)
+   - 【严格保留】知识库常用工具与分段网址导航 (knowledge_sites: 网站名称、5段拼接网址、说明等，100% 完好保留，绝不清理)
    - 【严格保留】当前有效登录会话 (user_sessions)
    - 执行 VACUUM 释放数据库空间
 
@@ -86,7 +87,7 @@ def backup_database(db_file: str) -> str:
 
 
 def clean_database(db_file: str) -> Tuple[bool, str, List[str]]:
-    """清空业务数据表并保留用户与系统配置"""
+    """清空业务数据表并严格保留用户、知识库与系统配置"""
     if not os.path.exists(db_file):
         return False, "数据库文件不存在", []
 
@@ -95,11 +96,24 @@ def clean_database(db_file: str) -> Tuple[bool, str, List[str]]:
         conn = sqlite3.connect(db_file)
         cur = conn.cursor()
 
+        # 受保护表白名单（绝对禁止清理）
+        PROTECTED_TABLES = {"users", "system_settings", "knowledge_sites"}
+
         # 1. 统计当前业务数据与会话条数
         business_tables = [
             "product_items", "sku_ean_mappings", "publish_logs",
             "tasks", "ad_campaign_tasks", "ad_task_runs", "user_sessions",
         ]
+
+        # 安全防御检测：确保受保护表绝不进入清理列表
+        for tbl in business_tables:
+            if tbl in PROTECTED_TABLES:
+                raise RuntimeError(f"安全违规：受保护表 【{tbl}】 严禁清理！流程终止！")
+
+        # 检查受保护表 knowledge_sites 状态
+        cur.execute("SELECT COUNT(*) FROM knowledge_sites;")
+        knowledge_count_before = cur.fetchone()[0]
+
         counts_before = {}
         for tbl in business_tables:
             try:
@@ -116,7 +130,7 @@ def clean_database(db_file: str) -> Tuple[bool, str, List[str]]:
             except Exception:
                 details.append(f"已跳过数据表 【{tbl}】 (表不存在)")
 
-        # 3. 重置自增 ID 计数器
+        # 3. 重置自增 ID 计数器 (不重置 knowledge_sites)
         seq_tables = [
             "product_items", "sku_ean_mappings", "publish_logs",
             "tasks", "ad_campaign_tasks", "ad_task_runs",
@@ -128,9 +142,16 @@ def clean_database(db_file: str) -> Tuple[bool, str, List[str]]:
         except Exception:
             pass
 
+        # 4. 再次核验受保护表 knowledge_sites 完好无损
+        cur.execute("SELECT COUNT(*) FROM knowledge_sites;")
+        knowledge_count_after = cur.fetchone()[0]
+        if knowledge_count_after != knowledge_count_before:
+            raise RuntimeError(f"严重异常：知识库数据条目发生变动！(前:{knowledge_count_before}, 后:{knowledge_count_after})")
+        details.append(f"🛡️ 【knowledge_sites】 数据表受保护：知识库共 {knowledge_count_after} 条网站导航数据完好保留，未做任何清理")
+
         conn.commit()
 
-        # 4. 执行 VACUUM 整理磁盘空间
+        # 5. 执行 VACUUM 整理磁盘空间
         cur.execute("VACUUM;")
         conn.close()
         details.append("已执行 SQLite VACUUM 释放磁盘碎片空间")
@@ -218,6 +239,22 @@ def inspect_system_status(db_file: str) -> None:
                 val_preview = val_preview[:62] + "..."
             print(f"   • {s['key']:<22} => {val_preview}")
 
+        # 3. 知识库导航与常用工具网站 (严格保留)
+        cur.execute("SELECT id, title, url_part1, url_part2, url_part3, url_part4, url_part5, description FROM knowledge_sites ORDER BY sort_order ASC, id ASC;")
+        sites = cur.fetchall()
+        print(f"\n📚 知识库与常用工具网站 (共 {len(sites)} 个保留条目，100% 完好受保护):")
+        if sites:
+            for s in sites:
+                full_url = "".join([s[f"url_part{i}"] or "" for i in range(1, 6)])
+                if len(full_url) > 42:
+                    full_url = full_url[:39] + "..."
+                desc_preview = s["description"] or "—"
+                if len(desc_preview) > 24:
+                    desc_preview = desc_preview[:21] + "..."
+                print(f"   • [ID #{s['id']}] {s['title']:<16} => {full_url:<45} (说明: {desc_preview})")
+        else:
+            print("   • (暂无知识库记录)")
+
         conn.close()
     except Exception as e:
         print(f"⚠️ 查询保留状态异常: {e}")
@@ -250,6 +287,7 @@ def main():
     print("🛡️ 【严格保留并受保护的数据】：")
     print("   ✓ users 表 (所有操作员与管理员账号、密码哈希、权限保持不变)")
     print("   ✓ system_settings 表 (店铺品牌映射、默认店铺、运费计价参数、路径配置、Session配置)")
+    print("   ✓ knowledge_sites 表 (知识库导航、5段网址与说明配置 100% 严格保留，绝不清理)")
     print("   ✓ 清理前自动在 data/ 目录下生成带有时间戳的数据库备份文件")
     print("=" * 65)
 

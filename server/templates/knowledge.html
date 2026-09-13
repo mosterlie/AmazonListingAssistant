@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}知识库与常用工具导航{% endblock %}
+
+{% block extra_head %}
+<style>
+  .knowledge-url-inputs {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    align-items: center;
+  }
+  @media (max-width: 900px) {
+    .knowledge-url-inputs {
+      grid-template-columns: 1fr;
+    }
+  }
+  .url-segment-box {
+    position: relative;
+  }
+  .url-segment-box input {
+    font-size: 0.82rem;
+    padding: 6px 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  .url-segment-badge {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.68rem;
+    color: #94a3b8;
+    pointer-events: none;
+  }
+  .url-preview-bar {
+    margin-top: 6px;
+    padding: 6px 10px;
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: #334155;
+    word-break: break-all;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  /* 红色醒目的 {var} 样式 */
+  .var-pill-red {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1.5px solid #ef4444;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 800;
+    font-size: 0.84rem;
+    display: inline-block;
+    box-shadow: 0 1px 2px rgba(220, 38, 38, 0.15);
+    font-family: ui-monospace, SFMono-Regular, monospace;
+  }
+  .site-action-cell {
+    white-space: nowrap;
+    text-align: center;
+  }
+  /* 网站名称列 */
+  .site-title-cell {
+    display: flex;
+    align-items: center;
+  }
+  .site-title-name {
+    font-weight: 700;
+    color: #1e293b;
+    font-size: 0.90rem;
+    word-break: break-word;
+  }
+  /* 网址列：左侧网址展示，中间var参数输入框，右侧小图标按钮 */
+  .url-cell-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+  }
+  .url-text-code {
+    font-size: 0.82rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: #2563eb;
+    text-decoration: none;
+    word-break: break-all;
+    line-height: 1.45;
+    flex: 1;
+    cursor: pointer;
+  }
+  .url-text-code:hover {
+    color: #1d4ed8;
+    text-decoration: underline;
+  }
+  .url-control-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .site-param-input {
+    width: 120px;
+    padding: 4px 8px;
+    font-size: 0.8rem;
+    border: 1.5px solid #f87171;
+    background: #fffafa;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+  }
+  .site-param-input:focus {
+    border-color: #dc2626;
+    background: #ffffff;
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.18);
+    outline: none;
+  }
+  .btn-url-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    cursor: pointer;
+    text-decoration: none;
+    font-size: 0.88rem;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  }
+  .btn-url-icon:hover {
+    background: #eef2ff;
+    border-color: #6366f1;
+    transform: scale(1.1);
+  }
+  /* 说明列单行不换行，超出以...省略，浮框查看全文 */
+  .desc-cell-content {
+    color: #475569;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 240px;
+    display: block;
+    cursor: pointer;
+    line-height: 1.5;
+  }
+  .desc-cell-content:hover {
+    color: #1e293b;
+  }
+  .edit-row-card {
+    background: #f8fafc;
+    border: 2px solid #6366f1;
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 14px;
+    animation: fadeIn 0.2s ease-out;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="form-card">
+  <div class="card-header" style="flex-wrap:wrap; gap:12px;">
+    <div class="card-title" style="display:flex; align-items:center; gap:8px;">
+      <div class="card-title-icon" style="background:#6366f1;">📚</div>
+      <span>知识库与常用工具导航</span>
+      <span class="tag-badge" id="siteCountBadge" style="background:#eef2ff; color:#4f46e5; border-color:#c7d2fe;">共 0 个网址</span>
+    </div>
+
+    <div style="display:flex; gap:10px; align-items:center; margin-left:auto;">
+      {% if current_user and current_user.role == 'admin' %}
+      <button class="btn btn-primary btn-sm" id="openAddSiteBtn" type="button" style="background:#6366f1; border-color:#6366f1; font-weight:600;">
+        ➕ 新增网站
+      </button>
+      <span class="tag-badge" style="background:#fdf4ff; color:#9333ea; border-color:#f0abfc;">👑 管理员可编辑</span>
+      {% else %}
+      <span class="tag-badge" style="background:#f8fafc; color:#64748b; border-color:#e2e8f0;">👤 查阅与参数直达模式</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card-body" style="padding:16px;">
+    <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:14px; line-height:1.6;">
+      💡 <b>说明</b>：收录常用的电商前后台、产品查询及工具网站。在网址右侧输入框填入参数时，网址会<b>实时随输入替换</b>，点击右侧小图标即可一键直达！
+    </p>
+
+    <!-- 管理员新增/编辑工作区容器 (点击新增或编辑时展开) -->
+    <div id="editorContainer" style="display:none;"></div>
+
+    <!-- 知识库网址表格展示区 -->
+    <div class="table-wrapper" style="border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden;">
+      <table class="matrix-table" style="width:100%; font-size:0.88rem; margin-bottom:0;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="width:170px; min-width:140px;">网站名称</th>
+            <th style="width:520px; min-width:440px;">网址</th>
+            <th style="width:240px; min-width:180px;">说明</th>
+            <th style="width:190px; min-width:140px; text-align:center;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="knowledgeTableBody">
+          <tr>
+            <td colspan="4" style="text-align:center; padding:36px; color:var(--text-muted);">
+              ⏳ 正在加载知识库数据...
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.IS_ADMIN = {{ 'true' if (current_user and current_user.role == 'admin') else 'false' }};
+</script>
+<script src="/static/js/knowledge.js?v=20260913_knowledge_v10"></script>
+{% endblock %}
