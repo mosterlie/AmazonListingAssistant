@@ -351,7 +351,8 @@
     </div>
     <!-- 批量操作控制台 -->
     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-      <input type="text" class="form-input" id="baseSkuInput" value="" style="width:110px;" placeholder="SKU前缀">
+      <input type="text" class="form-input" id="baseSkuInput" value="" style="width:120px;" placeholder="SKU前缀/父SKU" title="变体 SKU 前缀，与上方父 SKU 双向联动">
+      <button class="btn btn-outline btn-sm" id="applyBatchSkuBtn" type="button" title="点击将此前缀同步覆盖至所有子变体 SKU">批量SKU前缀</button>
       <input type="text" inputmode="decimal" class="form-input" id="batchPurchasePriceInput" value="" style="width:80px;" placeholder="采购价¥">
       <button class="btn btn-outline btn-sm" id="applyBatchPurchasePriceBtn" type="button">批量采购价</button>
       <input type="text" inputmode="decimal" class="form-input" id="batchProfitCoeffInput" value="1.0" style="width:70px;" placeholder="系数">

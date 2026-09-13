@@ -126,6 +126,8 @@ async function onStoreAccountChanged() {
         const newP = rawTrans ? `${baseSku}-${rawTrans}` : baseSku;
         const oldP = window.lastParentSkuValue || parentSkuInp.value.trim();
         parentSkuInp.value = newP;
+        const baseSkuInp = document.getElementById("baseSkuInput");
+        if (baseSkuInp) baseSkuInp.value = newP;
         window.lastParentSkuValue = newP;
         if (oldP && oldP !== newP) {
           syncChildSkusWithParent(oldP, newP);
@@ -141,37 +143,38 @@ async function onStoreAccountChanged() {
 
 /**
  * 监听 Parent SKU 与 商品标识翻译联动:
- * 1. 允许自由手动修改父 SKU，修改后实时联动修改所有子 SKU
+ * 1. 允许自由手动修改父 SKU (卡片 2 或卡片 7 SKU前缀)，修改后实时联动修改所有子 SKU 并双向同步
  * 2. 商品标识翻译变更时，自动在父 SKU 后加上 "-" 和英文翻译，并联动修改子 SKU
  */
 function bindIdentifierToParentSku() {
   const idTransInp = document.getElementById("identifierTranslationInput");
   const parentSkuInp = document.getElementById("parentSkuInput");
-  if (!parentSkuInp) return;
+  const baseSkuInp = document.getElementById("baseSkuInput");
 
   // 记录初始父 SKU 值
-  window.lastParentSkuValue = parentSkuInp.value.trim();
+  window.lastParentSkuValue = (parentSkuInp?.value || baseSkuInp?.value || "").trim();
 
-  // 1. 商品标识英文翻译变更 -> 联动更新父 SKU -> 联动更新所有子 SKU
+  // 1. 商品标识英文翻译变更 -> 联动更新父 SKU -> 联动更新所有子 SKU 与 baseSkuInput
   if (idTransInp) {
     const updateParentSkuFromTranslation = () => {
       if (window.isLoadingProductForEdit) return;
 
-      let base = (parentSkuInp.dataset.baseSku || window.autoParentSkuBase || "").trim();
+      let base = (parentSkuInp?.dataset.baseSku || window.autoParentSkuBase || "").trim();
       if (!base) {
-        const cur = parentSkuInp.value.trim();
+        const cur = (parentSkuInp?.value || baseSkuInp?.value || "").trim();
         base = cur.includes("-") ? cur.split("-")[0] : (cur || "SKU");
-        parentSkuInp.dataset.baseSku = base;
+        if (parentSkuInp) parentSkuInp.dataset.baseSku = base;
       }
 
       const translation = (idTransInp.value || "").trim().replace(/\s+/g, "");
-      const oldParent = window.lastParentSkuValue || parentSkuInp.value.trim();
+      const oldParent = window.lastParentSkuValue || parentSkuInp?.value.trim() || "";
       const newSku = translation ? `${base}-${translation}` : base;
 
       if (newSku !== oldParent) {
-        parentSkuInp.value = newSku;
-        window.lastParentSkuValue = newSku;
+        if (parentSkuInp) parentSkuInp.value = newSku;
+        if (baseSkuInp) baseSkuInp.value = newSku;
         syncChildSkusWithParent(oldParent, newSku);
+        window.lastParentSkuValue = newSku;
       }
     };
 
@@ -179,64 +182,97 @@ function bindIdentifierToParentSku() {
     idTransInp.addEventListener("change", updateParentSkuFromTranslation);
   }
 
-  // 2. 父 SKU 允许手动修改，修改后实时联动修改所有子 SKU
-  const handleParentSkuManualChange = () => {
-    if (window.isLoadingProductForEdit) return;
-    const curVal = parentSkuInp.value.trim();
-    const oldVal = window.lastParentSkuValue || "";
+  // 2. 卡片 2 父 SKU (Parent SKU) 允许手动修改，修改后实时联动修改所有子 SKU 与 baseSkuInput
+  if (parentSkuInp) {
+    const handleParentSkuManualChange = () => {
+      if (window.isLoadingProductForEdit) return;
+      const curVal = parentSkuInp.value.trim();
+      const oldVal = window.lastParentSkuValue || "";
 
-    // 智能更新基础段缓存
-    const translation = (idTransInp?.value || "").trim().replace(/\s+/g, "");
-    if (translation && curVal.endsWith("-" + translation)) {
-      parentSkuInp.dataset.baseSku = curVal.slice(0, -(translation.length + 1));
-    } else {
-      parentSkuInp.dataset.baseSku = curVal;
-    }
+      // 智能更新基础段缓存
+      const translation = (idTransInp?.value || "").trim().replace(/\s+/g, "");
+      if (translation && curVal.endsWith("-" + translation)) {
+        parentSkuInp.dataset.baseSku = curVal.slice(0, -(translation.length + 1));
+      } else {
+        parentSkuInp.dataset.baseSku = curVal;
+      }
 
-    if (curVal !== oldVal) {
-      syncChildSkusWithParent(oldVal, curVal);
-      window.lastParentSkuValue = curVal;
-    }
-  };
+      if (curVal !== oldVal) {
+        if (baseSkuInp && baseSkuInp.value !== curVal) {
+          baseSkuInp.value = curVal;
+        }
+        syncChildSkusWithParent(oldVal, curVal);
+        window.lastParentSkuValue = curVal;
+      }
+    };
 
-  parentSkuInp.addEventListener("input", handleParentSkuManualChange);
-  parentSkuInp.addEventListener("change", handleParentSkuManualChange);
+    parentSkuInp.addEventListener("input", handleParentSkuManualChange);
+    parentSkuInp.addEventListener("change", handleParentSkuManualChange);
+  }
+
+  // 3. 卡片 7 SKU 前缀 (baseSkuInput) 双向实时联动更新父 SKU 与所有子 SKU
+  if (baseSkuInp) {
+    const handleBaseSkuManualChange = () => {
+      if (window.isLoadingProductForEdit) return;
+      const curVal = baseSkuInp.value.trim();
+      const oldVal = window.lastParentSkuValue || parentSkuInp?.value.trim() || "";
+
+      if (curVal !== oldVal) {
+        if (parentSkuInp && parentSkuInp.value !== curVal) {
+          parentSkuInp.value = curVal;
+        }
+        syncChildSkusWithParent(oldVal, curVal);
+        window.lastParentSkuValue = curVal;
+      }
+    };
+
+    baseSkuInp.addEventListener("input", handleBaseSkuManualChange);
+    baseSkuInp.addEventListener("change", handleBaseSkuManualChange);
+  }
 }
 
 /**
  * 父 SKU 变更时, 联动同步刷新所有子 SKU
- * 规则: 子 SKU = 父 SKU + "-" + 序号 (如 admin25-DogToilet-01)
+ * 规则: 子 SKU = 父 SKU + "-" + 序号 (如 admin25-DogToilet-01、admin25-DogToilet-02...)
+ * 特性:
+ * 1. 自动去除多余横杠，防止出现双横杠 (如 admin--01)
+ * 2. 完美支持序号提取或按变体行序号 (01、02...) 重建
+ * 3. 同步平滑就地刷新所有变体表格中的 .sku-inp 输入框 (不丢失光标与输入焦点)
+ * 4. 同步更新 parentSkuInput 与 baseSkuInput 两处输入框及缓存
  */
 function syncChildSkusWithParent(oldParent, newParent) {
   if (!state.variations || state.variations.length === 0) return;
-  const newP = (newParent || "").trim();
-  const oldP = (oldParent || "").trim();
+  const rawNewP = (newParent || "").trim();
+  const rawOldP = (oldParent || "").trim();
+  // 去除尾部多余的横线，便于拼接规范的 -01 序号
+  const cleanNewP = rawNewP.replace(/-+$/, "");
+  const cleanOldP = rawOldP.replace(/-+$/, "");
   const seqWidth = state.variations.length >= 100 ? 3 : 2;
 
   let changed = false;
   state.variations.forEach((v, idx) => {
     const curSku = (v.sku || "").trim();
-    const defaultSuffix = `-${String(idx + 1).padStart(seqWidth, "0")}`;
-    let newChildSku = "";
+    const defaultSeq = String(idx + 1).padStart(seqWidth, "0");
+    let suffix = "";
 
-    if (oldP && curSku.startsWith(oldP)) {
-      const suffix = curSku.slice(oldP.length);
-      if (!suffix) {
-        newChildSku = `${newP}${defaultSuffix}`;
-      } else if (suffix.startsWith("-")) {
-        newChildSku = `${newP}${suffix}`;
-      } else {
-        newChildSku = `${newP}-${suffix}`;
-      }
-    } else {
-      const match = curSku.match(/(-?\d{2,})$/);
+    // 优先从旧父 SKU 中剥离原有后缀 (如 -01 或 -Red-01)
+    if (cleanOldP && curSku.startsWith(cleanOldP)) {
+      suffix = curSku.slice(cleanOldP.length).replace(/^-+/, "");
+    }
+    // 若未能剥离，则尝试正则提取末尾序号 (-01、-001 等)
+    if (!suffix) {
+      const match = curSku.match(/-(\d{2,})$/);
       if (match) {
-        const seqPart = match[1].startsWith("-") ? match[1] : `-${match[1]}`;
-        newChildSku = `${newP}${seqPart}`;
-      } else {
-        newChildSku = `${newP}${defaultSuffix}`;
+        suffix = match[1];
       }
     }
+    // 默认回退为当前变体行固有序列号 (01, 02...)
+    if (!suffix) {
+      suffix = defaultSeq;
+    }
+
+    // 拼装全新子 SKU
+    const newChildSku = cleanNewP ? `${cleanNewP}-${suffix}` : `-${suffix}`;
 
     if (v.sku !== newChildSku) {
       v.sku = newChildSku;
@@ -246,16 +282,29 @@ function syncChildSkusWithParent(oldParent, newParent) {
   });
 
   if (changed) {
-    // 平滑就地更新表格中的 .sku-inp 元素，保持用户焦点不丢失
+    // 平滑就地更新表格中的 .sku-inp 元素与相关属性，保持用户焦点不丢失
     const skuInputs = document.querySelectorAll(".sku-inp");
     if (skuInputs && skuInputs.length === state.variations.length) {
       skuInputs.forEach((inp, idx) => {
         inp.value = state.variations[idx].sku;
+        inp.setAttribute("value", state.variations[idx].sku);
+        inp.title = state.variations[idx].sku;
       });
     } else {
       renderMatrixTable();
     }
   }
+
+  // 保证两处输入框与全局缓存始终与最新父 SKU 保持完全一致
+  const parentSkuInp = document.getElementById("parentSkuInput");
+  const baseSkuInp = document.getElementById("baseSkuInput");
+  if (parentSkuInp && parentSkuInp.value !== rawNewP) {
+    parentSkuInp.value = rawNewP;
+  }
+  if (baseSkuInp && baseSkuInp.value !== rawNewP) {
+    baseSkuInp.value = rawNewP;
+  }
+  window.lastParentSkuValue = rawNewP;
 }
 
 /**
@@ -1155,6 +1204,13 @@ async function autoGenerateMatrix() {
         return item;
       });
 
+      // 保持两个输入框与全局缓存对齐
+      const parentSkuInp = document.getElementById("parentSkuInput");
+      const baseSkuInp = document.getElementById("baseSkuInput");
+      if (baseSkuInp && !baseSkuInp.value && baseSku) baseSkuInp.value = baseSku;
+      if (parentSkuInp && !parentSkuInp.value && baseSku) parentSkuInp.value = baseSku;
+      window.lastParentSkuValue = (parentSkuInp?.value || baseSkuInp?.value || baseSku).trim();
+
       renderMatrixTable();
       renderAttrImageCards();
     }
@@ -1493,6 +1549,25 @@ function initBatchOperations() {
       });
       renderMatrixTable();
       showToast("🎲 已按照 EAN-13 规范为所有变体生成全新合规条码！");
+    });
+  }
+
+  const applyBatchSkuBtn = document.getElementById("applyBatchSkuBtn");
+  if (applyBatchSkuBtn) {
+    applyBatchSkuBtn.addEventListener("click", () => {
+      const parentSkuInp = document.getElementById("parentSkuInput");
+      const baseSkuInp = document.getElementById("baseSkuInput");
+      const val = (baseSkuInp?.value || parentSkuInp?.value || "").trim();
+      if (!val) {
+        showToast("请输入有效的前缀/父 SKU 编码！", "warning");
+        return;
+      }
+      const oldVal = window.lastParentSkuValue || "";
+      if (parentSkuInp) parentSkuInp.value = val;
+      if (baseSkuInp) baseSkuInp.value = val;
+      syncChildSkusWithParent(oldVal, val);
+      window.lastParentSkuValue = val;
+      showToast(`已批量同步更新父 SKU 与所有子变体 SKU 编码为: ${val}`);
     });
   }
 }
