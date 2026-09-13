@@ -1,6 +1,6 @@
 import json
 import itertools
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from server.database import get_db_connection
 from server.models.product_schemas import ProductCreateSchema, VariationItemSchema, GenerateMatrixRequest
 from server.services.ean_service import EANService
@@ -183,6 +183,10 @@ class ProductService:
     @staticmethod
     def create_product(data: ProductCreateSchema, created_by: str = "") -> Dict[str, Any]:
         """创建或保存商品数据到数据库 (支持 product_items 单表层级结构与 sku_ean_mappings，存储导出后的相对路径)"""
+        # 0. 必填字段校验: 商品标识的英文翻译不能为空
+        if not (data.identifier_translation or "").strip():
+            raise ValueError("商品标识的英文翻译不能为空！")
+
         # 1. 先执行本地文件导出归档，生成标准化的导出相对路径
         export_res = ProductService.export_and_prepare_product_files(data)
         saved_main_image = export_res["main_image"] or data.main_image or ""
@@ -317,23 +321,7 @@ class ProductService:
 
     @staticmethod
     def update_product(product_id: int, data: ProductCreateSchema) -> Optional[Dict[str, Any]]:
-        """更新已有商品及变体数据，保持主键 ID 稳定，更新子变体与关联映射数据"""
-        # 1. 先执行本地文件导出归档，生成标准化的导出相对路径
-        export_res = ProductService.export_and_prepare_product_files(data)
-        saved_main_image = export_res["main_image"] or data.main_image or ""
-        saved_extra_images = export_res["extra_images"] if export_res["extra_images"] else (data.extra_images or [])
-        var_dim = (data.variant_image_dimension or "").strip().lower()
-        if not var_dim:
-            if data.attributes.get("size_images") and not data.attributes.get("color_images"):
-                var_dim = "size"
-            else:
-                var_dim = "color"
-
-        saved_dim_images = export_res["variant_dimension_images"] if export_res["variant_dimension_images"] else (
-            data.variant_dimension_images or (data.attributes.get("size_images") if var_dim == "size" else (data.attributes.get("color_images") or {}))
-        )
-        saved_var_images = export_res["variation_images"]
-
+        """更新已有商品及变体数据，保持主键 ID 稳定，更新子变体与关联映射数据 (不支持修改标题)"""
         conn = get_db_connection()
         cursor = conn.cursor()
 
@@ -349,6 +337,27 @@ class ProductService:
             old_parent = dict(p_row) if p_row else {}
             old_parent_sku = (old_parent.get("parent_sku") or old_parent.get("sku") or "").strip()
 
+            # 锁定商品标题: 编辑商品模式下严格保持原标题不变 (不支持修改标题)
+            original_title = (old_parent.get("title") or "").strip()
+            if original_title:
+                data.title = original_title
+
+            # 1. 执行本地文件导出归档，生成标准化的导出相对路径 (以原标题为目录)
+            export_res = ProductService.export_and_prepare_product_files(data)
+            saved_main_image = export_res["main_image"] or data.main_image or ""
+            saved_extra_images = export_res["extra_images"] if export_res["extra_images"] else (data.extra_images or [])
+            var_dim = (data.variant_image_dimension or "").strip().lower()
+            if not var_dim:
+                if data.attributes.get("size_images") and not data.attributes.get("color_images"):
+                    var_dim = "size"
+                else:
+                    var_dim = "color"
+
+            saved_dim_images = export_res["variant_dimension_images"] if export_res["variant_dimension_images"] else (
+                data.variant_dimension_images or (data.attributes.get("size_images") if var_dim == "size" else (data.attributes.get("color_images") or {}))
+            )
+            saved_var_images = export_res["variation_images"]
+
             parent_sku = (data.parent_sku or "").strip() or old_parent_sku or "PARENT-SKU"
             color_opts = data.color_options if data.color_options else data.attributes.get("color", [])
             size_opts = data.size_options if data.size_options else data.attributes.get("size", [])
@@ -358,6 +367,12 @@ class ProductService:
                 cursor.execute("DELETE FROM product_items WHERE parent_sku = ? AND is_parent = 0", (old_parent_sku,))
             if parent_sku != old_parent_sku:
                 cursor.execute("DELETE FROM product_items WHERE parent_sku = ? AND is_parent = 0", (parent_sku,))
+                if old_parent_sku:
+                    cursor.execute(
+                        "UPDATE tasks SET product_parent_sku = ? WHERE product_parent_sku = ? OR product_id = ?",
+                        (parent_sku, old_parent_sku, product_id)
+                    )
+                    cursor.execute("DELETE FROM sku_ean_mappings WHERE parent_sku = ?", (old_parent_sku,))
 
             # 1.2 更新父商品记录 (is_parent = 1)
             if p_row:
@@ -792,5 +807,100 @@ class ProductService:
             if log_content:
                 cursor.execute("INSERT INTO publish_logs (product_id, status, log_content) VALUES (?, ?, ?)", (product_id, status, log_content))
             conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def delete_product(product_id: int) -> Tuple[bool, str]:
+        """
+        彻底删除指定商品及其全部关联数据与本地物理图片 (仅限管理员使用):
+        1. 本地磁盘：彻底删除 <base_dir>/<clean_title>/ 目录 (包含 main/ 与 sku/ 下的所有图片)
+        2. 数据库：删除 product_items (父商品与所有子变体)、sku_ean_mappings、publish_logs、tasks
+        """
+        import os
+        import re
+        import shutil
+        import platform
+        from server.database import get_setting
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        try:
+            # 1. 查找商品信息
+            cursor.execute("SELECT * FROM product_items WHERE id = ?", (product_id,))
+            row = cursor.fetchone()
+            if not row:
+                return False, f"ID 为 {product_id} 的商品不存在"
+
+            item_dict = dict(row)
+            parent_sku = (item_dict.get("parent_sku") or item_dict.get("sku") or "").strip()
+            title = (item_dict.get("title") or "").strip()
+
+            # 收集该商品关联的所有变体 ID 与 SKU
+            if parent_sku:
+                cursor.execute("SELECT id, sku FROM product_items WHERE parent_sku = ? OR id = ?", (parent_sku, product_id))
+            else:
+                cursor.execute("SELECT id, sku FROM product_items WHERE id = ?", (product_id,))
+            related_rows = cursor.fetchall()
+            all_ids = [r["id"] for r in related_rows]
+            all_skus = [r["sku"] for r in related_rows if r["sku"]]
+
+            # 2. 删除本地存储的图片文件夹
+            is_win = (platform.system().lower() == "windows")
+            default_path = "D:\\products" if is_win else "/Users/gx/Desktop/products"
+            setting_key = "storage_path_win" if is_win else "storage_path_mac"
+            base_dir = get_setting(setting_key, default_path)
+
+            if title:
+                clean_title = re.sub(r'[\\/*?:"<>|]', '_', title).strip() or "untitled_product"
+                product_dir = os.path.join(base_dir, clean_title)
+                if os.path.exists(product_dir) and os.path.isdir(product_dir):
+                    try:
+                        shutil.rmtree(product_dir, ignore_errors=True)
+                        print(f"🗑️ 已成功删除本地商品图片目录: {product_dir}")
+                    except Exception as e:
+                        print(f"⚠️ 删除本地商品图片目录失败: {e}")
+
+            if parent_sku:
+                sku_product_dir = os.path.join(base_dir, parent_sku)
+                if os.path.exists(sku_product_dir) and os.path.isdir(sku_product_dir):
+                    try:
+                        shutil.rmtree(sku_product_dir, ignore_errors=True)
+                        print(f"🗑️ 已成功删除本地商品SKU目录: {sku_product_dir}")
+                    except Exception as e:
+                        print(f"⚠️ 删除本地商品SKU目录失败: {e}")
+
+            # 3. 级联清理数据库记录
+            # 3.1 清理 product_items
+            if parent_sku:
+                cursor.execute("DELETE FROM product_items WHERE parent_sku = ? OR id = ?", (parent_sku, product_id))
+            else:
+                cursor.execute("DELETE FROM product_items WHERE id = ?", (product_id,))
+
+            # 3.2 清理 sku_ean_mappings
+            if parent_sku:
+                cursor.execute("DELETE FROM sku_ean_mappings WHERE parent_sku = ?", (parent_sku,))
+            if all_skus:
+                placeholders = ",".join("?" * len(all_skus))
+                cursor.execute(f"DELETE FROM sku_ean_mappings WHERE sku IN ({placeholders})", all_skus)
+
+            # 3.3 清理 publish_logs
+            if all_ids:
+                placeholders = ",".join("?" * len(all_ids))
+                cursor.execute(f"DELETE FROM publish_logs WHERE product_id IN ({placeholders})", all_ids)
+
+            # 3.4 清理关联 tasks
+            if parent_sku:
+                cursor.execute("DELETE FROM tasks WHERE product_id = ? OR product_parent_sku = ?", (product_id, parent_sku))
+            else:
+                cursor.execute("DELETE FROM tasks WHERE product_id = ?", (product_id,))
+
+            conn.commit()
+            return True, f"商品 #{product_id} (Parent SKU: {parent_sku or '-'}) 及其关联数据与本地图片已成功删除！"
+
+        except Exception as e:
+            conn.rollback()
+            return False, f"删除商品失败: {str(e)}"
         finally:
             conn.close()

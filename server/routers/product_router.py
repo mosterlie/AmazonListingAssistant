@@ -1,11 +1,11 @@
 """
 商品维护 API 路由
 """
-from typing import Optional
-from fastapi import APIRouter, HTTPException, Query, Request
+from typing import Optional, Dict, Any
+from fastapi import APIRouter, HTTPException, Query, Request, Depends
 from server.models.product_schemas import ProductCreateSchema, GenerateMatrixRequest
 from server.services.product_service import ProductService
-from server.dependencies import get_current_user_from_request
+from server.dependencies import get_current_user_from_request, require_admin_user
 
 router = APIRouter(prefix="/api/products", tags=["商品维护"])
 
@@ -392,6 +392,15 @@ async def update_product(product_id: int, data: ProductCreateSchema, request: Re
     if not product:
         raise HTTPException(status_code=404, detail=f"ID 为 {product_id} 的商品不存在")
     return {"code": 0, "msg": "商品更新成功", "data": product}
+
+
+@router.delete("/{product_id}", summary="彻底删除商品及本地图片 (仅限管理员)")
+async def delete_product(product_id: int, admin: Dict[str, Any] = Depends(require_admin_user)):
+    """彻底删除指定商品，级联删除所有变体、条码映射、日志、任务以及本地图片文件夹 (仅限管理员)"""
+    ok, msg = ProductService.delete_product(product_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=msg)
+    return {"code": 0, "msg": msg}
 
 
 @router.get("/by-parent-sku/{parent_sku}", summary="按 Parent SKU 获取商品完整数据（用于录入页面导入回填）")

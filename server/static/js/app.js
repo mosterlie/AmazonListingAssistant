@@ -118,9 +118,19 @@ async function onStoreAccountChanged() {
     const res = await fetch(`/api/products/seq-numbers?brand=${encodeURIComponent(brandName)}`);
     const result = await res.json();
     if (result.code === 0 && result.data) {
-      if (parentSkuInp) parentSkuInp.value = result.data.parent_sku || "";
-      // 记录自动 SKU 基础段 (登录账号+序号), 供商品标识翻译联动拼接后缀
-      window.autoParentSkuBase = result.data.parent_sku || "";
+      const baseSku = result.data.parent_sku || "";
+      window.autoParentSkuBase = baseSku;
+      if (parentSkuInp) {
+        parentSkuInp.dataset.baseSku = baseSku;
+        const rawTrans = (document.getElementById("identifierTranslationInput")?.value || "").trim().replace(/\s+/g, "");
+        const newP = rawTrans ? `${baseSku}-${rawTrans}` : baseSku;
+        const oldP = window.lastParentSkuValue || parentSkuInp.value.trim();
+        parentSkuInp.value = newP;
+        window.lastParentSkuValue = newP;
+        if (oldP && oldP !== newP) {
+          syncChildSkusWithParent(oldP, newP);
+        }
+      }
       if (modelNameInp) modelNameInp.value = result.data.model_name || (brandName ? `${brandName}1` : "");
       if (modelNumInp && !modelNumInp.value) modelNumInp.value = result.data.model_number || brandName;
     }
@@ -130,60 +140,122 @@ async function onStoreAccountChanged() {
 }
 
 /**
- * Parent SKU 与 商品标识翻译联动: 商品标识翻译变更时, SKU 后缀实时更新为 "-英文标识"
- * 仅在新建模式且 SKU 基础段未被手工改动时生效
+ * 监听 Parent SKU 与 商品标识翻译联动:
+ * 1. 允许自由手动修改父 SKU，修改后实时联动修改所有子 SKU
+ * 2. 商品标识翻译变更时，自动在父 SKU 后加上 "-" 和英文翻译，并联动修改子 SKU
  */
 function bindIdentifierToParentSku() {
   const idTransInp = document.getElementById("identifierTranslationInput");
   const parentSkuInp = document.getElementById("parentSkuInput");
-  if (!idTransInp || !parentSkuInp) return;
+  if (!parentSkuInp) return;
 
-  idTransInp.addEventListener("input", () => {
+  // 记录初始父 SKU 值
+  window.lastParentSkuValue = parentSkuInp.value.trim();
+
+  // 1. 商品标识英文翻译变更 -> 联动更新父 SKU -> 联动更新所有子 SKU
+  if (idTransInp) {
+    const updateParentSkuFromTranslation = () => {
+      if (window.isLoadingProductForEdit) return;
+
+      let base = (parentSkuInp.dataset.baseSku || window.autoParentSkuBase || "").trim();
+      if (!base) {
+        const cur = parentSkuInp.value.trim();
+        base = cur.includes("-") ? cur.split("-")[0] : (cur || "SKU");
+        parentSkuInp.dataset.baseSku = base;
+      }
+
+      const translation = (idTransInp.value || "").trim().replace(/\s+/g, "");
+      const oldParent = window.lastParentSkuValue || parentSkuInp.value.trim();
+      const newSku = translation ? `${base}-${translation}` : base;
+
+      if (newSku !== oldParent) {
+        parentSkuInp.value = newSku;
+        window.lastParentSkuValue = newSku;
+        syncChildSkusWithParent(oldParent, newSku);
+      }
+    };
+
+    idTransInp.addEventListener("input", updateParentSkuFromTranslation);
+    idTransInp.addEventListener("change", updateParentSkuFromTranslation);
+  }
+
+  // 2. 父 SKU 允许手动修改，修改后实时联动修改所有子 SKU
+  const handleParentSkuManualChange = () => {
     if (window.isLoadingProductForEdit) return;
-    const base = (window.autoParentSkuBase || "").trim();
-    if (!base) return;
-    const current = parentSkuInp.value.trim();
-    // 仅当 SKU 仍为自动格式 (基础段 或 基础段-后缀) 时联动, 手工改动过则不覆盖
-    if (current !== base && !current.startsWith(base + "-")) return;
-    // 后缀仅保留纯英文字母 (如 Dog-Shaped -> DogShaped)
-    const translation = (idTransInp.value || "").replace(/[^A-Za-z]/g, "");
-    const newSku = translation ? `${base}-${translation}` : base;
-    if (newSku !== current) {
-      parentSkuInp.value = newSku;
-      // 父 SKU 变更后, 同步刷新自动生成的子 SKU 前缀 (父SKU01、父SKU02...)
-      syncChildSkusWithParent(current, newSku);
+    const curVal = parentSkuInp.value.trim();
+    const oldVal = window.lastParentSkuValue || "";
+
+    // 智能更新基础段缓存
+    const translation = (idTransInp?.value || "").trim().replace(/\s+/g, "");
+    if (translation && curVal.endsWith("-" + translation)) {
+      parentSkuInp.dataset.baseSku = curVal.slice(0, -(translation.length + 1));
+    } else {
+      parentSkuInp.dataset.baseSku = curVal;
     }
-  });
+
+    if (curVal !== oldVal) {
+      syncChildSkusWithParent(oldVal, curVal);
+      window.lastParentSkuValue = curVal;
+    }
+  };
+
+  parentSkuInp.addEventListener("input", handleParentSkuManualChange);
+  parentSkuInp.addEventListener("change", handleParentSkuManualChange);
 }
 
 /**
- * 父 SKU 变更时, 同步刷新自动生成的子 SKU 前缀 (仅覆盖未手工修改过的子 SKU)
+ * 父 SKU 变更时, 联动同步刷新所有子 SKU
  * 规则: 子 SKU = 父 SKU + "-" + 序号 (如 admin25-DogToilet-01)
  */
 function syncChildSkusWithParent(oldParent, newParent) {
   if (!state.variations || state.variations.length === 0) return;
+  const newP = (newParent || "").trim();
+  const oldP = (oldParent || "").trim();
+  const seqWidth = state.variations.length >= 100 ? 3 : 2;
+
   let changed = false;
-  state.variations.forEach(v => {
-    if (v.sku_manual) return;
-    const sku = (v.sku || "").trim();
-    if (!sku) return;
-    if (oldParent && (sku.startsWith(oldParent + "-") || sku.startsWith(oldParent))) {
-      const rest = sku.slice(oldParent.length);
-      // 仅同步符合 父SKU(-)序号 格式的子 SKU (兼容新旧格式: -01 / 01)
-      if (/^-?\d{2,}$/.test(rest)) {
-        v.sku = newParent + rest;
-        changed = true;
+  state.variations.forEach((v, idx) => {
+    const curSku = (v.sku || "").trim();
+    const defaultSuffix = `-${String(idx + 1).padStart(seqWidth, "0")}`;
+    let newChildSku = "";
+
+    if (oldP && curSku.startsWith(oldP)) {
+      const suffix = curSku.slice(oldP.length);
+      if (!suffix) {
+        newChildSku = `${newP}${defaultSuffix}`;
+      } else if (suffix.startsWith("-")) {
+        newChildSku = `${newP}${suffix}`;
+      } else {
+        newChildSku = `${newP}-${suffix}`;
       }
-    } else if (!oldParent) {
-      // 无旧父 SKU 时: 剥离任意旧前缀, 按尾部序号重挂新父 SKU
-      const m = sku.match(/^(.+?)(-?\d{2,})$/);
-      if (m) {
-        v.sku = newParent + m[2];
-        changed = true;
+    } else {
+      const match = curSku.match(/(-?\d{2,})$/);
+      if (match) {
+        const seqPart = match[1].startsWith("-") ? match[1] : `-${match[1]}`;
+        newChildSku = `${newP}${seqPart}`;
+      } else {
+        newChildSku = `${newP}${defaultSuffix}`;
       }
     }
+
+    if (v.sku !== newChildSku) {
+      v.sku = newChildSku;
+      v.sku_manual = false;
+      changed = true;
+    }
   });
-  if (changed) renderMatrixTable();
+
+  if (changed) {
+    // 平滑就地更新表格中的 .sku-inp 元素，保持用户焦点不丢失
+    const skuInputs = document.querySelectorAll(".sku-inp");
+    if (skuInputs && skuInputs.length === state.variations.length) {
+      skuInputs.forEach((inp, idx) => {
+        inp.value = state.variations[idx].sku;
+      });
+    } else {
+      renderMatrixTable();
+    }
+  }
 }
 
 /**
@@ -1483,6 +1555,17 @@ async function saveProduct() {
     return;
   }
 
+  // 必填项校验: 商品标识英文翻译不能为空
+  if (!identifier_translation) {
+    showToast("请填写商品标识的英文翻译！", "error");
+    const idTransInp = document.getElementById("identifierTranslationInput");
+    if (idTransInp) {
+      idTransInp.focus();
+      idTransInp.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    return;
+  }
+
   const validColors = getValidColors();
   const validSizes = getValidSizes();
   const colorJoined = validColors.join("-");
@@ -1646,7 +1729,22 @@ async function loadProductForEdit(productId) {
     if (brandInp) brandInp.value = p.brand || "";
 
     const titleInp = document.getElementById("titleInput");
-    if (titleInp) titleInp.value = p.title || "";
+    if (titleInp) {
+      titleInp.value = p.title || "";
+      // 编辑模式下锁定标题：不支持修改产品标题
+      titleInp.readOnly = true;
+      titleInp.style.backgroundColor = "#f1f5f9";
+      titleInp.style.cursor = "not-allowed";
+      titleInp.title = "编辑商品模式下已锁定标题，不支持修改产品标题";
+      const lockBadge = document.getElementById("titleEditLockBadge");
+      if (lockBadge) lockBadge.style.display = "inline-block";
+      const transTitleBtn = document.getElementById("translateTitleBtn");
+      if (transTitleBtn) {
+        transTitleBtn.disabled = true;
+        transTitleBtn.style.opacity = "0.5";
+        transTitleBtn.title = "编辑模式下标题已锁定，无需重新翻译";
+      }
+    }
 
     const prodIdInp = document.getElementById("productIdentifierInput");
     if (prodIdInp) prodIdInp.value = p.product_identifier || "";
@@ -1661,7 +1759,12 @@ async function loadProductForEdit(productId) {
 
     // 2. 产品信息
     const parentSkuInp = document.getElementById("parentSkuInput");
-    if (parentSkuInp) parentSkuInp.value = p.parent_sku || p.sku || "";
+    if (parentSkuInp) {
+      const pSku = p.parent_sku || p.sku || "";
+      parentSkuInp.value = pSku;
+      parentSkuInp.dataset.baseSku = pSku;
+      window.lastParentSkuValue = pSku;
+    }
     const baseSkuInp = document.getElementById("baseSkuInput");
     if (baseSkuInp) baseSkuInp.value = p.parent_sku || p.sku || "";
 

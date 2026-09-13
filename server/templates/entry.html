@@ -48,7 +48,10 @@
     </div>
 
     <div class="form-group" style="margin-top:14px;">
-      <label class="form-label required">产品标题</label>
+      <label class="form-label required">
+        产品标题
+        <span id="titleEditLockBadge" style="display:none; margin-left:8px; font-size:0.75rem; color:#dc2626; background:#fef2f2; border:1px solid #fecaca; padding:1px 6px; border-radius:4px; font-weight:600;">🔒 编辑模式已锁定标题</span>
+      </label>
       <input type="text" class="form-input" id="titleInput" value="" placeholder="请输入 Amazon 产品标题">
       <!-- 标题翻译: 参考五点描述的中文翻译参考条样式, 输入标题后自动 AI 翻译 -->
       <div class="bullet-point-cn-hint" style="margin-top:8px; margin-left:0; display:flex; align-items:center; gap:6px;">
@@ -71,7 +74,7 @@
         <button class="btn btn-outline btn-sm js-view-prompt" data-mode="identifier" type="button" style="flex-shrink:0; padding:3px 8px; font-size:0.72rem; color:#475569; border-color:#cbd5e1; background:#f8fafc;" title="查看商品标识提炼使用的 Ollama 提示词">📝</button>
       </div>
       <div class="bullet-point-cn-hint" style="margin-top:8px; margin-left:0; display:flex; align-items:center; gap:6px;">
-        <span style="color:#6366f1; font-weight:600; font-size:0.75rem; flex-shrink:0;">🇬🇧 英文翻译:</span>
+        <span style="color:#6366f1; font-weight:600; font-size:0.75rem; flex-shrink:0;">🇬🇧 英文翻译 <span style="color:#ef4444; font-weight:700;">*</span>:</span>
         <input type="text" class="form-input" id="identifierTranslationInput" value="" placeholder="商品标识确认后自动翻译，也可手工修改..." style="flex:1; min-width:0; padding:3px 8px; font-size:0.78rem; height:auto; background:transparent; border:1px dashed #cbd5e1;">
         <button class="btn btn-outline btn-sm" id="translateIdentifierBtn" type="button" style="flex-shrink:0; padding:2px 8px; font-size:0.72rem; color:#7c3aed; border-color:#ddd6fe; background:#f5f3ff;" title="重新调用本地 Ollama 翻译商品标识">🔄</button>
         <button class="btn btn-outline btn-sm js-view-prompt" data-mode="identifier_translation" type="button" style="flex-shrink:0; padding:2px 8px; font-size:0.72rem; color:#475569; border-color:#cbd5e1; background:#f8fafc;" title="查看商品标识英文翻译使用的 Ollama 提示词">📝</button>
@@ -108,7 +111,7 @@
     <div class="form-group" style="margin-bottom:0; max-width:480px;">
       <label class="form-label">
         Parent SKU (父SKU)
-        <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(登录账号+第几个品-商品标识翻译, 随英文标识联动)</span>
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(支持自由修改，修改后自动联动更新所有子SKU)</span>
       </label>
       <input type="text" class="form-input" id="parentSkuInput" value="" placeholder="如: admin1-DogToilet">
     </div>

@@ -13,6 +13,36 @@
     const u = window.__CURRENT_USER__ || {};
     return u.role === 'admin' || (u.username && u.username === createdBy);
   }
+  function canDeleteProduct() {
+    const u = window.__CURRENT_USER__ || {};
+    return u.role === 'admin';
+  }
+  async function deleteProduct(productId, name) {
+    const displayName = name || ('#' + productId);
+    if (!confirm(`确定要彻底删除该商品【${displayName}】吗？\n\n⚠️ 警告：该操作将同时清理该商品的所有变体数据、任务记录以及本地存储的图片文件夹！此操作不可恢复！`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/products/${productId}`, {
+        method: "DELETE"
+      });
+      const result = await res.json();
+      if (result.code === 0) {
+        showToast("✅ " + (result.msg || "商品及本地图片已彻底删除！"));
+        setTimeout(() => {
+          if (typeof fetchFilteredProducts === "function") {
+            fetchFilteredProducts();
+          } else {
+            window.location.reload();
+          }
+        }, 600);
+      } else {
+        showToast("❌ 删除失败: " + (result.detail || result.msg || "未知错误"), "error");
+      }
+    } catch (err) {
+      showToast("❌ 删除请求异常: " + err.message, "error");
+    }
+  }
   // 单击父 SKU 单元格复制 SKU (https 用 Clipboard API, http 降级 execCommand)
   function copyParentSku(evt, el) {
     evt.stopPropagation();
@@ -185,7 +215,10 @@
                 <a href="/entry?id={{ p.id }}" class="btn btn-primary btn-sm" style="padding:2px 7px; font-size:0.72rem; margin-right:2px; text-decoration:none;">✏️ 编辑</a>
                 {% endif %}
                 <button type="button" class="btn btn-outline btn-sm" onclick="viewProductDetail({{ p.id }})" style="padding:2px 7px; font-size:0.72rem; margin-right:2px;">👁️ 详情</button>
-                <button type="button" class="btn btn-success btn-sm" onclick="triggerPublish({{ p.id }}, event)" style="padding:2px 7px; font-size:0.72rem;">🚀 上件</button>
+                <button type="button" class="btn btn-success btn-sm" onclick="triggerPublish({{ p.id }}, event)" style="padding:2px 7px; font-size:0.72rem; margin-right:2px;">🚀 上件</button>
+                {% if current_user and current_user.role == 'admin' %}
+                <button type="button" class="btn btn-sm" onclick="deleteProduct({{ p.id }}, '{{ (p.parent_sku or p.sku or p.title or '') | replace("'", "\\'") }}')" style="padding:2px 7px; font-size:0.72rem; background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5;" title="彻底删除商品及本地图片目录 (仅限管理员)">🗑️ 删除</button>
+                {% endif %}
               </td>
             </tr>
             {% endfor %}
@@ -1221,7 +1254,8 @@ function renderProductTableRows(products) {
         <td style="text-align:center; white-space:nowrap;">
           ${canEditProduct(p.created_by) ? `<a href="/entry?id=${p.id}" class="btn btn-primary btn-sm" style="padding:2px 7px; font-size:0.72rem; margin-right:2px; text-decoration:none;">✏️ 编辑</a>` : ''}
           <button type="button" class="btn btn-outline btn-sm" onclick="viewProductDetail(${p.id})" style="padding:2px 7px; font-size:0.72rem; margin-right:2px;">👁️ 详情</button>
-          <button type="button" class="btn btn-success btn-sm" onclick="triggerPublish(${p.id}, event)" style="padding:2px 7px; font-size:0.72rem;">🚀 上件</button>
+          <button type="button" class="btn btn-success btn-sm" onclick="triggerPublish(${p.id}, event)" style="padding:2px 7px; font-size:0.72rem; margin-right:2px;">🚀 上件</button>
+          ${canDeleteProduct() ? `<button type="button" class="btn btn-sm" onclick="deleteProduct(${p.id}, '${(p.parent_sku || p.sku || p.title || '').replace(/'/g, "\\'")}')" style="padding:2px 7px; font-size:0.72rem; background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5;" title="彻底删除商品及本地图片目录 (仅限管理员)">🗑️ 删除</button>` : ''}
         </td>
       </tr>
     `;
