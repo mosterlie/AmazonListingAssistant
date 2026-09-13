@@ -7,9 +7,9 @@ ERP 自动化系统 - 业务数据与本地归档文件一键清理工具
 功能说明：
 1. 清理业务数据库 (products.db)：
    - 清空商品数据表 (product_items)
-   - 清空条形码流水映射表 (sku_ean_mappings)
-   - 清空自动化刊登日志 (publish_logs)
    - 清空协同任务看板数据 (tasks)
+   - 清空广告投放任务与运行记录 (ad_campaign_tasks / ad_task_runs)
+   - 清空条形码流水映射表 (sku_ean_mappings)
    - 重置自增 ID 计数器 (sqlite_sequence)，后续新增商品从 ID #1 重新开始
    - 【严格保留】用户账号与角色权限 (users)
    - 【严格保留】系统全局配置 (system_settings: 店铺映射、计价公式、归档路径、Session配置等)
@@ -96,7 +96,10 @@ def clean_database(db_file: str) -> Tuple[bool, str, List[str]]:
         cur = conn.cursor()
 
         # 1. 统计当前业务数据与会话条数
-        business_tables = ["product_items", "sku_ean_mappings", "publish_logs", "tasks", "user_sessions"]
+        business_tables = [
+            "product_items", "sku_ean_mappings", "publish_logs",
+            "tasks", "ad_campaign_tasks", "ad_task_runs", "user_sessions",
+        ]
         counts_before = {}
         for tbl in business_tables:
             try:
@@ -105,16 +108,25 @@ def clean_database(db_file: str) -> Tuple[bool, str, List[str]]:
             except Exception:
                 counts_before[tbl] = 0
 
-        # 2. 清空业务表与用户 Session 会话表
+        # 2. 清空业务表与用户 Session 会话表 (单表容错, 表不存在则跳过)
         for tbl in business_tables:
-            cur.execute(f"DELETE FROM {tbl};")
-            details.append(f"已清空数据表 【{tbl}】 (共清理 {counts_before.get(tbl, 0)} 条记录)")
+            try:
+                cur.execute(f"DELETE FROM {tbl};")
+                details.append(f"已清空数据表 【{tbl}】 (共清理 {counts_before.get(tbl, 0)} 条记录)")
+            except Exception:
+                details.append(f"已跳过数据表 【{tbl}】 (表不存在)")
 
         # 3. 重置自增 ID 计数器
-        seq_tables = ["product_items", "sku_ean_mappings", "publish_logs", "tasks"]
+        seq_tables = [
+            "product_items", "sku_ean_mappings", "publish_logs",
+            "tasks", "ad_campaign_tasks", "ad_task_runs",
+        ]
         placeholders = ",".join("?" for _ in seq_tables)
-        cur.execute(f"DELETE FROM sqlite_sequence WHERE name IN ({placeholders});", seq_tables)
-        details.append("已重置业务表自增序列计数器 (后续商品与任务将从 ID #1 重新开始)")
+        try:
+            cur.execute(f"DELETE FROM sqlite_sequence WHERE name IN ({placeholders});", seq_tables)
+            details.append("已重置业务表自增序列计数器 (后续商品与任务将从 ID #1 重新开始)")
+        except Exception:
+            pass
 
         conn.commit()
 
@@ -227,6 +239,7 @@ def main():
     print("    - 清空条形码流水表 (sku_ean_mappings)")
     print("    - 清空刊登日志表 (publish_logs)")
     print("    - 清空协同任务表 (tasks)")
+    print("    - 清空广告任务与运行记录表 (ad_campaign_tasks / ad_task_runs)")
     print("    - 重置商品 ID 与任务 ID 自增计数器 (从 ID #1 重新开始)")
     print("    - 自动清理过期 Session，保留有效登录态")
     print(f" 2. 本地产品归档目录清理: {storage_dir}")
