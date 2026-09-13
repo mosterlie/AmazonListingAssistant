@@ -345,6 +345,25 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_ad_runs_task_id ON ad_task_runs(task_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_ad_runs_started_at ON ad_task_runs(started_at);")
 
+    # 10. 知识库与常用工具网站表 (三部分: 1.网站名称 2.网址5分段 3.说明)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS knowledge_sites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        url_part1 TEXT DEFAULT '',
+        url_part2 TEXT DEFAULT '',
+        url_part3 TEXT DEFAULT '',
+        url_part4 TEXT DEFAULT '',
+        url_part5 TEXT DEFAULT '',
+        description TEXT DEFAULT '',
+        sort_order INTEGER DEFAULT 0,
+        created_by VARCHAR(64) DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_sort ON knowledge_sites(sort_order, id);")
+
     # 初始化默认管理员用户 (admin / admin)
     cursor.execute("SELECT id FROM users WHERE username = 'admin';")
     if not cursor.fetchone():

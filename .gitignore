@@ -35,6 +35,8 @@ logs/
 data/uploads/
 data/*.backup_*
 data/browser_toolkit.db
+data/*.db-wal
+data/*.db-shm
 
 
 # Environment variables

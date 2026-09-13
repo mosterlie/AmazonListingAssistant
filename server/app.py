@@ -31,7 +31,8 @@ from server.routers import (
     auth_router,
     user_router,
     task_router,
-    ad_router
+    ad_router,
+    knowledge_router
 )
 
 @asynccontextmanager
@@ -87,6 +88,7 @@ app.include_router(upload_router.router)
 app.include_router(automation_router.router)
 app.include_router(pricing_router.router)
 app.include_router(settings_router.router)
+app.include_router(knowledge_router.router)
 
 from fastapi.responses import FileResponse
 from fastapi import HTTPException, Query
@@ -278,6 +280,19 @@ async def render_tasks_page(request: Request):
 
     return templates.TemplateResponse(request=request, name="tasks.html", context={
         "active_page": "tasks",
+        "current_user": user
+    })
+
+
+@app.get("/knowledge", response_class=HTMLResponse, summary="知识库与分段网址导航页面")
+async def render_knowledge_page(request: Request):
+    """渲染知识库导航页面 (所有登录用户均可见)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
+    if redirect_resp:
+        return redirect_resp
+
+    return templates.TemplateResponse(request=request, name="knowledge.html", context={
+        "active_page": "knowledge",
         "current_user": user
     })
 
