@@ -1,17 +1,17 @@
 @echo off
-title AmazonListingAssistant Ò»¼üÍ£Ö¹ (ERP+Í¼Æ¬/Sakura/Chrome/Ollama)
+title AmazonListingAssistant Ò»ï¿½ï¿½Í£Ö¹ (ERP+Í¼Æ¬/Sakura/Chrome/Ollama)
 
 echo ============================================
-echo   1/4 Í£Ö¹ ERP+Í¼Æ¬ ·þÎñ (¶Ë¿Ú 8000/8765)...
+echo   1/4 Í£Ö¹ ERP+Í¼Æ¬ ï¿½ï¿½ï¿½ï¿½ (ï¿½Ë¿ï¿½ 8000/8765)...
 echo ============================================
-:: 1) °´ÃüÁîÐÐ¾«È·½áÊø python ·þÎñ½ø³Ì, ²»Ó°ÏìÆäËü python
+:: 1) ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¾ï¿½È·ï¿½ï¿½ï¿½ï¿½ python ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½Ó°ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ python
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -match 'server\.app|db_agent\.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-:: 2) ¹Ø±ÕÆô¶¯Ê±´ò¿ªµÄ·þÎñ cmd ´°¿Ú (º¬Ò»¼üÆô¶¯Ö÷´°¿Ú)
+:: 2) ï¿½Ø±ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ò¿ªµÄ·ï¿½ï¿½ï¿½ cmd ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='cmd.exe'\" | Where-Object { $_.CommandLine -match 'startAll\.bat|server\.app|db_agent\.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-:: 3) ¶µµ×: °´¶Ë¿Ú½áÊø²ÐÁô½ø³Ì
+:: 3) ï¿½ï¿½ï¿½ï¿½: ï¿½ï¿½ï¿½Ë¿Ú½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000 " ^| findstr "LISTENING"') do taskkill /F /T /PID %%a >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8765 " ^| findstr "LISTENING"') do taskkill /F /T /PID %%a >nul 2>&1
-echo [OK] ERP+Í¼Æ¬ ·þÎñÒÑÍ£Ö¹, Æô¶¯Ê±´ò¿ªµÄ cmd ´°¿ÚÒÑÍ¬²½¹Ø±Õ
+echo [OK] ERP+Í¼Æ¬ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í£Ö¹, ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ò¿ªµï¿½ cmd ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í¬ï¿½ï¿½ï¿½Ø±ï¿½
 
 echo ============================================
 echo   2/4 Í£Ö¹ SakuraFrp...
@@ -19,41 +19,41 @@ echo ============================================
 taskkill /F /IM SakuraLauncher.exe >nul 2>&1
 taskkill /F /IM SakuraFrpService.exe >nul 2>&1
 taskkill /F /IM frpc.exe >nul 2>&1
-echo [OK] SakuraFrp ÒÑÍ£Ö¹
+echo [OK] SakuraFrp ï¿½ï¿½Í£Ö¹
 
 echo ============================================
-echo   3/4 Í£Ö¹µ÷ÊÔ Chrome (9222, ½ö C:\ChromeDebugUser ÊµÀý)...
+echo   3/4 Í£Ö¹ï¿½ï¿½ï¿½ï¿½ Chrome (9222, ï¿½ï¿½ C:\ChromeDebugUser Êµï¿½ï¿½)...
 echo ============================================
 powershell -NoProfile -Command "$c = Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | Where-Object {$_.CommandLine -like '*ChromeDebugUser*'}; if ($c) { $c | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"
-echo [OK] µ÷ÊÔ Chrome ÒÑÍ£Ö¹, ²»Ó°ÏìÈÕ³£ä¯ÀÀÆ÷
+echo [OK] ï¿½ï¿½ï¿½ï¿½ Chrome ï¿½ï¿½Í£Ö¹, ï¿½ï¿½Ó°ï¿½ï¿½ï¿½Õ³ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
 echo ============================================
-echo   4/4 Í£Ö¹ Ollama ¼°Æä llama Ä£ÐÍ½ø³Ì...
+echo   4/4 Í£Ö¹ Ollama ï¿½ï¿½ï¿½ï¿½ llama Ä£ï¿½Í½ï¿½ï¿½ï¿½...
 echo ============================================
 taskkill /F /T /IM "ollama app.exe" >nul 2>&1
 taskkill /F /T /IM ollama.exe >nul 2>&1
 taskkill /F /T /IM ollama_llama_server.exe >nul 2>&1
 taskkill /F /T /IM llama-server.exe >nul 2>&1
-:: ¶µµ×: °´½ø³ÌÃû½áÊøËùÓÐ ollama / llama Ïà¹Ø½ø³Ì (º¬ÐÂ°æ Ollama µÄ llama-server.exe ÍÆÀí½ø³Ì)
+:: ï¿½ï¿½ï¿½ï¿½: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ollama / llama ï¿½ï¿½Ø½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½Â°ï¿½ Ollama ï¿½ï¿½ llama-server.exe ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)
 powershell -NoProfile -Command "Get-Process | Where-Object { $_.Name -match 'ollama|llama' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-echo [OK] Ollama Óë llama Ïà¹Ø½ø³ÌÒÑÈ«²¿Í£Ö¹
+echo [OK] Ollama ï¿½ï¿½ llama ï¿½ï¿½Ø½ï¿½ï¿½ï¿½ï¿½ï¿½È«ï¿½ï¿½Í£Ö¹
 
 echo.
 echo ============================================
-echo   Í£Ö¹Íê³É£¬ÕýÔÚÈ·ÈÏ 4 ¸ö¶Ë¿ÚÒÑ¹Ø±Õ...
+echo   Í£Ö¹ï¿½ï¿½É£ï¿½ï¿½ï¿½ï¿½ï¿½È·ï¿½ï¿½ 4 ï¿½ï¿½ï¿½Ë¿ï¿½ï¿½Ñ¹Ø±ï¿½...
 echo ============================================
 ping -n 3 127.0.0.1 >nul
-call :check_down 8000 "ERP·þÎñ"
-call :check_down 8765 "Í¼Æ¬·þÎñ"
-call :check_down 9222 "Chromeµ÷ÊÔ"
+call :check_down 8000 "ERPï¿½ï¿½ï¿½ï¿½"
+call :check_down 8765 "Í¼Æ¬ï¿½ï¿½ï¿½ï¿½"
+call :check_down 9222 "Chromeï¿½ï¿½ï¿½ï¿½"
 call :check_down 11434 "Ollama"
 echo.
-echo È«²¿Í£Ö¹Ö´ÐÐÍê±Ï¡£
+echo È«ï¿½ï¿½Í£Ö¹Ö´ï¿½ï¿½ï¿½ï¿½Ï¡ï¿½
 ping -n 6 127.0.0.1 >nul
 exit /b 0
 
 :check_down
 netstat -aon | findstr ":%1 " | findstr "LISTENING" >nul 2>&1
-if %errorlevel%==0 echo [FAIL] ¶Ë¿Ú %1 %~2 ÈÔÔÚÔËÐÐ
-if not %errorlevel%==0 echo [OK]   ¶Ë¿Ú %1 %~2 ÒÑ¹Ø±Õ
+if %errorlevel%==0 echo [FAIL] ï¿½Ë¿ï¿½ %1 %~2 ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+if not %errorlevel%==0 echo [OK]   ï¿½Ë¿ï¿½ %1 %~2 ï¿½Ñ¹Ø±ï¿½
 exit /b 0

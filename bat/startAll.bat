@@ -1,5 +1,5 @@
 @echo off
-title AmazonListingAssistant Ò»¼üÆô¶¯ (ERP+Í¼Æ¬/Sakura/Ollama)
+title AmazonListingAssistant Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ (ERP+Í¼Æ¬/Sakura/Ollama)
 
 set "PROJ=C:\Users\li'l'y\OneDrive - University of Macau\Desktop\mypro\AmazonListingAssistant"
 set "SAKURA_PATH=C:\Program Files\SakuraFrpLauncher\SakuraLauncher.exe"
@@ -7,34 +7,34 @@ set "OLLAMA_PATH=%LOCALAPPDATA%\Programs\Ollama\ollama app.exe"
 set "OLLAMA_CLI=%LOCALAPPDATA%\Programs\Ollama\ollama.exe"
 
 echo ============================================
-echo   1/3 Æô¶¯ ERP+Í¼Æ¬ ·þÎñ (ºóÌ¨Òþ²ØÔËÐÐ, ¶Ë¿Ú 8000/8765)...
+echo   1/3 ï¿½ï¿½ï¿½ï¿½ ERP+Í¼Æ¬ ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½Ì¨ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½Ë¿ï¿½ 8000/8765)...
 echo ============================================
 if not exist "%PROJ%\server\app.py" (
-    echo [ERROR] Î´ÕÒµ½ÏîÄ¿: %PROJ%
+    echo [ERROR] Î´ï¿½Òµï¿½ï¿½ï¿½Ä¿: %PROJ%
 ) else (
-    powershell -NoProfile -Command "Start-Process cmd -ArgumentList '/k chcp 65001 >nul && title ERP+Í¼Æ¬·þÎñ 8000/8765 && start /b python -m server.app && start /b python db_agent.py --port 8765 --token erp2024' -WindowStyle Hidden -WorkingDirectory \"%PROJ%\""
-    echo [OK] ERP+Í¼Æ¬ ·þÎñÒÑºóÌ¨Æô¶¯, ´°¿ÚÒÑÒþ²Ø: http://127.0.0.1:8000 Óë http://127.0.0.1:8765
+    powershell -NoProfile -Command "Start-Process cmd -ArgumentList '/k chcp 65001 >nul && title ERP+Í¼Æ¬ï¿½ï¿½ï¿½ï¿½ 8000/8765 && start /b python -m server.app && start /b python db_agent.py --port 8765 --token erp2024' -WindowStyle Hidden -WorkingDirectory \"%PROJ%\""
+    echo [OK] ERP+Í¼Æ¬ ï¿½ï¿½ï¿½ï¿½ï¿½Ñºï¿½Ì¨ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½: http://127.0.0.1:8000 ï¿½ï¿½ http://127.0.0.1:8765
 )
 ping -n 3 127.0.0.1 >nul
 
 echo ============================================
-echo   2/3 Æô¶¯ SakuraFrp ¿Í»§¶Ë (ºóÌ¨Òþ²ØÔËÐÐ)...
+echo   2/3 ï¿½ï¿½ï¿½ï¿½ SakuraFrp ï¿½Í»ï¿½ï¿½ï¿½ (ï¿½ï¿½Ì¨ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)...
 echo ============================================
 if exist "%SAKURA_PATH%" (
     powershell -NoProfile -Command "Start-Process -FilePath \"%SAKURA_PATH%\" -WindowStyle Hidden"
-    echo [OK] SakuraFrp ÒÑºóÌ¨Æô¶¯
+    echo [OK] SakuraFrp ï¿½Ñºï¿½Ì¨ï¿½ï¿½ï¿½ï¿½
 ) else (
-    echo [WARN] Î´ÕÒµ½ %SAKURA_PATH%£¬Çë¼ì²é°²×°Â·¾¶
+    echo [WARN] Î´ï¿½Òµï¿½ %SAKURA_PATH%ï¿½ï¿½ï¿½ï¿½ï¿½é°²×°Â·ï¿½ï¿½
 )
 ping -n 3 127.0.0.1 >nul
 powershell -NoProfile -Command "Start-Sleep 2; Add-Type -Name W -Namespace N -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c);'; $p = Get-Process SakuraLauncher -ErrorAction SilentlyContinue; if ($p -and $p.MainWindowHandle -ne 0) { [void][N.W]::ShowWindow($p.MainWindowHandle, 0) }"
-echo [OK] SakuraFrp ´°¿ÚÒÑÒþ²Ø
+echo [OK] SakuraFrp ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
 echo ============================================
-echo   3/3 Æô¶¯ Ollama (ºóÌ¨Òþ²ØÔËÐÐ)...
+echo   3/3 ï¿½ï¿½ï¿½ï¿½ Ollama (ï¿½ï¿½Ì¨ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)...
 echo ============================================
 if not exist "%OLLAMA_PATH%" (
-    echo [WARN] Î´ÕÒµ½ %OLLAMA_PATH%£¬Çë¼ì²é°²×°Â·¾¶¡£
+    echo [WARN] Î´ï¿½Òµï¿½ %OLLAMA_PATH%ï¿½ï¿½ï¿½ï¿½ï¿½é°²×°Â·ï¿½ï¿½ï¿½ï¿½
     goto ollama_done
 )
 powershell -NoProfile -Command "Start-Process -FilePath \"%OLLAMA_PATH%\" -WindowStyle Hidden"
@@ -43,32 +43,32 @@ curl -s -o nul -m 2 http://127.0.0.1:11434/ >nul 2>&1
 if %errorlevel%==0 (
     goto ollama_hide
 )
-echo [INFO] Ollama Í¼ÐÎ½çÃæÎ´¼°Ê±ÏìÓ¦, ¸ÄÓÃºóÌ¨·þÎñÄ£Ê½...
-start "Ollama·þÎñ" /MIN "%OLLAMA_CLI%" serve
+echo [INFO] Ollama Í¼ï¿½Î½ï¿½ï¿½ï¿½Î´ï¿½ï¿½Ê±ï¿½ï¿½Ó¦, ï¿½ï¿½ï¿½Ãºï¿½Ì¨ï¿½ï¿½ï¿½ï¿½Ä£Ê½...
+start "Ollamaï¿½ï¿½ï¿½ï¿½" /MIN "%OLLAMA_CLI%" serve
 ping -n 4 127.0.0.1 >nul
 curl -s -o nul -m 2 http://127.0.0.1:11434/ >nul 2>&1
-if %errorlevel%==0 echo [OK] Ollama ºóÌ¨ÒÑÆô¶¯ (¶Ë¿Ú 11434)
-if not %errorlevel%==0 echo [WARN] Ollama ¶Ë¿Ú 11434 Î´¾ÍÐ÷, ÇëÊÖ¶¯Æô¶¯ Ollama
+if %errorlevel%==0 echo [OK] Ollama ï¿½ï¿½Ì¨ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ (ï¿½Ë¿ï¿½ 11434)
+if not %errorlevel%==0 echo [WARN] Ollama ï¿½Ë¿ï¿½ 11434 Î´ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½Ö¶ï¿½ï¿½ï¿½ï¿½ï¿½ Ollama
 :ollama_hide
 powershell -NoProfile -Command "Start-Sleep 2; Add-Type -Name W2 -Namespace N2 -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c);'; Get-Process | Where-Object { $_.Name -like 'ollama*' } | ForEach-Object { if ($_.MainWindowHandle -ne 0) { [void][N2.W2]::ShowWindow($_.MainWindowHandle, 0) } }"
-echo [OK] Ollama ÒÑÆô¶¯, ´°¿ÚÒÑÒþ²Ø
+echo [OK] Ollama ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 :ollama_done
 
 echo.
 echo ============================================
-echo   Æô¶¯Íê³É£¬ÕýÔÚ¼ì²é 3 ¸ö¶Ë¿Ú...
+echo   ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½É£ï¿½ï¿½ï¿½ï¿½Ú¼ï¿½ï¿½ 3 ï¿½ï¿½ï¿½Ë¿ï¿½...
 echo ============================================
 ping -n 3 127.0.0.1 >nul
-call :check_port 8000 "ERP·þÎñ"
-call :check_port 8765 "Í¼Æ¬·þÎñ"
+call :check_port 8000 "ERPï¿½ï¿½ï¿½ï¿½"
+call :check_port 8765 "Í¼Æ¬ï¿½ï¿½ï¿½ï¿½"
 call :check_port 11434 "Ollama"
 echo.
-echo È«²¿Æô¶¯Ö´ÐÐÍê±Ï¡£·þÎñÔÚºóÌ¨Òþ²ØÔËÐÐ, Í£Ö¹ÇëÓÃ×ÀÃæ¡¸Ò»¼üÍ£Ö¹·þÎñ¡¹¡£
+echo È«ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö´ï¿½ï¿½ï¿½ï¿½Ï¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Úºï¿½Ì¨ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, Í£Ö¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½æ¡¸Ò»ï¿½ï¿½Í£Ö¹ï¿½ï¿½ï¿½ñ¡¹¡ï¿½
 ping -n 16 127.0.0.1 >nul
 exit /b 0
 
 :check_port
 curl -s -o nul -m 3 http://127.0.0.1:%1/ >nul 2>&1
-if %errorlevel%==0 echo [OK]   ¶Ë¿Ú %1 %~2 ¾ÍÐ÷
-if not %errorlevel%==0 echo [FAIL] ¶Ë¿Ú %1 %~2 Î´ÏìÓ¦
+if %errorlevel%==0 echo [OK]   ï¿½Ë¿ï¿½ %1 %~2 ï¿½ï¿½ï¿½ï¿½
+if not %errorlevel%==0 echo [FAIL] ï¿½Ë¿ï¿½ %1 %~2 Î´ï¿½ï¿½Ó¦
 exit /b 0

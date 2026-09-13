@@ -1,0 +1,2 @@
+# bat 含 GBK 中文, 必须保持字节原样(CRLF), 禁止 git 做换行规范化
+*.bat -text
