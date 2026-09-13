@@ -33,7 +33,7 @@ BID_STRATEGIES = ["动态竞价-只降低", "动态竞价-提高和降低", "固
 # 与 core/sellfox_ad_operator.py 的 PAGE_URL 保持一致 (批量创建页新版地址)
 SELLFOX_URL = ("https://www.sellfox.com/amzup-web-main/amzup-web-cpc"
                "?amzup-web-cpc=%2Fcpc%2Fweb%2FcpcManage%2FspBatchCreate%2FspBatchCreatePage%2Findex.html")
-DEFAULT_USER_DATA_DIR = os.path.expanduser("~/ChromeDebugUser")
+DEFAULT_USER_DATA_DIR = "~/ChromeDebugUser" if sys.platform == "darwin" else "C:\\ChromeDebugUser"
 CDP_PORT = 9222
 SERVE_PORT = 8317
 
@@ -98,9 +98,17 @@ class Bridge:
         return {"cm": CREATE_MODES[0], "bs": BID_STRATEGIES[0]}.get(key, "")
 
     def get_options(self):
+        user_dir = self._get_dir()
+        shops = []
+        try:
+            from server.database import get_setting
+            stores = get_setting("store_accounts", []) or []
+            shops = [s.get("store_name", "").strip() for s in stores if isinstance(s, dict) and s.get("store_name")]
+        except Exception:
+            pass
         return {
-            "user_dir": DEFAULT_USER_DATA_DIR,
-            "shop_names": [],
+            "user_dir": user_dir,
+            "shop_names": shops,
             "today": datetime.now().strftime("%Y-%m-%d"),
         }
 
@@ -114,21 +122,35 @@ class Bridge:
     def check_cdp(self):
         import urllib.request
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json/version", timeout=3) as r:
+            with urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json/version", timeout=2) as r:
                 return r.status == 200
         except Exception:
             return False
 
     def _ensure_bm(self):
         from core.browser_manager import BrowserManager
-        d = os.path.expanduser((self._get_dir() or DEFAULT_USER_DATA_DIR).strip())
+        raw_dir = (self._get_dir() or DEFAULT_USER_DATA_DIR).strip()
+        d = os.path.expanduser(raw_dir)
         if self.bm is None or d != self._bm_dir:
             self.bm = BrowserManager(port=CDP_PORT, user_data_dir=d)
             self._bm_dir = d
         return self.bm
 
     def _get_dir(self):
-        return getattr(self, "_dir_input", None) or DEFAULT_USER_DATA_DIR
+        d = getattr(self, "_dir_input", None)
+        if d and str(d).strip():
+            return str(d).strip()
+        try:
+            from server.database import get_setting
+            key = "chrome_user_data_dir_mac" if sys.platform == "darwin" else "chrome_user_data_dir_win"
+            udd = (get_setting(key, "") or "").strip()
+            if not udd:
+                udd = (get_setting("chrome_user_data_dir", "") or "").strip()
+            if udd:
+                return udd
+        except Exception:
+            pass
+        return DEFAULT_USER_DATA_DIR
 
     def set_user_dir(self, d):
         self._dir_input = d

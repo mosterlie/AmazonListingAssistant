@@ -37,7 +37,8 @@ from server.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    print(f"🚀 服务已就绪！访问地址: http://{SERVER_HOST}:{SERVER_PORT}")
+    display_host = "127.0.0.1" if SERVER_HOST in ("0.0.0.0", "") else SERVER_HOST
+    print(f"🚀 服务已就绪！访问地址: http://{display_host}:{SERVER_PORT}")
     yield
 
 # 1. 实例化 FastAPI 应用

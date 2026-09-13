@@ -33,6 +33,7 @@ class ChromeUserDataDirsSchema(BaseModel):
 
 
 class AiConfigSchema(BaseModel):
+    generate_bullets_enabled: bool = Field(False, description="是否5点描述通过大模型生成: True=大模型生成 / False=不使用大模型生成 (默认否)")
     bullets_source: str = Field("public", description="五点描述生成来源: local=本地 Ollama / public=公共大模型 API")
     ollama_model: str = Field("qwen2.5:1.5b-instruct-q4_K_M", description="本地 Ollama 模型名称 (标题翻译/商品标识/五点描述均可用)")
     api_base_url: str = Field("https://api.deepseek.com", description="公共大模型 API Base URL (OpenAI 兼容)")
@@ -138,11 +139,13 @@ async def get_system_settings():
         }
         # 自动投放是否提交广告 (默认否: 停在提交前待人工确认)
         submit_ad_enabled = bool(get_setting("submit_ad_enabled", False))
-        # AI 大模型配置 (五点描述生成来源 + 本地 Ollama 模型 + 公共 API)
+        # AI 大模型配置 (是否生成五点描述 + 五点描述生成来源 + 本地 Ollama 模型 + 公共 API)
+        generate_bullets_enabled = bool(get_setting("ai_generate_bullets_enabled", False))
         bullets_source = (get_setting("ai_bullets_source", "") or "").strip().lower()
         if bullets_source not in ("local", "public"):
             bullets_source = "public"
         ai_config = {
+            "generate_bullets_enabled": generate_bullets_enabled,
             "bullets_source": bullets_source,
             "ollama_model": (get_setting("ai_ollama_model", "") or "").strip() or "qwen2.5:1.5b-instruct-q4_K_M",
             "api_base_url": (get_setting("ai_api_base_url", "") or "").strip() or "https://api.deepseek.com",
@@ -227,8 +230,10 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         submit_ad_enabled = bool(payload.submit_ad_enabled)
         set_setting("submit_ad_enabled", submit_ad_enabled)
 
-        # 7. 保存 AI 大模型配置 (来源: local=本地 Ollama / public=公共 API)
+        # 7. 保存 AI 大模型配置 (是否生成五点描述 + 来源: local=本地 Ollama / public=公共 API)
         ai = payload.ai_config
+        generate_bullets_enabled = bool(ai.generate_bullets_enabled)
+        set_setting("ai_generate_bullets_enabled", generate_bullets_enabled)
         source = (ai.bullets_source or "").strip().lower()
         if source not in ("local", "public"):
             source = "public"
@@ -238,6 +243,7 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         set_setting("ai_model_name", (ai.model_name or "").strip() or "deepseek-v4-flash")
         set_setting("ai_api_key", (ai.api_key or "").strip())
         ai_config = {
+            "generate_bullets_enabled": generate_bullets_enabled,
             "bullets_source": source,
             "ollama_model": (ai.ollama_model or "").strip() or "qwen2.5:1.5b-instruct-q4_K_M",
             "api_base_url": (ai.api_base_url or "").strip() or "https://api.deepseek.com",

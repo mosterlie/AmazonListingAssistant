@@ -24,6 +24,7 @@ const settingsState = {
   },
   submit_ad_enabled: false,
   ai_config: {
+    generate_bullets_enabled: false,
     bullets_source: "public",
     ollama_model: "qwen2.5:1.5b-instruct-q4_K_M",
     api_base_url: "https://api.deepseek.com",
@@ -130,6 +131,12 @@ function populateForm() {
   const submitNo = document.getElementById("submitAdNo");
   if (submitYes && submitNo) {
     (settingsState.submit_ad_enabled ? submitYes : submitNo).checked = true;
+  }
+
+  const bulletsGenYes = document.getElementById("aiGenerateBulletsYes");
+  const bulletsGenNo = document.getElementById("aiGenerateBulletsNo");
+  if (bulletsGenYes && bulletsGenNo) {
+    (settingsState.ai_config.generate_bullets_enabled ? bulletsGenYes : bulletsGenNo).checked = true;
   }
 
   const aiLocalRadio = document.getElementById("aiSourceLocal");
@@ -361,6 +368,7 @@ async function saveSettings() {
     },
     submit_ad_enabled: !!document.getElementById("submitAdYes")?.checked,
     ai_config: {
+      generate_bullets_enabled: !!document.getElementById("aiGenerateBulletsYes")?.checked,
       bullets_source: document.getElementById("aiSourceLocal")?.checked ? "local" : "public",
       ollama_model: (document.getElementById("aiOllamaModelInput")?.value || "qwen2.5:1.5b-instruct-q4_K_M").trim(),
       api_base_url: (document.getElementById("aiApiBaseUrlInput")?.value || "https://api.deepseek.com").trim(),
@@ -426,6 +434,7 @@ function resetDefaults() {
     settingsState.session_expire_hours = 1.0;
     settingsState.chrome_user_data_dirs = { mac: "~/ChromeDebugUser", win: "C:\\ChromeDebugUser" };
     settingsState.ai_config = {
+      generate_bullets_enabled: false,
       bullets_source: "public",
       ollama_model: "qwen2.5:1.5b-instruct-q4_K_M",
       api_base_url: "https://api.deepseek.com",

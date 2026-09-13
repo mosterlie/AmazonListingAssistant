@@ -46,7 +46,7 @@ timeout /t 2 /nobreak >nul
 echo ============================================
 echo   3/3 启动 AmazonListingAssistant 项目...
 echo ============================================
-cd /d "D:\myCoding\AmazonListingAssistant"
+cd /d "%~dp0"
 start "AmazonListingAssistant" cmd /k "python -m server.app"
 echo [OK] 项目已启动: http://127.0.0.1:8000
 

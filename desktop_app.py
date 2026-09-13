@@ -62,15 +62,34 @@ DEFAULT_DB_PATH = os.path.join(BASE_DIR, "data", "products.db")
 DEFAULT_REMOTE_HOST = "frp-rib.com"
 DEFAULT_REMOTE_PORT = 49063
 DEFAULT_REMOTE_TOKEN = "erp2024"
-# Chrome 9222 用户数据目录默认值 (C 盘根目录下, 可在界面配置调整)
-DEFAULT_CHROME_DIR = r"C:\ChromeDebugUser"
+# Chrome 9222 用户数据目录默认值与 Chrome 可执行文件探测 (跨平台适配)
+if sys.platform == "darwin":
+    DEFAULT_CHROME_DIR = os.path.expanduser("~/Library/Application Support/BrowserToolkit/ChromeDebugUser")
+    CHROME_CANDIDATES = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        os.path.expanduser("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        os.path.expanduser("~/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+    ]
+elif sys.platform == "win32":
+    DEFAULT_CHROME_DIR = r"C:\ChromeDebugUser"
+    CHROME_CANDIDATES = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe"),
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    ]
+else:
+    DEFAULT_CHROME_DIR = os.path.expanduser("~/.config/BrowserToolkit/ChromeDebugUser")
+    CHROME_CANDIDATES = [
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+    ]
 DXM_URL = "https://www.dianxiaomi.com/"
 CDP_PORT = 9222
-CHROME_CANDIDATES = [
-    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-    os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe"),
-]
 
 # 预先固定浏览器自动化使用的用户数据目录 (erp_bridge 内部 BrowserEngine 默认值在导入时绑定)
 import config as toolkit_config  # noqa: E402  (项目根目录 config.py)
@@ -407,7 +426,7 @@ class DesktopApp:
         orig_get_setting = appdb.get_setting
 
         def get_setting_with_override(key, default=None):
-            if key == "storage_path_win" and image_root:
+            if key in ("storage_path_win", "storage_path_mac") and image_root:
                 return image_root
             return orig_get_setting(key, default)
 
@@ -919,12 +938,13 @@ def _show_splash(root: tk.Tk):
     y = (splash.winfo_screenheight() - h) // 2
     splash.geometry(f"{w}x{h}+{x}+{y}")
 
+    font_family = "PingFang SC" if sys.platform == "darwin" else "Microsoft YaHei UI"
     tk.Label(splash, text="ERP 桌面上件助手", bg=SPLASH_BG, fg="#e2e8f0",
-             font=("Microsoft YaHei UI", 16, "bold")).pack(pady=(36, 2))
+             font=(font_family, 16, "bold")).pack(pady=(36, 2))
     tk.Label(splash, text="店小秘自动化上件工具", bg=SPLASH_BG, fg="#94a3b8",
-             font=("Microsoft YaHei UI", 9)).pack()
+             font=(font_family, 9)).pack()
     lbl_status = tk.Label(splash, text="正在启动", bg=SPLASH_BG, fg="#38bdf8",
-                          font=("Microsoft YaHei UI", 10))
+                          font=(font_family, 10))
     lbl_status.pack(pady=(20, 4))
     bar = ttk.Progressbar(splash, mode="indeterminate", length=300)
     bar.pack(pady=(4, 20))
@@ -955,9 +975,27 @@ def _show_splash(root: tk.Tk):
 def main():
     root = tk.Tk()
     try:
-        ttk.Style().theme_use("vista")
+        if sys.platform == "darwin":
+            ttk.Style().theme_use("aqua")
+        elif sys.platform == "win32":
+            ttk.Style().theme_use("vista")
     except Exception:
         pass
+
+    if sys.platform == "darwin":
+        # 优化 macOS 下输入框快捷键支持 (Cmd+A, Cmd+C, Cmd+V, Cmd+X)
+        try:
+            root.bind_class("Entry", "<Command-a>", lambda e: (e.widget.select_range(0, "end"), "break")[1])
+            root.bind_class("Entry", "<Command-c>", lambda e: (e.widget.event_generate("<<Copy>>"), "break")[1])
+            root.bind_class("Entry", "<Command-v>", lambda e: (e.widget.event_generate("<<Paste>>"), "break")[1])
+            root.bind_class("Entry", "<Command-x>", lambda e: (e.widget.event_generate("<<Cut>>"), "break")[1])
+            root.bind_class("Text", "<Command-a>", lambda e: (e.widget.tag_add("sel", "1.0", "end"), "break")[1])
+            root.bind_class("Text", "<Command-c>", lambda e: (e.widget.event_generate("<<Copy>>"), "break")[1])
+            root.bind_class("Text", "<Command-v>", lambda e: (e.widget.event_generate("<<Paste>>"), "break")[1])
+            root.bind_class("Text", "<Command-x>", lambda e: (e.widget.event_generate("<<Cut>>"), "break")[1])
+        except Exception:
+            pass
+
     root.withdraw()  # 主窗口就绪前先隐藏, 由启动动画接管
 
     # 打包模式下关闭 PyInstaller 原生解压画面, 交接到应用内动画

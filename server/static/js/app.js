@@ -17,6 +17,10 @@ const state = {
     price_coefficient: 26.0,
     default_profit_coeff: 1.0
   },
+  aiConfig: {
+    generate_bullets_enabled: false,
+    bullets_source: "public"
+  },
   variations: []
 };
 window.state = state;
@@ -48,6 +52,9 @@ async function loadSystemSettings() {
         if (batchProfitInp && (!batchProfitInp.value || batchProfitInp.value === "1.0")) {
           batchProfitInp.value = state.pricingConfig.default_profit_coeff || 1.0;
         }
+      }
+      if (result.data.ai_config) {
+        state.aiConfig = { ...state.aiConfig, ...result.data.ai_config };
       }
       if (result.data.store_accounts && Array.isArray(result.data.store_accounts)) {
         const storeSel = document.getElementById("storeAccountSelect");
@@ -2075,16 +2082,25 @@ async function runTitleAiCascade(title) {
     identifier, "请先填写商品标识，再翻译成英文！"
   );
 
-  // 标题级联完成后, 自动调用大模型生成五点描述 (来源: 本地 Ollama / 公共 API, 由管理台配置)
-  autoGenerateBullets(title);
+  // 标题级联完成后, 仅当系统管理配置中开启了「是否5点描述通过大模型生成」时, 才自动调用大模型生成五点描述
+  if (state.aiConfig?.generate_bullets_enabled) {
+    autoGenerateBullets(title);
+  } else {
+    console.log("五点描述大模型生成未开启 (系统管理中配置为否)，跳过生成");
+  }
 }
 
 /**
  * 输入标题后自动调用大模型生成日文五点描述并回填 (提示词同 DeepSeek 助手)
+ * 仅在系统管理开启「是否5点描述通过大模型生成」时调用
  * 生成来源 (本地 Ollama / 公共 API) 由管理台「AI 大模型配置」决定
  */
 async function autoGenerateBullets(title) {
   if (!title || !title.trim()) return;
+  // 校验配置: 只有系统管理中开启「是否5点描述通过大模型生成」时才执行
+  if (!state.aiConfig?.generate_bullets_enabled) {
+    return;
+  }
   try {
     // 调用后端: 后端按管理台配置的来源 (local/public) 生成
     const res = await fetch("/api/products/generate-bullets", {

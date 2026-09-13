@@ -263,6 +263,10 @@ async def generate_bullets_ai(request: Request):
 
     # 读取管理台 AI 配置 (与管理台默认值保持一致)
     from server.database import get_setting
+    bullets_enabled = bool(get_setting("ai_generate_bullets_enabled", False))
+    if not bullets_enabled:
+        raise HTTPException(status_code=400, detail="系统管理未开启大模型生成五点描述配置 (默认为否)，请先前往「系统管理」开启后再使用！")
+
     source = (get_setting("ai_bullets_source", "") or "").strip().lower()
     if source not in ("local", "public"):
         source = "public"

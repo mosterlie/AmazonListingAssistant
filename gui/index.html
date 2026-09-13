@@ -20,7 +20,10 @@
   .hdr .logo { background:rgba(255,255,255,.2); padding:4px 10px; border-radius:6px; font-weight:800; font-size:.85rem; }
   .hdr h1 { font-size:1.05rem; font-weight:700; flex:1; }
   .badge { font-size:.78rem; padding:4px 10px; border-radius:9999px; border:1px solid rgba(255,255,255,.35);
-           background:rgba(255,255,255,.15); }
+           background:rgba(255,255,255,.15); display:inline-flex; align-items:center; gap:4px; font-weight:500;
+           cursor:pointer; user-select:none; transition:all .15s ease; }
+  .badge:hover { filter:brightness(0.95); transform:translateY(-1px); box-shadow:0 2px 6px rgba(0,0,0,.15); }
+  .badge:active { transform:translateY(0); }
   .badge.ok { background:#ecfdf5; color:#059669; border-color:#a7f3d0; }
   .badge.no { background:#fef2f2; color:#dc2626; border-color:#fecaca; }
   .badge.chk { background:#fffbeb; color:#b45309; border-color:#fde68a; }
@@ -107,8 +110,8 @@
   <div class="hdr">
     <span class="logo">SELLFOX</span>
     <h1>赛狐广告批量投放助手</h1>
-    <span class="badge chk" id="cdpBadge">🔌 检测中...</span>
-    <button class="btn btn-w" id="btnLaunch" onclick="api.launch_browser()" style="display:none">🚀 启动调试浏览器</button>
+    <span class="badge chk" id="cdpBadge" onclick="api.check_cdp(true)" title="点击检查 9222 调试端口是否启动">🔌 检测中...</span>
+    <button class="btn btn-w" id="btnLaunch" onclick="api.launch_or_check()" style="display:none">🚀 启动调试浏览器</button>
     <button class="btn btn-o" onclick="api.open_sellfox()" style="background:#fff">② 打开批量创建页</button>
   </div>
 
@@ -116,7 +119,7 @@
     <div class="card-title">🌐 浏览器</div>
     <div class="form-grid" style="grid-template-columns:110px 1fr;">
       <span class="lbl">用户数据目录</span>
-      <input type="text" id="userDir" value="">
+      <input type="text" id="userDir" value="~/ChromeDebugUser">
     </div>
     <div class="note" style="margin-top:4px;">登录态与 Cookie 保存在此目录, 与日常浏览器隔离; 换目录即换账号环境。</div>
   </div>
@@ -158,9 +161,9 @@
 
     <div class="form-grid" style="margin-top:8px;">
       <span class="lbl req">开始时间</span>
-      <input type="date" id="startDate" value="" style="width:150px">
+      <input type="date" id="startDate" style="width:150px">
       <span class="lbl">结束时间</span>
-      <input type="date" id="endDate" style="width:150px">
+      <input type="date" id="endDate" value="" style="width:150px">
       <span class="note" style="grid-column:1/5">结束时间留空 = 不限 (日期框可一键清除)</span>
     </div>
 
@@ -207,28 +210,51 @@
 <div id="toast"></div>
 
 <script>
-/* ───────── 桥接 (tkinter 版为 window.py_bridge; pywebview 为 window.pywebview.api) ───────── */
+/* ───────── 桥接 (tkinter 版为 window.py_bridge; pywebview 为 window.pywebview.api; 浏览器为 fetch) ───────── */
 function B() {
   if (window.pywebview && window.pywebview.api) return window.pywebview.api;
   if (window.py_bridge) return window.py_bridge;
+  if (location.protocol.startsWith('http')) {
+    if (!window._httpBridge) {
+      window._httpBridge = new Proxy({}, {
+        get: (_, fn) => async (...args) => {
+          const r = await fetch('/api/' + fn, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(args.length === 1 && typeof args[0] === 'object' ? args[0] : {args})
+          });
+          const j = await r.json();
+          return j && j.result !== undefined ? j.result : j;
+        }
+      });
+    }
+    return window._httpBridge;
+  }
   throw new Error('bridge not ready');
 }
 
 /* 全局 api: onclick 内联调用的统一入口 (pywebview/py_bridge/serve 三模式通吃) */
 window.api = {
-  launch_browser: () => B().launch_browser(),
-  open_sellfox:   () => B().open_sellfox(),
-  stop:           () => B().stop(),
-  clear_log:      () => { $('logBox').innerText = ''; return B().clear_log(); },
-  modal:          show => $('modal').classList.toggle('show', !!show),
-  set_user_dir:   d  => B().set_user_dir(d),
-  /* 开始投放: 收集参数 → Python 校验 → 通过则弹确认框 */
+  launch_browser:  () => launchBrowserWithFeedback(),
+  launch_or_check: () => (window._cdpReady ? checkCdp(true) : launchBrowserWithFeedback()),
+  check_cdp:       (showToast = true) => checkCdp(showToast),
+  open_sellfox:    () => B().open_sellfox(),
+  stop:            async () => { window._jobRunning = false; return B().stop(); },
+  clear_log:       () => { $('logBox').innerText = ''; return B().clear_log(); },
+  modal:           show => $('modal').classList.toggle('show', !!show),
+  set_user_dir:    d  => B().set_user_dir(d),
+  /* 开始投放: 收集参数 → 预检 9222 端口 → Python 校验 → 通过则弹确认框 */
   confirm_run: async () => {
     const p = collectParams();
     let r;
     try { r = await B().confirm_run(p); }
     catch (e) { toast('调用失败: ' + e.message); return; }
     if (r && r.error) { toast(r.error); return; }
+    const ok = await checkCdp(false);
+    if (!ok) {
+      toast('🔴 未检测到 9222 调试浏览器，请先启动并登录赛狐');
+      return;
+    }
     window._pendingParams = p;
     showModal('确认投放',
       '店铺: ' + (p.shop || '-') + '\n' +
@@ -247,6 +273,16 @@ function toast(msg) {
   const t = $('toast'); t.innerText = msg; t.classList.add('show');
   clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('show'), 2600);
 }
+
+/* 页面加载即初始化默认值 (不依赖桥接异步返回，保证开始日期默认今天、结束日期默认空、用户目录默认 ~/ChromeDebugUser) */
+(function initFieldDefaults() {
+  const d = new Date();
+  const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const sInp = $('startDate'), eInp = $('endDate'), uInp = $('userDir');
+  if (sInp && !sInp.value) sInp.value = today;
+  if (eInp) eInp.value = '';
+  if (uInp && !uInp.value) uInp.value = '~/ChromeDebugUser';
+})();
 
 /* ───────── 段选组 ───────── */
 function segRender(id, name, options, selected) {
@@ -315,15 +351,18 @@ function collectParams() {
 async function doConfirm() {
   $('modal').classList.remove('show');
   $('btnRun').disabled = true; $('btnStop').disabled = false;
+  window._jobRunning = true;
   try {
     const r = await B().modal_ok();
     if (r === 'no-params' || r === 'running') {
+      window._jobRunning = false;
       $('btnRun').disabled = false; $('btnStop').disabled = true;
       toast(r === 'running' ? '任务正在执行中' : '参数已失效, 请重新点击开始投放');
       return;
     }
     pollState();
   } catch (e) {
+    window._jobRunning = false;
     $('btnRun').disabled = false; $('btnStop').disabled = true;
     toast('启动失败: ' + e.message);
   }
@@ -336,8 +375,9 @@ async function pollState() {
       const st = await B().run_state();
       if (!st.running) {
         clearInterval(pollTimer); pollTimer = null;
+        window._jobRunning = false;
         $('btnRun').disabled = false; $('btnStop').disabled = true;
-        checkCdp();
+        checkCdp(false);
       }
     } catch (e) { /* ignore */ }
   }, 2000);
@@ -363,19 +403,47 @@ function startLogPolling() {
 async function initUI() {
   try { B(); } catch (e) { return false; }   // 桥接未就绪则稍后重试
   if (window.__uiInited) return true;
-  window.__uiInited = true;
-  segRender('segCreate','cm', await B().get_create_modes(), await B().get_default('cm'));
-  segRender('segBid','bs', await B().get_bid_strategies(), await B().get_default('bs'));
-  const o = await B().get_options();
-  $('userDir').value = o.user_dir;
-  $('startDate').value = o.today;
-  $('shopHint').innerText = o.shop_names.length ? `共 ${o.shop_names.length} 个可选店铺 (点击输入框选择)` : '⚠ 系统未维护店铺';
-  window.SHOP_NAMES = o.shop_names;
-  $('asins').addEventListener('input', countAsins);
-  $('dedup').addEventListener('change', countAsins);
-  $('userDir').addEventListener('change', () => B().set_user_dir($('userDir').value));
+
+  // 1. 尝试从 Python 桥接获取动态选项 (容错处理)
+  let cm = ['所有产品合并创建广告', '每个产品单独创建广告'];
+  let bs = ['动态竞价-只降低', '动态竞价-提高和降低', '固定竞价'];
+  let cmDef = cm[0], bsDef = bs[0];
+  let o = { user_dir: '~/ChromeDebugUser', shop_names: [], today: '' };
+
+  try { cm = (await B().get_create_modes()) || cm; } catch (e) {}
+  try { cmDef = (await B().get_default('cm')) || cmDef; } catch (e) {}
+  try { bs = (await B().get_bid_strategies()) || bs; } catch (e) {}
+  try { bsDef = (await B().get_default('bs')) || bsDef; } catch (e) {}
+  try { o = (await B().get_options()) || o; } catch (e) {}
+
+  segRender('segCreate', 'cm', cm, cmDef);
+  segRender('segBid', 'bs', bs, bsDef);
+
+  // 2. 字段默认值回填
+  if (o && o.user_dir) $('userDir').value = o.user_dir;
+  else if (!$('userDir').value) $('userDir').value = '~/ChromeDebugUser';
+
+  if (o && o.today) $('startDate').value = o.today;
+  else if (!$('startDate').value) {
+    const d = new Date();
+    $('startDate').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  $('endDate').value = ''; // 确保结束时间默认留空
+
+  $('shopHint').innerText = (o && o.shop_names && o.shop_names.length)
+    ? `共 ${o.shop_names.length} 个可选店铺 (点击输入框选择)`
+    : '⚠ 系统未维护店铺';
+  window.SHOP_NAMES = (o && o.shop_names) || [];
+
+  if (!window.__eventsBound) {
+    window.__eventsBound = true;
+    $('asins').addEventListener('input', countAsins);
+    $('dedup').addEventListener('change', countAsins);
+    $('userDir').addEventListener('change', () => B().set_user_dir($('userDir').value));
+  }
   startLogPolling();   // 桌面/浏览器模式统一轮询
-  checkCdp();
+  checkCdp(false);
+  window.__uiInited = true;
   return true;
 }
 window.addEventListener('pywebviewready', () => { initUI(); });
@@ -384,14 +452,93 @@ window.addEventListener('pywebviewready', () => { initUI(); });
   initUI().then(ok => { if (!ok) setTimeout(waitBridge, 300); });
 })();
 
-/* ───────── CDP 状态 ───────── */
-async function checkCdp() {
+/* ───────── CDP 状态与检测 ───────── */
+window._cdpReady = false;
+window._checkingCdp = false;
+window._jobRunning = false;
+
+async function checkCdp(showToast = false) {
+  if (window._checkingCdp) return window._cdpReady;
+  window._checkingCdp = true;
   const b = $('cdpBadge'), lb = $('btnLaunch');
-  const ok = await B().check_cdp();
-  b.className = 'badge ' + (ok ? 'ok' : 'no');
-  b.innerText = ok ? '🟢 调试浏览器已就绪' : '🔴 未检测到调试浏览器';
-  lb.style.display = ok ? 'none' : 'inline-block';
+  if (showToast && b) {
+    b.className = 'badge chk';
+    b.innerText = '🔌 检查 9222 中...';
+  }
+  let ok = false;
+  try {
+    ok = !!(await B().check_cdp());
+  } catch (e) {
+    ok = false;
+  } finally {
+    window._checkingCdp = false;
+  }
+  window._cdpReady = ok;
+  if (b) {
+    b.className = 'badge ' + (ok ? 'ok' : 'no');
+    b.innerText = ok ? '🟢 调试浏览器已就绪' : '🔴 未检测到调试浏览器';
+    b.title = ok ? '9222 调试端口正常响应中（点击可重新检查）' : '未检测到 9222 调试端口（点击可重新检查）';
+  }
+  if (lb) {
+    lb.style.display = 'inline-flex';
+    if (ok) {
+      lb.className = 'btn btn-o';
+      lb.innerText = '🔄 检查9222';
+      lb.title = '重新检查 9222 调试端口是否启动';
+      lb.style.background = '#fff';
+      lb.disabled = false;
+    } else {
+      lb.className = 'btn btn-w';
+      lb.innerText = '🚀 启动调试浏览器';
+      lb.title = '启动 9222 调试浏览器';
+      lb.style.background = '#fffbeb';
+      lb.disabled = false;
+    }
+  }
+  if (showToast) {
+    if (ok) {
+      toast('🟢 9222 端口正常，调试浏览器运行中');
+    } else {
+      toast('🔴 未检测到 9222 调试浏览器，请点击启动');
+    }
+  }
+  return ok;
 }
+
+async function launchBrowserWithFeedback() {
+  const b = $('cdpBadge'), lb = $('btnLaunch');
+  if (lb) { lb.disabled = true; lb.innerText = '🚀 启动中...'; }
+  if (b) { b.className = 'badge chk'; b.innerText = '🔌 启动检测中...'; }
+  try {
+    await B().launch_browser();
+    toast('正在启动调试浏览器，等待 9222 端口就绪...');
+    const t0 = Date.now();
+    while (Date.now() - t0 < 10000) {
+      await new Promise(r => setTimeout(r, 1000));
+      const ok = await B().check_cdp();
+      if (ok) {
+        await checkCdp(true);
+        return;
+      }
+    }
+    await checkCdp(true);
+  } catch (e) {
+    toast('启动失败: ' + (e.message || e));
+    await checkCdp(false);
+  } finally {
+    if (lb) lb.disabled = false;
+  }
+}
+
+// 窗口切回时自动静默检测
+window.addEventListener('focus', () => {
+  if (!window._jobRunning) checkCdp(false);
+});
+
+// 后台定时心跳检测 (8秒一次)
+setInterval(() => {
+  if (!window._jobRunning) checkCdp(false);
+}, 8000);
 
 /* ───────── 店铺下拉 (点击总是展开全部) ───────── */
 function openShopDD() {

@@ -297,11 +297,25 @@
   <div class="card-header">
     <div class="card-title">
       <div class="card-title-icon">🤖</div>
-      <span>AI 大模型配置 (五点描述生成来源)</span>
+      <span>AI 大模型配置 (五点描述生成)</span>
     </div>
     <span class="tag-badge" style="background:#f5f3ff; color:#7c3aed; border-color:#ddd6fe;">录入页输入标题后自动生效</span>
   </div>
   <div class="card-body">
+    <div class="form-group">
+      <label class="form-label">
+        是否5点描述通过大模型生成
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(默认为否。只有选择为「是」时，录入页输入标题后才使用大模型自动生成五点描述)</span>
+      </label>
+      <div style="display:flex; gap:16px; align-items:center;">
+        <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:0.88rem;">
+          <input type="radio" name="aiGenerateBulletsEnabled" id="aiGenerateBulletsYes" value="yes"> ✅ 是 (使用大模型生成)
+        </label>
+        <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:0.88rem;">
+          <input type="radio" name="aiGenerateBulletsEnabled" id="aiGenerateBulletsNo" value="no" checked> ❌ 否 (不使用大模型生成，默认)
+        </label>
+      </div>
+    </div>
     <div class="form-group">
       <label class="form-label">五点描述生成来源</label>
       <div style="display:flex; gap:16px; align-items:center;">
@@ -338,5 +352,5 @@
   </div>
 </div>
 
-<script src="/static/js/settings.js?v=20260907_submitad"></script>
+<script src="/static/js/settings.js?v=20260913_bullets_ai"></script>
 {% endblock %}
