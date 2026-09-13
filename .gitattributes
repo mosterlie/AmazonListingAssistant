@@ -1,2 +1,4 @@
 # bat 含 GBK 中文, 必须保持字节原样(CRLF), 禁止 git 做换行规范化
 *.bat -text
+# python 统一 LF 规范, 避免 autocrlf 幻影改动
+*.py text
