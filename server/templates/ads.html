@@ -3,6 +3,18 @@
 {% block title %}广告投放任务管理{% endblock %}
 
 {% block content %}
+<style>
+.asin-tab-btn { padding:10px 14px; border:none; background:none; font-size:0.85rem; font-weight:600;
+  color:#64748b; cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap; }
+.asin-tab-btn:hover { color:#2563eb; }
+.asin-tab-btn.active { color:#2563eb; border-bottom-color:#2563eb; }
+#asinDropZone.dragover { border-color:#2563eb; background:#eff6ff; }
+.asin-chip { display:inline-block; padding:2px 9px; margin:2px 4px 2px 0; border-radius:9999px;
+  background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; font-size:0.76rem; font-family:monospace; }
+.asin-chip.warn { background:#fef2f2; border-color:#fecaca; color:#b91c1c; }
+.asin-chip.muted { background:#f1f5f9; border-color:#e2e8f0; color:#475569; }
+.asin-child-row td { background:#f8fafc !important; }
+</style>
 <div class="form-card" style="margin-bottom:20px;">
   <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
     <div>
@@ -23,6 +35,9 @@
               style="display:none; color:#b45309; border-color:#fde68a;">🚀 启动调试浏览器</button>
       <button class="btn btn-outline btn-sm" onclick="loadAdTasks()" style="display:inline-flex; align-items:center; gap:4px;">
         <span>🔄</span> 刷新
+      </button>
+      <button class="btn btn-outline btn-sm" onclick="openAsinPoolModal('import')" style="display:inline-flex; align-items:center; gap:4px;">
+        <span>🎯</span> 生成ASIN
       </button>
       <button class="btn btn-primary btn-sm" onclick="openAdTaskModal(null)" style="display:inline-flex; align-items:center; gap:4px;">
         <span>➕</span> 新增广告任务
@@ -277,6 +292,136 @@
     </div>
     <div class="custom-modal-footer">
       <button type="button" class="btn btn-outline" onclick="closeRunDetailModal()">关闭</button>
+    </div>
+  </div>
+</div>
+<!-- ================= 弹窗 5：ASIN 生成池（导入/生成/记录/总览） ================= -->
+<div id="asinPoolModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeAsinPoolModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:880px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">🎲</span>
+        <h3 style="margin:0; font-size:1.1rem; color:#0f172a; font-weight:700;">ASIN 生成池</h3>
+        <span style="font-size:0.74rem; color:var(--text-muted);">导入赛狐在线产品父子ASIN → 输入已投放ASIN → 随机生成未覆盖父体的子ASIN</span>
+      </div>
+      <button class="custom-modal-close" onclick="closeAsinPoolModal()">✕</button>
+    </div>
+    <div style="padding:0 24px; border-bottom:1px solid #e2e8f0; display:flex; gap:4px;">
+      <button class="asin-tab-btn" data-tab="import" onclick="switchAsinTab('import')">① 导入Excel</button>
+      <button class="asin-tab-btn" data-tab="generate" onclick="switchAsinTab('generate')">② 获取ASIN</button>
+      <button class="asin-tab-btn" data-tab="logs" onclick="switchAsinTab('logs')">③ 获取记录</button>
+      <button class="asin-tab-btn" data-tab="overview" onclick="switchAsinTab('overview')">④ 入库ASIN总览</button>
+    </div>
+    <div class="custom-modal-body" style="padding:18px 24px; max-height:62vh; overflow-y:auto;">
+
+      <!-- Tab ① 导入 -->
+      <div class="asin-tab-pane" data-tab="import">
+        <div id="asinDropZone" style="border:2px dashed #cbd5e1; border-radius:10px; padding:26px; text-align:center; background:#f8fafc; cursor:pointer; transition:all .15s;"
+             onclick="document.getElementById('asinFileInput').click()">
+          <div style="font-size:1.8rem;">📄</div>
+          <div style="font-weight:700; color:#334155; margin-top:6px;">点击选择或拖拽 Excel 到此处</div>
+          <div style="font-size:0.78rem; color:var(--text-muted); margin-top:4px;">
+            赛狐导出的「所有 SKU 在线产品」表，需含 <b>父ASIN</b> 与 <b>ASIN</b> 列；每次导入追加为新批次，历史保留
+          </div>
+          <input type="file" id="asinFileInput" accept=".xlsx,.xls" style="display:none;">
+          <div id="asinFileName" style="font-size:0.8rem; color:#2563eb; margin-top:8px; font-weight:600;"></div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; margin-top:12px;">
+          <button class="btn btn-primary btn-sm" id="asinImportBtn" onclick="uploadAsinExcel()">⬆ 开始导入</button>
+          <a class="btn btn-outline btn-sm" href="/api/asin-pool/template" style="text-decoration:none;">📥 下载导入模板</a>
+          <span id="asinImportMsg" style="font-size:0.8rem;"></span>
+        </div>
+        <div style="font-size:0.84rem; font-weight:700; color:#334155; margin:18px 0 8px;">历史导入批次（最新一批 = 当前生效数据）</div>
+        <table class="matrix-table" style="width:100%; min-width:640px;">
+          <thead>
+            <tr style="background:#f8fafc;">
+              <th style="width:48px; text-align:center;">#</th>
+              <th style="width:150px;">导入时间</th>
+              <th>文件</th>
+              <th style="width:80px; text-align:center;">Excel行</th>
+              <th style="width:90px; text-align:center;">父子对</th>
+              <th style="width:80px; text-align:center;">父ASIN</th>
+              <th style="width:90px; text-align:center;">状态</th>
+            </tr>
+          </thead>
+          <tbody id="asinBatchBody">
+            <tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">⏳ 加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tab ② 获取 -->
+      <div class="asin-tab-pane" data-tab="generate" style="display:none;">
+        <label class="form-label" style="font-weight:700;">已投放 ASIN 列表 <span style="color:#ef4444;">*</span></label>
+        <textarea class="form-input" id="asinGenInput" rows="6"
+          placeholder="粘贴已投放的 ASIN，逗号 / 换行 / 空格分隔，自动转大写去重&#10;例如：B0XXXXXXXX,B0YYYYYYYY"
+          style="width:100%; resize:vertical; margin-top:6px;" oninput="updateAsinGenCounter()"></textarea>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+          <span id="asinGenCounter" style="font-size:0.78rem; color:var(--text-muted);">已识别 0 个 ASIN</span>
+          <button class="btn btn-primary btn-sm" id="asinGenBtn" onclick="generateAsins()">🎲 生成 ASIN</button>
+        </div>
+        <div id="asinGenResult" style="display:none; margin-top:14px;"></div>
+      </div>
+
+      <!-- Tab ③ 获取记录 -->
+      <div class="asin-tab-pane" data-tab="logs" style="display:none;">
+        <table class="matrix-table" style="width:100%; min-width:700px;">
+          <thead>
+            <tr style="background:#f8fafc;">
+              <th style="width:48px; text-align:center;">#</th>
+              <th style="width:140px;">获取时间</th>
+              <th style="width:130px;">依据批次</th>
+              <th style="width:60px; text-align:center;">输入</th>
+              <th style="width:60px; text-align:center;">结果</th>
+              <th>结果 ASIN（悬浮看全量）</th>
+              <th style="width:150px; text-align:center;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="asinLogBody">
+            <tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">⏳ 加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tab ④ 总览 -->
+      <div class="asin-tab-pane" data-tab="overview" style="display:none;">
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px;">
+          <div id="asinOvStats" style="display:flex; gap:10px; flex-wrap:wrap; flex:1;"></div>
+          <button class="btn btn-outline btn-sm" id="asinPurgeBtn"
+                  onclick="purgeAsinPool()"
+                  style="color:#dc2626; border-color:#fecaca; white-space:nowrap;">🗑 删除全部</button>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:10px;">
+          <input type="text" class="form-input" id="asinOvSearch" placeholder="搜索父 ASIN..." style="flex:1; padding:6px 12px; font-size:0.84rem;"
+                 onkeyup="if(event.key==='Enter') loadAsinOverview(true)">
+          <button class="btn btn-outline btn-sm" onclick="loadAsinOverview(true)">🔍 搜索</button>
+        </div>
+        <table class="matrix-table" style="width:100%; min-width:560px;">
+          <thead>
+            <tr style="background:#f8fafc;">
+              <th style="width:40px; text-align:center;"></th>
+              <th>父 ASIN</th>
+              <th style="width:110px; text-align:center;">子ASIN数</th>
+              <th style="width:100px; text-align:center;">类型</th>
+            </tr>
+          </thead>
+          <tbody id="asinOvBody">
+            <tr><td colspan="4" style="text-align:center; padding:20px; color:var(--text-muted);">⏳ 加载中...</td></tr>
+          </tbody>
+        </table>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; font-size:0.8rem; color:var(--text-muted);">
+          <span id="asinOvPageInfo">-</span>
+          <span style="display:flex; gap:8px;">
+            <button class="btn btn-outline btn-sm" id="asinOvPrev" onclick="asinOvPage(-1)">← 上一页</button>
+            <button class="btn btn-outline btn-sm" id="asinOvNext" onclick="asinOvPage(1)">下一页 →</button>
+          </span>
+        </div>
+      </div>
+
+    </div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="closeAsinPoolModal()">关闭</button>
     </div>
   </div>
 </div>
@@ -874,6 +1019,308 @@ async function loadRunDetail(runId) {
 
 function safeParse(text, fallback) {
   try { return JSON.parse(text || '') || fallback; } catch (e) { return fallback; }
+}
+
+/* ===================== ASIN 生成池 ===================== */
+const asinState = { tab: 'import', page: 1, pageSize: 20 };
+
+function openAsinPoolModal(tab) {
+  document.getElementById('asinPoolModal').style.display = 'flex';
+  switchAsinTab(tab || 'import');
+}
+function closeAsinPoolModal() { document.getElementById('asinPoolModal').style.display = 'none'; }
+
+function switchAsinTab(tab) {
+  asinState.tab = tab;
+  document.querySelectorAll('.asin-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.asin-tab-pane').forEach(p => p.style.display = (p.dataset.tab === tab ? 'block' : 'none'));
+  if (tab === 'import') loadAsinBatches();
+  else if (tab === 'logs') loadAsinLogs();
+  else if (tab === 'overview') loadAsinOverview(false);
+}
+
+/* 绑定文件选择与拖拽 (只绑一次) */
+document.addEventListener('DOMContentLoaded', function () {
+  const input = document.getElementById('asinFileInput');
+  const zone = document.getElementById('asinDropZone');
+  if (input) input.addEventListener('change', () => {
+    document.getElementById('asinFileName').innerText = input.files[0] ? '已选择: ' + input.files[0].name : '';
+  });
+  if (zone) {
+    ['dragenter', 'dragover'].forEach(ev => zone.addEventListener(ev, e => {
+      e.preventDefault(); zone.classList.add('dragover');
+    }));
+    ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, e => {
+      e.preventDefault(); zone.classList.remove('dragover');
+    }));
+    zone.addEventListener('drop', e => {
+      const f = e.dataTransfer.files[0];
+      if (f) { input.files = e.dataTransfer.files;
+        document.getElementById('asinFileName').innerText = '已选择: ' + f.name; }
+    });
+  }
+});
+
+async function uploadAsinExcel() {
+  const input = document.getElementById('asinFileInput');
+  const file = input.files[0];
+  const msg = document.getElementById('asinImportMsg');
+  if (!file) { showToast('请先选择 Excel 文件', 'error'); return; }
+  const btn = document.getElementById('asinImportBtn');
+  btn.disabled = true; btn.innerText = '导入中...';
+  msg.innerHTML = '<span style="color:#64748b;">解析并入库中...</span>';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await fetch('/api/asin-pool/import', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (j.code !== 0) throw new Error(j.detail || '导入失败');
+    const d = j.data;
+    msg.innerHTML = '<span style="color:#059669; font-weight:600;">✓ 导入成功：Excel ' + d.excel_rows +
+      ' 行 → 入库 ' + d.pair_count + ' 对父子关系（' + d.parent_count + ' 个父ASIN，跳过 ' + d.skipped + ' 行），已成为当前生效批次</span>';
+    showToast('ASIN 批次导入成功', 'success');
+    input.value = '';
+    document.getElementById('asinFileName').innerText = '';
+    loadAsinBatches();
+  } catch (e) {
+    msg.innerHTML = '<span style="color:#dc2626; font-weight:600;">✗ ' + esc(e.message) + '</span>';
+    showToast(e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerText = '⬆ 开始导入';
+  }
+}
+
+async function loadAsinBatches() {
+  const body = document.getElementById('asinBatchBody');
+  try {
+    const j = await (await fetch('/api/asin-pool/batches')).json();
+    const rows = j.data || [];
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">📭 尚未导入，请先上传赛狐在线产品 Excel</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((b, i) =>
+      '<tr>' +
+      '<td style="text-align:center; color:#64748b; font-weight:700;">' + b.id + '</td>' +
+      '<td style="font-size:0.8rem;">' + esc(b.imported_at) + '</td>' +
+      '<td style="font-size:0.8rem;">' + esc(b.filename || '-') + '</td>' +
+      '<td style="text-align:center; font-size:0.8rem;">' + b.excel_rows + '</td>' +
+      '<td style="text-align:center; font-size:0.8rem;">' + b.pair_count + '</td>' +
+      '<td style="text-align:center; font-size:0.8rem;">' + b.parent_count + '</td>' +
+      '<td style="text-align:center;">' + (i === 0
+        ? '<span style="padding:2px 8px; border-radius:9999px; background:#ecfdf5; border:1px solid #a7f3d0; color:#059669; font-size:0.72rem; font-weight:700;">✓ 当前生效</span>'
+        : '<span style="font-size:0.74rem; color:#94a3b8;">历史批次</span>') + '</td>' +
+      '</tr>').join('');
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:24px; color:#dc2626;">加载失败: ' + esc(e.message) + '</td></tr>';
+  }
+}
+
+/* ---------- Tab② 获取 ASIN ---------- */
+function parseAsinText(raw) {
+  return Array.from(new Set((raw || '').split(/[,，;；\s\r\n\t]+/).map(s => s.trim().toUpperCase()).filter(Boolean)));
+}
+function updateAsinGenCounter() {
+  const list = parseAsinText(document.getElementById('asinGenInput').value);
+  const bad = list.filter(a => !/^[A-Z0-9]{10}$/.test(a));
+  document.getElementById('asinGenCounter').innerHTML = '已识别 <b style="color:#2563eb;">' + list.length + '</b> 个 ASIN' +
+    (bad.length ? ' · <span style="color:#dc2626;">⚠ ' + bad.length + ' 个格式异常</span>' : '');
+}
+
+async function generateAsins() {
+  const text = document.getElementById('asinGenInput').value;
+  const list = parseAsinText(text);
+  if (!list.length) { showToast('请输入至少一个已投放 ASIN', 'error'); return; }
+  const btn = document.getElementById('asinGenBtn');
+  btn.disabled = true; btn.innerText = '生成中...';
+  try {
+    const r = await fetch('/api/asin-pool/generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asins_text: text }),
+    });
+    const j = await r.json();
+    if (j.code !== 0) throw new Error(j.detail || '生成失败');
+    renderAsinGenResult(j.data);
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerText = '✨ 生成 ASIN';
+  }
+}
+
+function renderAsinGenResult(d) {
+  const box = document.getElementById('asinGenResult');
+  box.style.display = 'block';
+  const results = d.result_asins || [];
+  const ignored = d.ignored_asins || [];
+  const matched = d.matched_parents || [];
+  const chips = arr => arr.length
+    ? arr.map(a => '<span class="asin-chip' + (a === '__warn__' ? ' warn' : '') + '">' + esc(a) + '</span>').join('')
+    : '<span style="color:#94a3b8; font-size:0.8rem;">无</span>';
+  box.innerHTML =
+    '<div style="border:1px solid #e2e8f0; border-radius:10px; overflow:hidden;">' +
+    '<div style="background:#f8fafc; padding:10px 14px; font-size:0.8rem; color:#475569; line-height:1.7;">' +
+    '依据批次: <b>' + esc(d.batch_time) + '</b> · 输入 ' + (d.input_asins || []).length + ' 个 → ' +
+    '命中父体 <b style="color:#2563eb;">' + matched.length + '</b> 个，未覆盖父体 <b style="color:#059669;">' + results.length + '</b> 个，各随机取 1 个子 ASIN' +
+    (ignored.length ? ' · <span style="color:#dc2626;">' + ignored.length + ' 个未在库中已忽略</span>' : '') +
+    '</div>' +
+    (ignored.length ? '<div style="padding:8px 14px; border-top:1px solid #f1f5f9; font-size:0.78rem;"><b style="color:#b91c1c;">未在库中忽略：</b>' + ignored.map(a => '<span class="asin-chip warn">' + esc(a) + '</span>').join('') + '</div>' : '') +
+    '<div style="padding:8px 14px; border-top:1px solid #f1f5f9; font-size:0.78rem; max-height:120px; overflow:auto;"><b style="color:#334155;">命中父体：</b>' + chips(matched) + '</div>' +
+    '<div style="padding:10px 14px; border-top:1px solid #f1f5f9; background:#fffbeb;">' +
+    '<div style="font-size:0.8rem; font-weight:700; color:#92400e; margin-bottom:6px;">生成结果（' + results.length + ' 个）</div>' +
+    (results.length ? '<div id="asinGenResultText" style="max-height:140px; overflow:auto; line-height:1.9;">' + results.map(a => '<span class="asin-chip">' + esc(a) + '</span>').join('') + '</div>'
+      : '<div style="color:#94a3b8; font-size:0.82rem;">所有父体均已被输入 ASIN 覆盖，无新 ASIN 可生成</div>') +
+    '</div></div>' +
+    (results.length ? '<div style="display:flex; gap:8px; margin-top:10px;">' +
+      '<button class="btn btn-outline btn-sm" onclick="copyAsins(' + JSON.stringify(results).replace(/"/g, '&quot;') + ')">📋 复制全部</button>' +
+      '<button class="btn btn-primary btn-sm" onclick="fillAsinsIntoNewTask(' + JSON.stringify(results).replace(/"/g, '&quot;') + ')">➡ 填入新广告任务</button></div>' : '');
+}
+
+function copyAsins(list) {
+  const text = (list || []).join(',');
+  const done = () => showToast('已复制 ' + (list || []).length + ' 个 ASIN', 'success');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else fallbackCopy(text, done);
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text; document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) { showToast('复制失败，请手动选择', 'error'); }
+  document.body.removeChild(ta);
+}
+
+function fillAsinsIntoNewTask(list) {
+  closeAsinPoolModal();
+  openAdTaskModal(null);   // 新增模式 reset 后再灌值
+  const ta = document.getElementById('adAsinsText');
+  ta.value = (list || []).join(',');
+  updateAsinCounter();
+  showToast('已将 ' + (list || []).length + ' 个 ASIN 填入新任务，请补全店铺等参数', 'success');
+}
+
+/* ---------- Tab③ 获取记录 ---------- */
+async function loadAsinLogs() {
+  const body = document.getElementById('asinLogBody');
+  try {
+    const j = await (await fetch('/api/asin-pool/query-logs?limit=100')).json();
+    const rows = j.data || [];
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">📭 暂无获取记录</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(r => {
+      const ins = r.input_asins || [], res = r.result_asins || [];
+      const inPreview = ins.slice(0, 3).join(',') + (ins.length > 3 ? ' 等' + ins.length + '个' : '');
+      const resPreview = res.slice(0, 3).join(',') + (res.length > 3 ? ' 等' + res.length + '个' : '');
+      return '<tr>' +
+        '<td style="text-align:center; color:#64748b; font-weight:700;">#' + r.id + '</td>' +
+        '<td style="font-size:0.78rem;">' + esc(r.queried_at) + '</td>' +
+        '<td style="font-size:0.74rem; color:#64748b;" title="批次ID ' + r.batch_id + '">' + esc(r.batch_time || ('#' + r.batch_id)) + '</td>' +
+        '<td style="text-align:center; font-size:0.8rem;">' + r.input_count + '</td>' +
+        '<td style="text-align:center; font-weight:700; color:#059669; font-size:0.8rem;">' + r.result_count + '</td>' +
+        '<td style="font-size:0.76rem; color:#475569;" title="' + esc(res.join(',')) + '">' +
+          '<div style="cursor:help;">' + esc(resPreview || '-') + '</div>' +
+          '<div style="font-size:0.7rem; color:#94a3b8;" title="' + esc(ins.join(',')) + '">输入: ' + esc(inPreview) + '</div></td>' +
+        '<td style="text-align:center; white-space:nowrap;">' +
+          (res.length ? '<button class="btn btn-outline btn-sm" style="padding:2px 6px; font-size:0.7rem; margin-right:3px;" onclick="copyAsins(' + esc(JSON.stringify(res)) + ')">复制</button>' +
+            '<button class="btn btn-primary btn-sm" style="padding:2px 6px; font-size:0.7rem;" onclick=\'fillAsinsIntoNewTask(' + JSON.stringify(res).replace(/'/g, '&#39;') + ')\'>新任务</button>' : '-') +
+        '</td></tr>';
+    }).join('');
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:24px; color:#dc2626;">加载失败: ' + esc(e.message) + '</td></tr>';
+  }
+}
+
+/* ---------- Tab④ 入库总览 ---------- */
+async function loadAsinOverview(resetPage) {
+  if (resetPage) asinState.page = 1;
+  const body = document.getElementById('asinOvBody');
+  body.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px; color:var(--text-muted);">⏳ 加载中...</td></tr>';
+  try {
+    const kw = document.getElementById('asinOvSearch').value.trim();
+    const j = await (await fetch('/api/asin-pool/overview?page=' + asinState.page +
+      '&page_size=' + asinState.pageSize + (kw ? '&search=' + encodeURIComponent(kw) : ''))).json();
+    if (j.code !== 0) throw new Error(j.detail || '加载失败');
+    const d = j.data, s = d.stats || {};
+    const lb = s.latest_batch;
+    document.getElementById('asinOvStats').innerHTML =
+      '<span class="asin-chip muted" style="font-size:0.8rem; padding:5px 12px;">历史批次 <b>' + s.batch_count + '</b></span>' +
+      '<span class="asin-chip muted" style="font-size:0.8rem; padding:5px 12px;">累计父子对 <b>' + s.total_pairs + '</b></span>' +
+      (lb ? '<span class="asin-chip" style="font-size:0.8rem; padding:5px 12px;">当前生效批次 #' + lb.id + '：<b>' + s.parent_count + '</b> 父 / <b>' + s.child_count + '</b> 子 · ' + esc(lb.imported_at) + '</span>'
+        : '<span class="asin-chip warn" style="font-size:0.8rem; padding:5px 12px;">尚未导入任何批次</span>');
+
+    const rows = d.parents || [];
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:24px; color:var(--text-muted);">📭 ' + (kw ? '未搜索到匹配的父 ASIN' : '暂无数据') + '</td></tr>';
+    } else {
+      body.innerHTML = rows.map(p =>
+        '<tr data-parent="' + esc(p.parent) + '">' +
+        '<td style="text-align:center;"><span style="cursor:pointer; color:#2563eb; font-size:0.78rem;" onclick="toggleAsinChildren(this)">▸</span></td>' +
+        '<td style="font-family:monospace; font-size:0.82rem; font-weight:600;">' + esc(p.parent) + '</td>' +
+        '<td style="text-align:center; font-size:0.8rem;">' + p.child_count + '</td>' +
+        '<td style="text-align:center;">' + (p.is_standalone
+          ? '<span style="font-size:0.72rem; color:#64748b; border:1px solid #e2e8f0; border-radius:9999px; padding:2px 8px;">独立商品</span>'
+          : '<span style="font-size:0.72rem; color:#1d4ed8; background:#eff6ff; border:1px solid #bfdbfe; border-radius:9999px; padding:2px 8px;">多变体</span>') + '</td>' +
+        '</tr>').join('');
+    }
+    const pages = Math.max(1, Math.ceil((d.total || 0) / asinState.pageSize));
+    document.getElementById('asinOvPageInfo').innerText = '共 ' + (d.total || 0) + ' 个父 ASIN · 第 ' + asinState.page + ' / ' + pages + ' 页';
+    document.getElementById('asinOvPrev').disabled = asinState.page <= 1;
+    document.getElementById('asinOvNext').disabled = asinState.page >= pages;
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:24px; color:#dc2626;">加载失败: ' + esc(e.message) + '</td></tr>';
+  }
+}
+
+function asinOvPage(delta) {
+  asinState.page += delta;
+  if (asinState.page < 1) asinState.page = 1;
+  loadAsinOverview(false);
+}
+
+async function purgeAsinPool() {
+  if (!confirm('确认删除全部 ASIN 池数据？\n\n将永久清空：\n· 所有历史导入批次\n· 全部父子 ASIN 关系\n· 全部「获取 ASIN」生成记录\n\n此操作不可恢复，需重新导入 Excel 才能再次生成。')) return;
+  const btn = document.getElementById('asinPurgeBtn');
+  btn.disabled = true; btn.innerText = '清空中...';
+  try {
+    const j = await (await fetch('/api/asin-pool/all', { method: 'DELETE' })).json();
+    if (j.code !== 0) throw new Error(j.detail || '删除失败');
+    showToast(j.msg || '已清空全部数据', 'success');
+    asinState.page = 1;
+    document.getElementById('asinOvSearch').value = '';
+    loadAsinOverview(false);
+    loadAsinBatches();   // 同步刷新 Tab① 批次表
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerText = '🗑 删除全部';
+  }
+}
+
+async function toggleAsinChildren(iconEl) {
+  const tr = iconEl.closest('tr');
+  const parent = tr.dataset.parent;
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains('asin-child-row')) {
+    next.remove();
+    iconEl.innerText = '▸';
+    return;
+  }
+  iconEl.innerText = '▾';
+  try {
+    const j = await (await fetch('/api/asin-pool/parents/' + encodeURIComponent(parent) + '/children')).json();
+    const children = (j.data && j.data.children) || [];
+    const newTr = document.createElement('tr');
+    newTr.className = 'asin-child-row';
+    newTr.innerHTML = '<td colspan="4" style="padding:10px 16px;">' +
+      (children.map(c => '<span class="asin-chip muted" style="font-family:monospace;">' + esc(c) + '</span>').join('') || '<span style="color:#94a3b8;">无子 ASIN</span>') +
+      '</td>';
+    tr.after(newTr);
+  } catch (e) {
+    iconEl.innerText = '▸';
+    showToast('加载子 ASIN 失败: ' + e.message, 'error');
+  }
 }
 </script>
 {% endblock %}

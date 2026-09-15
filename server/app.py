@@ -32,6 +32,7 @@ from server.routers import (
     user_router,
     task_router,
     ad_router,
+    asin_router,
     knowledge_router
 )
 
@@ -84,6 +85,7 @@ app.include_router(user_router.router)
 app.include_router(product_router.router)
 app.include_router(task_router.router)
 app.include_router(ad_router.router)
+app.include_router(asin_router.router)
 app.include_router(upload_router.router)
 app.include_router(automation_router.router)
 app.include_router(pricing_router.router)

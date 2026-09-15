@@ -345,6 +345,50 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_ad_runs_task_id ON ad_task_runs(task_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_ad_runs_started_at ON ad_task_runs(started_at);")
 
+    # 9.1 ASIN 生成池 - 导入批次表 (赛狐导出的在线产品父子ASIN, 每次追加导入)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS asin_import_batches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        imported_at TEXT NOT NULL,
+        filename TEXT DEFAULT '',
+        excel_rows INTEGER DEFAULT 0,
+        pair_count INTEGER DEFAULT 0,
+        parent_count INTEGER DEFAULT 0,
+        imported_by TEXT DEFAULT ''
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_asin_batches_time ON asin_import_batches(imported_at);")
+
+    # 9.2 ASIN 生成池 - 父子关系表 (按批次归属, 生成算法仅取最新批次)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS asin_parent_child (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        batch_id INTEGER NOT NULL,
+        parent TEXT NOT NULL,
+        child TEXT NOT NULL,
+        UNIQUE(batch_id, parent, child)
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_asin_pc_batch ON asin_parent_child(batch_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_asin_pc_child ON asin_parent_child(child);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_asin_pc_parent ON asin_parent_child(parent);")
+
+    # 9.3 ASIN 生成池 - 获取记录 (每次生成的输入/结果/忽略ASIN)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS asin_query_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        queried_at TEXT NOT NULL,
+        batch_id INTEGER NOT NULL,
+        input_count INTEGER DEFAULT 0,
+        result_count INTEGER DEFAULT 0,
+        input_asins_json TEXT DEFAULT '[]',
+        result_asins_json TEXT DEFAULT '[]',
+        ignored_asins_json TEXT DEFAULT '[]',
+        created_by TEXT DEFAULT ''
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_asin_query_time ON asin_query_logs(queried_at);")
+
     # 10. 知识库与常用工具网站表 (三部分: 1.网站名称 2.网址5分段 3.说明)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS knowledge_sites (
