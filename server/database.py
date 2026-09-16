@@ -5,7 +5,7 @@ import sys
 import sqlite3
 import json
 from typing import Dict, Any, List, Optional
-from server.config import DB_PATH
+from server.config import DB_PATH, DB_AGENT_TOKEN
 
 if sys.platform == "win32":
     try:
@@ -225,6 +225,12 @@ def init_db():
     if not cursor.fetchone():
         cursor.execute("INSERT INTO system_settings (key, value_json) VALUES (?, ?);", 
                        ("storage_rel_sku", json.dumps("sku", ensure_ascii=False)))
+
+    # 初始化内嵌「图片服务 / DB Agent」访问令牌 (异地桌面上件助手 X-DB-Token 校验)
+    cursor.execute("SELECT value_json FROM system_settings WHERE key = 'db_agent_token';")
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO system_settings (key, value_json) VALUES (?, ?);",
+                       ("db_agent_token", json.dumps(DB_AGENT_TOKEN or "erp2024", ensure_ascii=False)))
 
     # 初始化默认 Session 有效期 (小时，默认 1.0h)
     cursor.execute("SELECT value_json FROM system_settings WHERE key = 'session_expire_hours';")

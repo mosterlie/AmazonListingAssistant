@@ -352,5 +352,37 @@
   </div>
 </div>
 
-<script src="/static/js/settings.js?v=20260913_bullets_ai"></script>
+<!-- 6. 桌面上件助手远程通道令牌 (内嵌图片服务, 原 db_agent 8765) -->
+<div class="form-card">
+  <div class="card-header">
+    <div class="card-title">
+      <div class="card-title-icon">6</div>
+      <span>桌面上件助手远程通道令牌 (内嵌图片服务)</span>
+    </div>
+    <span class="tag-badge" style="background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">与 ERP 共用同一端口</span>
+  </div>
+  <div class="card-body">
+    <div class="form-group">
+      <label class="form-label">
+        访问令牌 (X-DB-Token)
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(留空则使用默认 erp2024)</span>
+      </label>
+      <input type="password" class="form-input" id="dbAgentTokenInput" value="" placeholder="如: erp2024" autocomplete="new-password">
+      <small style="color:var(--text-muted); font-size:0.78rem;">
+        异地「桌面上件助手」连接本机时填写的令牌：数据库查询 (/query、/execute) 与商品图片下载 (/file) 均据此校验。
+        修改后需同步修改助手端配置，否则会提示「token 无效」。
+      </small>
+    </div>
+
+    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:var(--radius-sm); padding:14px; font-size:0.85rem; color:#166534;">
+      <div style="font-weight:700; margin-bottom:4px;">🔗 桌面上件助手连接方式：</div>
+      <div style="font-family:monospace; line-height:1.6; font-size:0.82rem;">
+        主机: <code>本机 IP 或隧道域名</code> &nbsp;|&nbsp; 端口: <code>ERP 服务端口 8000</code> (或 SakuraFrp 隧道对外端口) &nbsp;|&nbsp; 令牌: <code>上方令牌</code><br>
+        图片服务已合并进 ERP 服务：无需再单独启动 db_agent.py，也无需为 8765 单独开隧道。
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/settings.js?v=20260916_db_agent_merge"></script>
 {% endblock %}

@@ -1,59 +1,58 @@
 @echo off
-title AmazonListingAssistant һ��ֹͣ (ERP+ͼƬ/Sakura/Chrome/Ollama)
+chcp 65001 >nul
+title AmazonListingAssistant 一键停止 (ERP服务/Sakura/Chrome/Ollama)
 
 echo ============================================
-echo   1/4 ֹͣ ERP+ͼƬ ���� (�˿� 8000/8765)...
+echo   1/4 停止 ERP 服务 (含内嵌图片服务, 端口 8000)...
 echo ============================================
-:: 1) �������о�ȷ���� python �������, ��Ӱ������ python
+rem 1) 按命令行精确匹配 python 进程, 不影响其他 python
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { $_.CommandLine -match 'server\.app|db_agent\.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-:: 2) �ر�����ʱ�򿪵ķ��� cmd ���� (��һ������������)
+rem 2) 关闭启动时打开的宿主 cmd 窗口 (随一键启动一起产生的)
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='cmd.exe'\" | Where-Object { $_.CommandLine -match 'startAll\.bat|server\.app|db_agent\.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-:: 3) ����: ���˿ڽ�����������
+rem 3) 兜底: 按端口接管进程收尾
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000 " ^| findstr "LISTENING"') do taskkill /F /T /PID %%a >nul 2>&1
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8765 " ^| findstr "LISTENING"') do taskkill /F /T /PID %%a >nul 2>&1
-echo [OK] ERP+ͼƬ ������ֹͣ, ����ʱ�򿪵� cmd ������ͬ���ر�
+echo [OK] ERP 服务已停止, 启动时打开的 cmd 窗口已同步关闭
 
 echo ============================================
-echo   2/4 ֹͣ SakuraFrp...
+echo   2/4 停止 SakuraFrp...
 echo ============================================
 taskkill /F /IM SakuraLauncher.exe >nul 2>&1
 taskkill /F /IM SakuraFrpService.exe >nul 2>&1
 taskkill /F /IM frpc.exe >nul 2>&1
-echo [OK] SakuraFrp ��ֹͣ
+echo [OK] SakuraFrp 已停止
 
 echo ============================================
-echo   3/4 ֹͣ���� Chrome (9222, �� C:\ChromeDebugUser ʵ��)...
+echo   3/4 停止专属 Chrome (9222, 仅 C:\ChromeDebugUser 实例)...
 echo ============================================
 powershell -NoProfile -Command "$c = Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | Where-Object {$_.CommandLine -like '*ChromeDebugUser*'}; if ($c) { $c | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"
-echo [OK] ���� Chrome ��ֹͣ, ��Ӱ���ճ������
+echo [OK] 专属 Chrome 已停止, 不影响日常浏览器
 
 echo ============================================
-echo   4/4 ֹͣ Ollama ���� llama ģ�ͽ���...
+echo   4/4 停止 Ollama 服务与 llama 模型进程...
 echo ============================================
 taskkill /F /T /IM "ollama app.exe" >nul 2>&1
 taskkill /F /T /IM ollama.exe >nul 2>&1
 taskkill /F /T /IM ollama_llama_server.exe >nul 2>&1
 taskkill /F /T /IM llama-server.exe >nul 2>&1
-:: ����: ���������������� ollama / llama ��ؽ��� (���°� Ollama �� llama-server.exe ��������)
+rem 兜底: 按进程名补充清理 ollama / llama 相关进程 (新版 Ollama 用 llama-server.exe 承载模型)
 powershell -NoProfile -Command "Get-Process | Where-Object { $_.Name -match 'ollama|llama' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-echo [OK] Ollama �� llama ��ؽ�����ȫ��ֹͣ
+echo [OK] Ollama 及 llama 相关进程已全部停止
 
 echo.
 echo ============================================
-echo   ֹͣ��ɣ�����ȷ�� 4 ���˿��ѹر�...
+echo   停止完成，正在确认 3 个端口已关闭...
 echo ============================================
 ping -n 3 127.0.0.1 >nul
-call :check_down 8000 "ERP����"
-call :check_down 8765 "ͼƬ����"
-call :check_down 9222 "Chrome����"
+call :check_down 8000 "ERP服务"
+call :check_down 9222 "Chrome调试"
 call :check_down 11434 "Ollama"
 echo.
-echo ȫ��ִֹͣ����ϡ�
+echo 全部停止执行完毕。
 ping -n 6 127.0.0.1 >nul
 exit /b 0
 
 :check_down
 netstat -aon | findstr ":%1 " | findstr "LISTENING" >nul 2>&1
-if %errorlevel%==0 echo [FAIL] �˿� %1 %~2 ��������
-if not %errorlevel%==0 echo [OK]   �˿� %1 %~2 �ѹر�
+if %errorlevel%==0 echo [FAIL] 端口 %1 %~2 仍在监听
+if not %errorlevel%==0 echo [OK]   端口 %1 %~2 已关闭
 exit /b 0

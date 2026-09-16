@@ -55,6 +55,7 @@ class SystemSettingsSchema(BaseModel):
     chrome_user_data_dirs: ChromeUserDataDirsSchema = Field(default_factory=ChromeUserDataDirsSchema, description="Chrome 9222 自动化专属用户数据目录 (mac/win 分平台配置)")
     submit_ad_enabled: bool = Field(False, description="自动投放是否提交广告 (True=每批录入后自动点击提交并确认; False=停在提交前待人工确认)")
     ai_config: AiConfigSchema = Field(default_factory=AiConfigSchema, description="AI 大模型配置 (自动生成五点描述)")
+    db_agent_token: Optional[str] = Field("", description="桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token 校验, 留空使用默认 erp2024)")
 
 
 def normalize_store_accounts(raw_stores: Any) -> List[Dict[str, Any]]:
@@ -152,6 +153,8 @@ async def get_system_settings():
             "model_name": (get_setting("ai_model_name", "") or "").strip() or "deepseek-v4-flash",
             "api_key": (get_setting("ai_api_key", "") or "").strip() or "sk-44d5b47efaa64e3a967efc0c8fc05ce2"
         }
+        # 桌面上件助手远程通道令牌 (原 db_agent 8765, 现已内嵌于本服务同一端口)
+        db_agent_token = (get_setting("db_agent_token", "") or "").strip() or "erp2024"
 
         return {
             "code": 0,
@@ -173,7 +176,8 @@ async def get_system_settings():
                 "session_expire_hours": session_exp,
                 "chrome_user_data_dirs": chrome_dir,
                 "submit_ad_enabled": submit_ad_enabled,
-                "ai_config": ai_config
+                "ai_config": ai_config,
+                "db_agent_token": db_agent_token
             }
         }
     except Exception as e:
@@ -251,6 +255,10 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
             "api_key": (ai.api_key or "").strip()
         }
 
+        # 8. 保存桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token 校验; 留空回退默认值)
+        db_agent_token = (payload.db_agent_token or "").strip() or "erp2024"
+        set_setting("db_agent_token", db_agent_token)
+
         # 同步刷新内存全局参数
         GLOBAL_PRICING_CONFIG.update(pricing_dict)
 
@@ -269,7 +277,8 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
                 "session_expire_hours": session_exp,
                 "chrome_user_data_dirs": chrome_dir,
                 "submit_ad_enabled": submit_ad_enabled,
-                "ai_config": ai_config
+                "ai_config": ai_config,
+                "db_agent_token": db_agent_token
             }
         }
     except Exception as e:

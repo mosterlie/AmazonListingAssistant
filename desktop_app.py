@@ -58,9 +58,10 @@ if sys.platform == "win32":
 CONFIG_FILE = os.path.join(BASE_DIR, "desktop_config.json")
 DEFAULT_DB_PATH = os.path.join(BASE_DIR, "data", "products.db")
 
-# 远程连接默认值 (SakuraFrp 隧道 → 主机 db_agent), 新环境首次启动直接预填
-DEFAULT_REMOTE_HOST = "frp-rib.com"
-DEFAULT_REMOTE_PORT = 49063
+# 远程连接默认值 (SakuraFrp 隧道 → 主机 ERP 服务, 图片服务已内嵌其中), 新环境首次启动直接预填
+# 局域网直连时请把端口改为 ERP 服务端口 (默认 8000)
+DEFAULT_REMOTE_HOST = "frp-off.com"
+DEFAULT_REMOTE_PORT = 14329
 DEFAULT_REMOTE_TOKEN = "erp2024"
 # Chrome 9222 用户数据目录默认值与 Chrome 可执行文件探测 (跨平台适配)
 if sys.platform == "darwin":
@@ -355,7 +356,7 @@ class DesktopApp:
         ttk.Button(frm_db, text="浏览...", command=self._browse_image_root, width=8).grid(row=2, column=2, padx=2)
         ttk.Button(frm_db, text="应用", command=self.apply_image_root, width=8).grid(row=2, column=3, padx=(2, 8))
 
-        ttk.Label(frm_db, text="远程模式: 填主库 IP/域名 + 端口 8765, 图片自动从主库服务器下载缓存后上传店小秘, "
+        ttk.Label(frm_db, text="远程模式: 填主库 IP/域名 + 端口 8000 (或隧道端口), 图片自动从主库服务器下载缓存后上传店小秘, "
                                "无需共享文件夹；图片目录为可选的本机覆盖路径 (留空即可)",
                   foreground="#64748b", wraplength=820, justify="left").grid(
             row=3, column=0, columnspan=4, sticky="w", padx=8, pady=(0, 4))
@@ -414,7 +415,7 @@ class DesktopApp:
         根据连接方式注入运行时：
         - 本地: server.database.DB_PATH → 所选文件, 图片按本地/共享路径解析
         - 远程: 将 server.database / product_service / task_service / auth_service
-          中的 get_db_connection 替换为 HTTP 桥接适配器 (配合主机 db_agent.py);
+          中的 get_db_connection 替换为 HTTP 桥接适配器 (配合主机 ERP 服务内嵌的图片服务);
           同时接管 FileService.resolve_image_path —— 本地找不到的图片自动从
           主库服务器下载到本地缓存后再上传店小秘
         同时覆盖 get_setting 实现图片存储目录重定向 (storage_path_win)。
@@ -445,14 +446,14 @@ class DesktopApp:
                 try:
                     _, scheme = RemoteSQLiteConnection.connect_with_autodetect(
                         self.host_var.get().strip(),
-                        self.port_var.get().strip() or 8765,
+                        self.port_var.get().strip() or 8000,
                         self.token_var.get())
                     self.remote_scheme = scheme
                 except Exception:
                     scheme = "http"
             remote_conn = RemoteSQLiteConnection(
                 self.host_var.get().strip(),
-                int(self.port_var.get().strip() or 8765),
+                int(self.port_var.get().strip() or 8000),
                 self.token_var.get(),
                 scheme=scheme,
             )
@@ -609,10 +610,10 @@ class DesktopApp:
 
     def _apply_remote_db(self, silent: bool):
         host = self.host_var.get().strip()
-        port = (self.port_var.get().strip() or "8765")
+        port = (self.port_var.get().strip() or "8000")
         if not host:
             if not silent:
-                messagebox.showwarning("提示", "请填写主库机器的 IP 或域名！\n\n并确保主机已运行: python db_agent.py")
+                messagebox.showwarning("提示", "请填写主库机器的 IP 或域名！\n\n并确保主机已运行 ERP 服务: python -m server.app")
             return
 
         # 自动探测协议 (http / https 内网穿透隧道)
@@ -628,9 +629,9 @@ class DesktopApp:
                 messagebox.showerror(
                     "远程数据库连接失败",
                     f"无法连接 {host}:{port}\n{e}\n\n请检查：\n"
-                    "1. 主机是否已运行 python db_agent.py\n"
-                    "2. IP/端口是否正确, 防火墙/穿透隧道是否正常\n"
-                    "3. 访问令牌是否与主机 --token 一致"
+                    "1. 主机是否已运行 ERP 服务 (python -m server.app)\n"
+                    "2. IP/端口是否正确 (图片服务已合并进 ERP, 端口填 8000 或隧道端口)\n"
+                    "3. 访问令牌是否与主机「系统管理 → 桌面上件助手远程通道令牌」一致"
                 )
             return
 

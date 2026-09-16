@@ -95,3 +95,43 @@ class FileService:
                         return os.path.abspath(matched)
 
         return ""
+
+    @staticmethod
+    def allowed_image_roots() -> List[str]:
+        """允许对外提供下载的目录白名单 (商品归档根目录 + uploads 上传目录)"""
+        from server.database import get_setting
+        import platform
+
+        roots = [os.path.abspath(UPLOADS_DIR)]
+        try:
+            is_win = (platform.system().lower() == "windows")
+            key = "storage_path_win" if is_win else "storage_path_mac"
+            default_base = "D:\\products" if is_win else "/Users/gx/Desktop/products"
+            base_dir = (get_setting(key, default_base) or "").strip()
+            if base_dir:
+                roots.append(os.path.abspath(base_dir))
+        except Exception:
+            pass
+        return roots
+
+    @staticmethod
+    def resolve_safe_image_path(path: str) -> str:
+        """
+        解析图片相对/绝对路径并校验其落在白名单目录内 (防任意文件读取)。
+        用于对外暴露的图片下载接口 (内嵌图片服务 /file)；非法或不存在返回空串。
+        """
+        resolved = FileService.resolve_image_path(path)
+        if not resolved or not os.path.isfile(resolved):
+            return ""
+        try:
+            real = os.path.normpath(os.path.realpath(resolved)).lower()
+        except Exception:
+            return ""
+        for root in FileService.allowed_image_roots():
+            try:
+                root_real = os.path.normpath(os.path.realpath(root)).lower()
+            except Exception:
+                continue
+            if real == root_real or real.startswith(root_real + os.sep):
+                return resolved
+        return ""

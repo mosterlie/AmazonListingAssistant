@@ -30,7 +30,9 @@ const settingsState = {
     api_base_url: "https://api.deepseek.com",
     model_name: "deepseek-v4-flash",
     api_key: ""
-  }
+  },
+  // 桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token, 原 db_agent 8765)
+  db_agent_token: ""
 };
 
 function showToast(msg, type = "success") {
@@ -79,6 +81,9 @@ async function loadSettings() {
       if (result.data.ai_config) {
         settingsState.ai_config = { ...settingsState.ai_config, ...result.data.ai_config };
       }
+      if (result.data.db_agent_token !== undefined) {
+        settingsState.db_agent_token = result.data.db_agent_token || "";
+      }
 
       populateForm();
     }
@@ -126,6 +131,9 @@ function populateForm() {
   
   if (chromeDirMacInp) chromeDirMacInp.value = settingsState.chrome_user_data_dirs.mac || "~/ChromeDebugUser";
   if (chromeDirWinInp) chromeDirWinInp.value = settingsState.chrome_user_data_dirs.win || "C:\\ChromeDebugUser";
+
+  const dbAgentTokenInp = document.getElementById("dbAgentTokenInput");
+  if (dbAgentTokenInp) dbAgentTokenInp.value = settingsState.db_agent_token || "";
 
   const submitYes = document.getElementById("submitAdYes");
   const submitNo = document.getElementById("submitAdNo");
@@ -374,7 +382,8 @@ async function saveSettings() {
       api_base_url: (document.getElementById("aiApiBaseUrlInput")?.value || "https://api.deepseek.com").trim(),
       model_name: (document.getElementById("aiModelNameInput")?.value || "deepseek-v4-flash").trim(),
       api_key: (document.getElementById("aiApiKeyInput")?.value || "").trim()
-    }
+    },
+    db_agent_token: (document.getElementById("dbAgentTokenInput")?.value || "").trim()
   };
 
   try {
@@ -400,6 +409,9 @@ async function saveSettings() {
       }
       if (result.data.ai_config !== undefined) {
         settingsState.ai_config = result.data.ai_config;
+      }
+      if (result.data.db_agent_token !== undefined) {
+        settingsState.db_agent_token = result.data.db_agent_token || "";
       }
       // 状态全部更新后再刷新表单, 避免用旧值覆盖刚保存的选项 (如五点描述生成来源单选框)
       populateForm();
