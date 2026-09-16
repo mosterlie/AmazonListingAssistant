@@ -1612,6 +1612,13 @@ function initBatchOperations() {
 // Save Product & Publish to Dianxiaomi
 // ============================================================================
 async function saveProduct() {
+  // 标题修改后 AI 正在生成并联动改写字段(标题翻译/商品标识/标识英文翻译/父子SKU/五点描述)期间禁止提交
+  if (isAiProcessing()) {
+    showToast("AI 正在根据标题生成并联动修改内容，请等待处理完成后再保存！", "error");
+    refreshSaveButtonLockState();
+    return;
+  }
+
   const store_account = document.getElementById("storeAccountSelect")?.value;
   const site = "日本";
   const parent_sku = document.getElementById("parentSkuInput")?.value.trim() || "";
@@ -1779,6 +1786,7 @@ async function saveProduct() {
     const apiUrl = isEdit ? `/api/products/${editingProductId}` : "/api/products";
     const method = isEdit ? "PUT" : "POST";
     const actionDesc = isEdit ? "修改" : "保存";
+    const titleChanged = isEdit && (title || "").trim() !== originalEditTitle;
 
     showToast(`正在${actionDesc}商品数据到本地数据库并自动归档文件...`);
     const res = await fetch(apiUrl, {
@@ -1789,17 +1797,46 @@ async function saveProduct() {
     const result = await res.json();
     if (result.code === 0) {
       const productId = (result.data && result.data.id) ? result.data.id : (editingProductId || 1);
-      showToast(`✅ 商品${actionDesc}成功！正在跳转商品管理列表...`);
+      const renameHint = titleChanged ? "，归档文件夹已按新标题重建并清理原文件夹" : "";
+      showToast(`✅ 商品${actionDesc}成功${renameHint}！正在跳转商品管理列表...`);
 
       // 录入/编辑商品提交成功后，自动跳转到商品列表页面
       setTimeout(() => {
         window.location.href = "/list";
       }, 600);
     } else {
-      showToast(`${actionDesc}失败: ${result.msg}`, "error");
+      showToast(`${actionDesc}失败: ${result.msg || result.detail || "请检查填写内容后重试"}`, "error");
     }
   } catch (err) {
     showToast(`系统异常: ${err.message}`, "error");
+  }
+}
+
+/**
+ * 编辑模式下的标题变更提示：标题已放开编辑，保存后系统会按新标题重建归档文件夹并清理原文件夹
+ */
+let originalEditTitle = "";
+
+function updateTitleChangeBadge() {
+  const badge = document.getElementById("titleEditLockBadge");
+  if (!badge) return;
+  const isEdit = (editingProductId !== null && editingProductId !== undefined);
+  if (!isEdit) {
+    badge.style.display = "none";
+    return;
+  }
+  const cur = (document.getElementById("titleInput")?.value || "").trim();
+  badge.style.display = "inline-block";
+  if (cur !== originalEditTitle) {
+    badge.textContent = "⚠️ 标题已修改，保存后将重命名归档文件夹并清理原文件夹";
+    badge.style.color = "#b45309";
+    badge.style.background = "#fffbeb";
+    badge.style.borderColor = "#fde68a";
+  } else {
+    badge.textContent = "✏️ 标题可编辑（标题不可与其他商品重复）";
+    badge.style.color = "#1d4ed8";
+    badge.style.background = "#eff6ff";
+    badge.style.borderColor = "#bfdbfe";
   }
 }
 
@@ -1842,18 +1879,20 @@ async function loadProductForEdit(productId) {
     const titleInp = document.getElementById("titleInput");
     if (titleInp) {
       titleInp.value = p.title || "";
-      // 编辑模式下锁定标题：不支持修改产品标题
-      titleInp.readOnly = true;
-      titleInp.style.backgroundColor = "#f1f5f9";
-      titleInp.style.cursor = "not-allowed";
-      titleInp.title = "编辑商品模式下已锁定标题，不支持修改产品标题";
-      const lockBadge = document.getElementById("titleEditLockBadge");
-      if (lockBadge) lockBadge.style.display = "inline-block";
+      // 编辑模式已放开标题：保存后按新标题重建归档文件夹，并自动清理原标题对应的文件夹
+      titleInp.readOnly = false;
+      titleInp.style.backgroundColor = "";
+      titleInp.style.cursor = "";
+      titleInp.title = "标题可自由修改；保存后将按新标题重建归档文件夹，原文件夹自动清理（标题不可与其他商品重复）";
+      originalEditTitle = (p.title || "").trim();
+      // 已录入内容的标题视为"已翻译过": 未改动标题时不触发自动级联, 避免误覆盖已保存的商品标识/翻译
+      lastAutoTranslatedTitle = originalEditTitle;
+      updateTitleChangeBadge();
       const transTitleBtn = document.getElementById("translateTitleBtn");
       if (transTitleBtn) {
-        transTitleBtn.disabled = true;
-        transTitleBtn.style.opacity = "0.5";
-        transTitleBtn.title = "编辑模式下标题已锁定，无需重新翻译";
+        transTitleBtn.disabled = false;
+        transTitleBtn.style.opacity = "";
+        transTitleBtn.title = "重新调用本地 Ollama 翻译标题";
       }
     }
 
@@ -2205,6 +2244,7 @@ function initKeywordsManager() {
     });
   }
   // 标题自动级联: 输入停顿 1.2s 自动触发, 失焦时若标题已变化则立即触发
+  // 新增/编辑模式一致生效: 标题变更后自动重新翻译并联动改写商品标识、标识英文翻译与父子 SKU
   if (titleInp) {
     titleInp.addEventListener("input", scheduleAutoTranslateTitle);
     titleInp.addEventListener("blur", () => {
@@ -2228,6 +2268,38 @@ function initKeywordsManager() {
 // 同一按钮同时只允许一个 AI 请求, 防止并发覆盖按钮文案导致卡在"处理中"
 const aiBusyButtons = new Set();
 
+// ============================================================================
+// AI 联动处理状态: 标题 AI 级联(含等待中的防抖定时器)与任意 AI 调用进行期间,
+// 禁止提交保存, 避免把"字段仍被模型改写中"的半成品数据写入数据库
+// ============================================================================
+let aiPendingCount = 0;         // 进行中的 AI 调用数量
+let autoCascadePending = false; // 标题自动级联的防抖等待期 (已输入但尚未发起调用)
+
+function isAiProcessing() {
+  return aiPendingCount > 0 || autoCascadePending;
+}
+
+/** 依据 AI 处理状态锁定/解锁保存按钮 */
+function refreshSaveButtonLockState() {
+  const saveBtn = document.getElementById("saveProductBtn");
+  if (!saveBtn) return;
+  if (isAiProcessing()) {
+    if (!saveBtn.disabled) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = "⏳ AI 联动处理中...";
+      saveBtn.style.opacity = "0.6";
+      saveBtn.style.cursor = "not-allowed";
+      saveBtn.title = "AI 正在根据标题生成并联动修改内容，处理完成后才能保存";
+    }
+  } else if (saveBtn.disabled) {
+    saveBtn.disabled = false;
+    saveBtn.textContent = (editingProductId !== null && editingProductId !== undefined) ? "保存修改" : "保存";
+    saveBtn.style.opacity = "";
+    saveBtn.style.cursor = "";
+    saveBtn.title = "";
+  }
+}
+
 async function runAiTextProcess(mode, btnId, inpId, source, emptyHint) {
   if (!source || !source.trim()) {
     showToast(emptyHint, "error");
@@ -2239,6 +2311,8 @@ async function runAiTextProcess(mode, btnId, inpId, source, emptyHint) {
   if (aiBusyButtons.has(btnId)) return false;
 
   aiBusyButtons.add(btnId);
+  aiPendingCount += 1;
+  refreshSaveButtonLockState();
   const originalText = btn.textContent;
   btn.disabled = true;
   btn.textContent = "⏳ 处理中...";
@@ -2263,6 +2337,8 @@ async function runAiTextProcess(mode, btnId, inpId, source, emptyHint) {
     return false;
   } finally {
     aiBusyButtons.delete(btnId);
+    aiPendingCount = Math.max(0, aiPendingCount - 1);
+    refreshSaveButtonLockState();
     btn.disabled = false;
     btn.textContent = originalText;
   }
@@ -2276,31 +2352,41 @@ let lastAutoTranslatedTitle = "";
  * 输入标题后全自动级联: 标题翻译 -> 商品标识提炼 -> 商品标识英文翻译
  */
 async function runTitleAiCascade(title) {
-  const ok1 = await runAiTextProcess(
-    "title_translation", "translateTitleBtn", "titleTranslationInput",
-    title, "请先填写产品标题，再进行 AI 翻译！"
-  );
-  if (!ok1) return;
-  lastAutoTranslatedTitle = title;
+  // 整个级联 (含五点描述生成) 期间保持"AI 处理中", 全程禁止提交保存
+  autoCascadePending = false;
+  aiPendingCount += 1;
+  refreshSaveButtonLockState();
+  try {
+    const ok1 = await runAiTextProcess(
+      "title_translation", "translateTitleBtn", "titleTranslationInput",
+      title, "请先填写产品标题，再进行 AI 翻译！"
+    );
+    if (!ok1) return;
+    lastAutoTranslatedTitle = title;
 
-  const translation = document.getElementById("titleTranslationInput")?.value.trim() || "";
-  const ok2 = await runAiTextProcess(
-    "identifier", "extractIdentifierBtn", "productIdentifierInput",
-    translation, "请先完成标题翻译，再提炼商品标识！"
-  );
-  if (!ok2) return;
+    const translation = document.getElementById("titleTranslationInput")?.value.trim() || "";
+    const ok2 = await runAiTextProcess(
+      "identifier", "extractIdentifierBtn", "productIdentifierInput",
+      translation, "请先完成标题翻译，再提炼商品标识！"
+    );
+    if (!ok2) return;
 
-  const identifier = document.getElementById("productIdentifierInput")?.value.trim() || "";
-  await runAiTextProcess(
-    "identifier_translation", "translateIdentifierBtn", "identifierTranslationInput",
-    identifier, "请先填写商品标识，再翻译成英文！"
-  );
+    const identifier = document.getElementById("productIdentifierInput")?.value.trim() || "";
+    await runAiTextProcess(
+      "identifier_translation", "translateIdentifierBtn", "identifierTranslationInput",
+      identifier, "请先填写商品标识，再翻译成英文！"
+    );
 
-  // 标题级联完成后, 仅当系统管理配置中开启了「是否5点描述通过大模型生成」时, 才自动调用大模型生成五点描述
-  if (state.aiConfig?.generate_bullets_enabled) {
-    autoGenerateBullets(title);
-  } else {
-    console.log("五点描述大模型生成未开启 (系统管理中配置为否)，跳过生成");
+    // 标题级联完成后, 仅当系统管理配置中开启了「是否5点描述通过大模型生成」时, 才自动调用大模型生成五点描述
+    // 必须 await: 五点描述生成同样会改写表单字段, 完成前不允许提交
+    if (state.aiConfig?.generate_bullets_enabled) {
+      await autoGenerateBullets(title);
+    } else {
+      console.log("五点描述大模型生成未开启 (系统管理中配置为否)，跳过生成");
+    }
+  } finally {
+    aiPendingCount = Math.max(0, aiPendingCount - 1);
+    refreshSaveButtonLockState();
   }
 }
 
@@ -2347,9 +2433,16 @@ function scheduleAutoTranslateTitle() {
   const title = document.getElementById("titleInput")?.value.trim() || "";
   if (!title || title === lastAutoTranslatedTitle) return;
   clearTimeout(autoTranslateTimer);
+  // 防抖等待期同样视为"AI 处理中", 避免在等待期内抢先提交(提交后紧跟着被模型改写)
+  autoCascadePending = true;
+  refreshSaveButtonLockState();
   autoTranslateTimer = setTimeout(() => {
     const t = document.getElementById("titleInput")?.value.trim() || "";
-    if (!t || t === lastAutoTranslatedTitle) return;
+    if (!t || t === lastAutoTranslatedTitle) {
+      autoCascadePending = false;
+      refreshSaveButtonLockState();
+      return;
+    }
     runTitleAiCascade(t);
   }, 1200);
 }
@@ -2560,6 +2653,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const translateTitleBtn = document.getElementById("translateTitleBtn");
   if (translateTitleBtn) translateTitleBtn.addEventListener("click", translateTitle);
+
+  // 编辑模式: 标题输入即时刷新"标题已修改"提示
+  const titleInputEl = document.getElementById("titleInput");
+  if (titleInputEl) titleInputEl.addEventListener("input", updateTitleChangeBadge);
 
   const translateIdentifierBtn = document.getElementById("translateIdentifierBtn");
   if (translateIdentifierBtn) translateIdentifierBtn.addEventListener("click", translateIdentifier);

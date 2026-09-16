@@ -56,6 +56,162 @@ class ProductService:
             })
         return variations
 
+    # ========================================================================
+    # 归档目录工具：标题 → 安全目录名 / 标题唯一性校验 / 目录随标题迁移
+    # ========================================================================
+    @staticmethod
+    def _clean_title(title: str) -> str:
+        """把标题转为安全的归档目录名 (替换非法字符、合并换行、去除首尾空白与结尾点号)"""
+        import re
+        text = str(title or "").replace("\r", " ").replace("\n", " ").replace("\t", " ")
+        cleaned = re.sub(r'[\\/*?:"<>|]', '_', text).strip().rstrip(" .")
+        return cleaned or "untitled_product"
+
+    @staticmethod
+    def _title_key(title: str) -> str:
+        """标题归一化比较键 (与归档目录名一一对应, 大小写不敏感)"""
+        return ProductService._clean_title(title).casefold()
+
+    @staticmethod
+    def _assert_title_unique(title: str, exclude_id: Optional[int] = None, exclude_parent_sku: str = "") -> None:
+        """
+        标题唯一性校验 (新增 / 编辑商品通用):
+        与库内其他父商品标题完全重复, 或归一化后归档目录同名冲突时, 拒绝保存并提示冲突商品。
+        """
+        target_key = ProductService._title_key(title)
+        skip_sku = (exclude_parent_sku or "").strip()
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT id, parent_sku, title FROM product_items WHERE is_parent = 1")
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
+
+        for row in rows:
+            if exclude_id is not None and row["id"] == exclude_id:
+                continue
+            other_sku = (row["parent_sku"] or "").strip()
+            if skip_sku and other_sku == skip_sku:
+                continue
+            other_title = (row["title"] or "").strip()
+            if not other_title:
+                continue
+            if ProductService._title_key(other_title) == target_key:
+                raise ValueError(
+                    f"标题重复，无法保存！商品 #{row['id']} (Parent SKU: {other_sku or '-'}) "
+                    f"已使用相同标题《{other_title}》，归档文件夹同名冲突，请修改标题后重试。"
+                )
+
+    @staticmethod
+    def _rewrite_rel_prefix(rel_path: Any, old_clean: str, new_clean: str) -> str:
+        """标题变更后, 把归档相对路径中的旧标题目录前缀改写为新标题目录前缀"""
+        raw = rel_path if isinstance(rel_path, str) else ""
+        if not raw.strip() or not old_clean:
+            return raw
+        norm = raw.strip().replace("\\", "/")
+        low = norm.lower()
+        old_key = old_clean.replace("\\", "/").lower()
+        if low == old_key:
+            return new_clean.replace("\\", "/")
+        if low.startswith(old_key + "/"):
+            return new_clean.replace("\\", "/") + norm[len(old_clean):]
+        return raw.strip()
+
+    @staticmethod
+    def _relocate_product_dir(old_title: str, new_title: str) -> Optional[Any]:
+        """
+        标题变更后迁移归档目录 (必须在本次导出归档完成之后调用):
+        1. 把旧标题目录中的残留文件搬迁进新标题目录 (同名文件以本次导出的最新版本为准)
+        2. 删除旧标题目录, 即"原标题对应的文件夹自动清理"
+        3. 全程可回滚: 任一环节失败都会把文件改动回滚到旧目录并抛错, 由调用方回滚数据库事务
+
+        返回: 成功时返回回滚回调 (供数据库提交失败时撤销文件改动); 无目录变更时返回 None
+        """
+        import os
+        import shutil
+        import platform
+        from server.database import get_setting
+
+        old_title = (old_title or "").strip()
+        new_title = (new_title or "").strip()
+        if not old_title or not new_title:
+            return None
+
+        old_clean = ProductService._clean_title(old_title)
+        new_clean = ProductService._clean_title(new_title)
+        if old_clean == new_clean:
+            return None
+
+        is_win = (platform.system().lower() == "windows")
+        default_path = "D:\\products" if is_win else "/Users/gx/Desktop/products"
+        setting_key = "storage_path_win" if is_win else "storage_path_mac"
+        base_dir = get_setting(setting_key, default_path)
+
+        old_dir = os.path.join(base_dir, old_clean)
+        new_dir = os.path.join(base_dir, new_clean)
+
+        if not os.path.isdir(old_dir):
+            return None
+        if os.path.abspath(old_dir) == os.path.abspath(new_dir):
+            return None
+
+        moved = []          # [(src, dst)] 已搬迁文件, 用于回滚
+        duplicated = []     # [(src, dst)] 新目录已存在同名新版本而被清理的旧副本, 用于回滚
+        created_dirs = []   # 本次新建的子目录, 用于回滚
+
+        def _rollback():
+            """回滚文件改动: 已搬迁文件搬回旧目录, 被清理的旧副本从新目录取回 (不删除任何文件, 确保零丢失)"""
+            for src, dst in reversed(moved):
+                try:
+                    if os.path.exists(dst) and not os.path.exists(src):
+                        os.makedirs(os.path.dirname(src), exist_ok=True)
+                        shutil.move(dst, src)
+                except Exception as e:
+                    print(f"⚠️ 回滚归档文件失败: {dst} -> {src}: {e}")
+            moved.clear()
+            for src, dst in reversed(duplicated):
+                try:
+                    if os.path.exists(dst) and not os.path.exists(src):
+                        os.makedirs(os.path.dirname(src), exist_ok=True)
+                        shutil.copy2(dst, src)
+                except Exception as e:
+                    print(f"⚠️ 回滚归档副本失败: {dst} -> {src}: {e}")
+            duplicated.clear()
+            for d in sorted(created_dirs, key=len, reverse=True):
+                try:
+                    if os.path.isdir(d) and not os.listdir(d):
+                        os.rmdir(d)
+                except Exception:
+                    pass
+
+        try:
+            for root, _dirs, files in os.walk(old_dir):
+                rel = os.path.relpath(root, old_dir)
+                dest_root = new_dir if rel == "." else os.path.join(new_dir, rel)
+                if files and not os.path.isdir(dest_root):
+                    os.makedirs(dest_root, exist_ok=True)
+                    created_dirs.append(dest_root)
+                for fname in files:
+                    src = os.path.join(root, fname)
+                    dst = os.path.join(dest_root, fname)
+                    if os.path.exists(dst):
+                        # 新目录已有本次导出的最新版本, 旧副本随旧目录一并清理 (失败时可从新目录取回)
+                        duplicated.append((src, dst))
+                        continue
+                    shutil.move(src, dst)
+                    moved.append((src, dst))
+
+            # 旧目录整体清理 (残留在其中的同名旧副本一并删除)
+            shutil.rmtree(old_dir)
+            print(f"📁 归档目录已随标题重命名: {old_dir} → {new_dir}")
+        except Exception as e:
+            _rollback()
+            raise RuntimeError(f"标题变更后归档目录迁移失败(已回滚，本次未保存)：{e}")
+
+        return _rollback
+
     @staticmethod
     def export_and_prepare_product_files(data: ProductCreateSchema) -> Dict[str, Any]:
         """
@@ -80,7 +236,7 @@ class ProductService:
         rel_main = (get_setting("storage_rel_main", "main") or "main").strip().strip("/\\") or "main"
         rel_sku = (get_setting("storage_rel_sku", "sku") or "sku").strip().strip("/\\") or "sku"
 
-        clean_title = re.sub(r'[\\/*?:"<>|]', '_', data.title).strip() or "untitled_product"
+        clean_title = ProductService._clean_title(data.title)
         product_dir = os.path.join(base_dir, clean_title)
         main_dir = os.path.join(product_dir, rel_main)
         sku_dir = os.path.join(product_dir, rel_sku)
@@ -187,6 +343,13 @@ class ProductService:
         if not (data.identifier_translation or "").strip():
             raise ValueError("商品标识的英文翻译不能为空！")
 
+        # 0.1 标题必填 + 唯一性校验 (标题即归档目录名, 不允许与其他商品重复)
+        new_title = (data.title or "").strip()
+        if not new_title:
+            raise ValueError("商品标题不能为空，请填写后再保存！")
+        ProductService._assert_title_unique(new_title, exclude_parent_sku=(data.parent_sku or "").strip())
+        data.title = new_title
+
         # 1. 先执行本地文件导出归档，生成标准化的导出相对路径
         export_res = ProductService.export_and_prepare_product_files(data)
         saved_main_image = export_res["main_image"] or data.main_image or ""
@@ -205,6 +368,7 @@ class ProductService:
 
         conn = get_db_connection()
         cursor = conn.cursor()
+        fs_rollback = None
 
         try:
             # 维护人：以登录账号为准 (前端未传时回退请求体或 admin)
@@ -238,6 +402,16 @@ class ProductService:
             # -------------------------------------------------------------
             # 1. 写入精简版单表 product_items
             # -------------------------------------------------------------
+            # 记录同 parent_sku 旧记录的标题 (重存时用于迁移并清理旧标题目录)
+            replaced_old_title = ""
+            cursor.execute(
+                "SELECT title FROM product_items WHERE is_parent = 1 AND (parent_sku = ? OR sku = ?)",
+                (parent_sku, parent_sku)
+            )
+            replaced_row = cursor.fetchone()
+            if replaced_row:
+                replaced_old_title = (replaced_row["title"] or "").strip()
+
             # 先清除同 parent_sku 的旧数据 (便于重复保存/更新)
             cursor.execute("DELETE FROM product_items WHERE parent_sku = ? OR sku = ?", (parent_sku, parent_sku))
 
@@ -314,16 +488,28 @@ class ProductService:
                         created_at = CURRENT_TIMESTAMP;
                     """, (v_sku, v_ean, parent_sku, data.store_account or "", creator))
 
+            # 重存时若标题变更: 归档目录随新标题迁移, 旧标题目录自动清理 (失败则整体回滚)
+            fs_rollback = ProductService._relocate_product_dir(replaced_old_title, data.title)
+
             conn.commit()
             return ProductService.get_product_by_id(parent_item_id)
+        except Exception:
+            conn.rollback()
+            if fs_rollback:
+                try:
+                    fs_rollback()
+                except Exception as rb_err:
+                    print(f"⚠️ 数据库回滚后文件回滚异常: {rb_err}")
+            raise
         finally:
             conn.close()
 
     @staticmethod
     def update_product(product_id: int, data: ProductCreateSchema) -> Optional[Dict[str, Any]]:
-        """更新已有商品及变体数据，保持主键 ID 稳定，更新子变体与关联映射数据 (不支持修改标题)"""
+        """更新已有商品及变体数据，保持主键 ID 稳定，更新子变体与关联映射数据 (支持修改标题并同步重命名归档目录)"""
         conn = get_db_connection()
         cursor = conn.cursor()
+        fs_rollback = None
 
         try:
             # 检查父商品是否存在
@@ -337,12 +523,15 @@ class ProductService:
             old_parent = dict(p_row) if p_row else {}
             old_parent_sku = (old_parent.get("parent_sku") or old_parent.get("sku") or "").strip()
 
-            # 锁定商品标题: 编辑商品模式下严格保持原标题不变 (不支持修改标题)
-            original_title = (old_parent.get("title") or "").strip()
-            if original_title:
-                data.title = original_title
+            # 标题已放开编辑: 校验必填 + 唯一性 (排除自身, 标题即归档目录名不允许重复)
+            old_title = (old_parent.get("title") or "").strip()
+            new_title = (data.title or "").strip()
+            if not new_title:
+                raise ValueError("商品标题不能为空，请填写后再保存！")
+            ProductService._assert_title_unique(new_title, exclude_id=product_id)
+            data.title = new_title
 
-            # 1. 执行本地文件导出归档，生成标准化的导出相对路径 (以原标题为目录)
+            # 1. 执行本地文件导出归档，生成标准化的导出相对路径 (以新标题为目录)
             export_res = ProductService.export_and_prepare_product_files(data)
             saved_main_image = export_res["main_image"] or data.main_image or ""
             saved_extra_images = export_res["extra_images"] if export_res["extra_images"] else (data.extra_images or [])
@@ -357,6 +546,21 @@ class ProductService:
                 data.variant_dimension_images or (data.attributes.get("size_images") if var_dim == "size" else (data.attributes.get("color_images") or {}))
             )
             saved_var_images = export_res["variation_images"]
+
+            # 1.0 标题变更时: 归档相对路径前缀统一改写为新标题目录 (兜底本次未重新提交的图片路径)
+            old_clean = ProductService._clean_title(old_title) if old_title else ""
+            new_clean = ProductService._clean_title(new_title)
+            if old_clean and old_clean != new_clean:
+                saved_main_image = ProductService._rewrite_rel_prefix(saved_main_image, old_clean, new_clean)
+                saved_extra_images = [
+                    ProductService._rewrite_rel_prefix(p, old_clean, new_clean) for p in saved_extra_images
+                ]
+                saved_dim_images = {
+                    k: ProductService._rewrite_rel_prefix(v, old_clean, new_clean) for k, v in saved_dim_images.items()
+                }
+                saved_var_images = [
+                    ProductService._rewrite_rel_prefix(p, old_clean, new_clean) for p in saved_var_images
+                ]
 
             parent_sku = (data.parent_sku or "").strip() or old_parent_sku or "PARENT-SKU"
             color_opts = data.color_options if data.color_options else data.attributes.get("color", [])
@@ -501,8 +705,19 @@ class ProductService:
                         created_at = CURRENT_TIMESTAMP;
                     """, (v_sku, v_ean, parent_sku, data.store_account or "", old_parent.get("created_by") or "admin"))
 
+            # 1.4 标题变更: 归档目录随新标题迁移, 原标题文件夹自动清理 (失败则回滚文件并报错)
+            fs_rollback = ProductService._relocate_product_dir(old_title, new_title)
+
             conn.commit()
             return ProductService.get_product_by_id(product_id)
+        except Exception:
+            conn.rollback()
+            if fs_rollback:
+                try:
+                    fs_rollback()
+                except Exception as rb_err:
+                    print(f"⚠️ 数据库回滚后文件回滚异常: {rb_err}")
+            raise
         finally:
             conn.close()
 
@@ -853,7 +1068,7 @@ class ProductService:
             base_dir = get_setting(setting_key, default_path)
 
             if title:
-                clean_title = re.sub(r'[\\/*?:"<>|]', '_', title).strip() or "untitled_product"
+                clean_title = ProductService._clean_title(title)
                 product_dir = os.path.join(base_dir, clean_title)
                 if os.path.exists(product_dir) and os.path.isdir(product_dir):
                     try:

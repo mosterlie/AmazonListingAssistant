@@ -376,7 +376,13 @@ async def create_product(data: ProductCreateSchema, request: Request):
     """保存商品完整信息至本地数据库，维护人取当前登录账号"""
     user = get_current_user_from_request(request)
     username = user.get("username", "admin") if user else "admin"
-    product = ProductService.create_product(data, created_by=username)
+    try:
+        product = ProductService.create_product(data, created_by=username)
+    except ValueError as ve:
+        # 标题重复 / 标题为空 等业务校验失败: 文件与数据库均已回滚
+        return {"code": 400, "msg": str(ve), "data": None}
+    except Exception as e:
+        return {"code": 500, "msg": f"商品录入失败: {str(e)}", "data": None}
     return {"code": 0, "msg": "商品录入成功", "data": product}
 
 
@@ -388,7 +394,14 @@ async def update_product(product_id: int, data: ProductCreateSchema, request: Re
         existing = ProductService.get_product_by_id(product_id)
         if not existing or (existing.get("created_by") or "") != user.get("username", ""):
             raise HTTPException(status_code=404, detail=f"ID 为 {product_id} 的商品不存在")
-    product = ProductService.update_product(product_id, data)
+    try:
+        product = ProductService.update_product(product_id, data)
+    except ValueError as ve:
+        # 标题重复 / 标题为空 等业务校验失败: 文件与数据库均已回滚
+        return {"code": 400, "msg": str(ve), "data": None}
+    except Exception as e:
+        # 归档目录迁移失败等异常: 服务层已回滚文件, 数据库事务未提交
+        return {"code": 500, "msg": f"商品更新失败: {str(e)}", "data": None}
     if not product:
         raise HTTPException(status_code=404, detail=f"ID 为 {product_id} 的商品不存在")
     return {"code": 0, "msg": "商品更新成功", "data": product}
