@@ -10,6 +10,65 @@ const taskState = {
   searchKeyword: ""
 };
 
+// 批量派发弹窗默认展示的明细条数
+const DISPATCH_DEFAULT_ROWS = 5;
+
+/**
+ * 获取今天的日期字符串 (YYYY-MM-DD)，用作默认派发日期
+ */
+function getTodayString() {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/**
+ * 仅提取日期部分 (YYYY-MM-DD)
+ */
+function formatDateOnly(dt) {
+  if (!dt) return "-";
+  const s = String(dt).replace("T", " ");
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
+/**
+ * 仅提取时间部分 (HH:MM:SS)
+ */
+function formatTimeOnly(dt) {
+  if (!dt) return "";
+  const s = String(dt).replace("T", " ");
+  return s.length >= 19 ? s.slice(11, 19) : "";
+}
+
+// 商品搜索结果列表的收起控制：
+// 1) mousedown 阶段只记录落点是否在搜索区域内（此时列表尚未展开/收起，落点最准确）；
+// 2) click 阶段再决定是否收起。
+// 这样可避免"列表展开/收起导致弹窗高度变化 ⇒ mouseup 落点错位 ⇒ 点击失效或下拉一闪而过"。
+let productSearchAreaMouseDown = false;
+
+document.addEventListener("mousedown", (e) => {
+  const inputEl = document.getElementById("deliverableProductSearchInput");
+  const listEl = document.getElementById("deliverableProductList");
+  if (!inputEl || !listEl) return;
+
+  const target = e.target;
+  let inside = !!(target && (inputEl.contains(target) || listEl.contains(target)));
+  if (!inside) {
+    // 兜底：坐标仍落在搜索框范围内也视为点中了搜索框
+    const rect = inputEl.getBoundingClientRect();
+    inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+  }
+  productSearchAreaMouseDown = inside;
+});
+
+document.addEventListener("click", () => {
+  const listEl = document.getElementById("deliverableProductList");
+  if (!listEl) return;
+  if (productSearchAreaMouseDown) return; // 本次点击由搜索区域发起，保持展开
+  listEl.style.display = "none";
+});
+
 document.addEventListener("DOMContentLoaded", async () => {
   await Promise.all([
     loadUserOptions(),
@@ -60,16 +119,19 @@ async function loadUserOptions() {
 /**
  * 加载系统中已录入的商品列表（供成果关联选择，仅含未被其它任务关联的商品）
  * @param {number|null} taskId 当前任务 ID（放行该任务已关联的商品，便于重新登记）
+ * @param {boolean} onlyMine 是否仅加载当前登录用户名下录入的商品（默认 true）
  */
-async function loadProductOptions(taskId = null) {
+async function loadProductOptions(taskId = null, onlyMine = true) {
   try {
-    let url = "/api/tasks/products/options";
-    if (taskId) url += `?task_id=${taskId}`;
+    const query = [];
+    if (taskId) query.push(`task_id=${taskId}`);
+    if (onlyMine) query.push("only_mine=1");
+    const url = "/api/tasks/products/options" + (query.length ? `?${query.join("&")}` : "");
     const res = await fetch(url);
     const json = await res.json();
     if (json.code === 0 && Array.isArray(json.data)) {
       taskState.products = json.data;
-      renderProductOptions(json.data);
+      renderProductList(json.data);
     }
   } catch (err) {
     console.error("加载商品选项列表失败:", err);
@@ -77,46 +139,152 @@ async function loadProductOptions(taskId = null) {
 }
 
 /**
- * 渲染商品下拉选项
+ * 「仅显示我名下录入的商品」开关变化时，重新加载可选商品列表
  */
-function renderProductOptions(products) {
-  const prodSelect = document.getElementById("deliverableProductSelect");
-  if (!prodSelect) return;
-  const prevVal = prodSelect.value;
-
-  let opts = `<option value="">-- 请选择关联的已录入商品 (必选) --</option>`;
-  opts += products.map(p => {
-    const skuTxt = p.parent_sku ? `[${p.parent_sku}]` : "";
-    const storeTxt = p.store_account ? `(${p.store_account})` : "";
-    const titleTxt = p.title ? p.title.slice(0, 45) : "未命名商品";
-    return `<option value="${p.id}" data-sku="${p.parent_sku || ''}" data-title="${p.title || ''}" data-image="${p.main_image || ''}" data-store="${p.store_account || ''}">
-      #${p.id} ${skuTxt} ${titleTxt} ${storeTxt}
-    </option>`;
-  }).join("");
-  prodSelect.innerHTML = opts;
-
-  // 恢复之前选中的项（若仍存在于筛选结果中）
-  if (prevVal && products.some(p => String(p.id) === prevVal)) {
-    prodSelect.value = prevVal;
-  }
+function reloadDeliverableProductOptions() {
+  const taskIdEl = document.getElementById("submitTargetTaskId");
+  const taskId = taskIdEl && taskIdEl.value ? parseInt(taskIdEl.value) : null;
+  const chk = document.getElementById("deliverableProductOnlyMine");
+  const onlyMine = chk ? chk.checked : true;
+  hideProductList();
+  loadProductOptions(taskId, onlyMine);
 }
 
 /**
- * 按 SKU / 标题关键词筛选商品下拉选项（服务端检索 + 本地兜底过滤）
+ * 渲染关联商品搜索结果列表（限制最大渲染条数，避免一次性渲染过多 DOM）
+ */
+function renderProductList(products) {
+  const listEl = document.getElementById("deliverableProductList");
+  if (!listEl) return;
+
+  if (!products || products.length === 0) {
+    listEl.innerHTML = `<div class="product-result-empty">😕 未找到匹配的商品，请更换关键词重试</div>`;
+    return;
+  }
+
+  const MAX_SHOW = 50;
+  const selectedId = parseInt((document.getElementById("deliverableProductId") || {}).value) || 0;
+  const shown = products.slice(0, MAX_SHOW);
+
+  listEl.innerHTML = shown.map(p => {
+    const imgUrl = p.main_image ? `/api/images/preview?path=${encodeURIComponent(p.main_image)}` : "";
+    const isSel = selectedId > 0 && Number(p.id) === selectedId;
+    return `
+      <div class="product-result-item ${isSel ? "selected" : ""}" onclick="selectDeliverableProduct(${p.id})">
+        ${imgUrl
+          ? `<img src="${imgUrl}" style="width:38px; height:38px; border-radius:4px; object-fit:cover; border:1px solid #e2e8f0; flex-shrink:0;" onerror="this.style.display='none';">`
+          : `<span style="font-size:1.3rem; flex-shrink:0;">📦</span>`}
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:0.82rem; font-weight:700; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${p.title || ''}">
+            ${p.title || "未命名商品"}
+          </div>
+          <div style="font-size:0.74rem; color:#64748b; font-family:monospace; margin-top:2px;">
+            #${p.id} ${p.parent_sku ? `[${p.parent_sku}]` : ""} ${p.store_account ? `(${p.store_account})` : ""}
+          </div>
+        </div>
+        <span style="font-size:0.72rem; font-weight:700; flex-shrink:0; color:${isSel ? "#15803d" : "#2563eb"};">${isSel ? "✔ 已选" : "选择"}</span>
+      </div>
+    `;
+  }).join("") + (products.length > MAX_SHOW
+    ? `<div class="product-result-more">共 ${products.length} 个匹配商品，仅显示前 ${MAX_SHOW} 个，请继续输入关键词缩小范围…</div>`
+    : "");
+}
+
+/**
+ * 显示商品搜索结果列表
+ * @param {boolean} resetFilter 是否清空搜索词并展示全部可选商品（点击搜索框聚焦时使用）
+ */
+function showProductList(resetFilter) {
+  const listEl = document.getElementById("deliverableProductList");
+  const inputEl = document.getElementById("deliverableProductSearchInput");
+  if (!listEl) return;
+
+  if (resetFilter) {
+    if (inputEl) inputEl.value = "";
+    renderProductList(taskState.products || []);
+  }
+  listEl.style.display = "block";
+}
+
+function hideProductList() {
+  const listEl = document.getElementById("deliverableProductList");
+  if (listEl) listEl.style.display = "none";
+}
+
+/**
+ * 按关键词筛选关联商品（支持 SKU / 标题 / 店铺 / ID 模糊匹配）
  */
 function filterProductOptionsBySku(keyword) {
   const all = taskState.products || [];
   const kw = (keyword || "").trim().toLowerCase();
-  if (!kw) {
-    renderProductOptions(all);
-    return;
+
+  let filtered = all;
+  if (kw) {
+    filtered = all.filter(p =>
+      String(p.id).includes(kw) ||
+      (p.parent_sku || "").toLowerCase().includes(kw) ||
+      (p.title || "").toLowerCase().includes(kw) ||
+      (p.store_account || "").toLowerCase().includes(kw)
+    );
   }
-  const filtered = all.filter(p =>
-    String(p.id).includes(kw) ||
-    (p.parent_sku || "").toLowerCase().includes(kw) ||
-    (p.title || "").toLowerCase().includes(kw)
-  );
-  renderProductOptions(filtered);
+
+  renderProductList(filtered);
+  const listEl = document.getElementById("deliverableProductList");
+  if (listEl) listEl.style.display = "block";
+}
+
+/**
+ * 选中某个关联商品
+ */
+function selectDeliverableProduct(productId) {
+  const p = (taskState.products || []).find(x => Number(x.id) === Number(productId));
+  if (!p) return;
+
+  const hiddenEl = document.getElementById("deliverableProductId");
+  if (hiddenEl) hiddenEl.value = p.id;
+
+  const inputEl = document.getElementById("deliverableProductSearchInput");
+  if (inputEl) inputEl.value = "";
+
+  renderSelectedProductPreview(p);
+  hideProductList();
+  renderProductList(taskState.products || []);
+}
+
+/**
+ * 渲染已选商品的预览卡片
+ */
+function renderSelectedProductPreview(p) {
+  const previewCard = document.getElementById("selectedProductPreviewCard");
+  if (!previewCard || !p) return;
+
+  document.getElementById("previewProductTitle").innerText = p.title || "已选商品";
+  document.getElementById("previewProductSku").innerText = p.parent_sku || "-";
+  document.getElementById("previewProductStore").innerText = p.store_account || "-";
+
+  const imgEl = document.getElementById("previewProductImg");
+  if (imgEl) {
+    if (p.main_image) {
+      imgEl.src = `/api/images/preview?path=${encodeURIComponent(p.main_image)}`;
+      imgEl.style.display = "block";
+    } else {
+      imgEl.style.display = "none";
+    }
+  }
+  previewCard.style.display = "flex";
+}
+
+/**
+ * 清除已关联商品（关联商品为选填，允许不选择）
+ */
+function clearDeliverableProduct() {
+  const hiddenEl = document.getElementById("deliverableProductId");
+  if (hiddenEl) hiddenEl.value = "0";
+  const inputEl = document.getElementById("deliverableProductSearchInput");
+  if (inputEl) inputEl.value = "";
+  const previewCard = document.getElementById("selectedProductPreviewCard");
+  if (previewCard) previewCard.style.display = "none";
+  hideProductList();
 }
 
 /**
@@ -130,10 +298,16 @@ async function loadTasksList() {
   const keyword = searchInp ? searchInp.value.trim() : "";
   const assigneeSelect = document.getElementById("taskAssigneeFilter");
   const assignee = assigneeSelect ? assigneeSelect.value.trim() : "";
+  const dateFromInp = document.getElementById("taskDateFromInput");
+  const dateToInp = document.getElementById("taskDateToInput");
+  const dateFrom = dateFromInp ? dateFromInp.value : "";
+  const dateTo = dateToInp ? dateToInp.value : "";
 
   let url = `/api/tasks?status=${encodeURIComponent(taskState.currentStatusFilter)}`;
   if (keyword) url += `&search=${encodeURIComponent(keyword)}`;
   if (assignee) url += `&assigned_to=${encodeURIComponent(assignee)}`;
+  if (dateFrom) url += `&date_from=${encodeURIComponent(dateFrom)}`;
+  if (dateTo) url += `&date_to=${encodeURIComponent(dateTo)}`;
 
   try {
     const res = await fetch(url);
@@ -143,10 +317,10 @@ async function loadTasksList() {
       updateStatPills(json.data);
       renderTaskTable(json.data);
     } else {
-      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:30px; color:#ef4444;">加载失败: ${json.detail || json.msg}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:30px; color:#ef4444;">加载失败: ${json.detail || json.msg}</td></tr>`;
     }
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:30px; color:#ef4444;">网络请求异常: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:30px; color:#ef4444;">网络请求异常: ${err.message}</td></tr>`;
   }
 }
 
@@ -197,6 +371,17 @@ function handleSearchKeyup(event) {
 }
 
 /**
+ * 清除派发日期筛选条件
+ */
+function clearTaskDateFilter() {
+  const fromInp = document.getElementById("taskDateFromInput");
+  const toInp = document.getElementById("taskDateToInput");
+  if (fromInp) fromInp.value = "";
+  if (toInp) toInp.value = "";
+  loadTasksList();
+}
+
+/**
  * 渲染任务表格
  */
 function renderTaskTable(tasks) {
@@ -206,7 +391,7 @@ function renderTaskTable(tasks) {
   if (tasks.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="8" style="text-align:center; padding:48px; color:var(--text-muted);">
+        <td colspan="10" style="text-align:center; padding:48px; color:var(--text-muted);">
           <div style="font-size:2rem; margin-bottom:8px;">📭</div>
           <div>暂无符合条件的任务记录</div>
         </td>
@@ -221,8 +406,8 @@ function renderTaskTable(tasks) {
       ? `<span class="tag-badge" style="background:#dcfce7; color:#15803d; border-color:#bbf7d0; font-weight:700; padding:3px 8px; font-size:0.8rem;">✅ 已完成</span>`
       : `<span class="tag-badge" style="background:#fef3c7; color:#b45309; border-color:#fde68a; font-weight:700; padding:3px 8px; font-size:0.8rem;">⏳ 待处理</span>`;
 
-    // 关联商品卡片展示 (支持点击直接调起商品详情弹窗)
-    let productCardHtml = `<span style="color:var(--text-muted); font-size:0.82rem;">未关联品</span>`;
+    // 关联商品卡片展示 (支持点击直接调起商品详情弹窗；关联为选填项)
+    let productCardHtml = `<span style="color:var(--text-muted); font-size:0.82rem;">未关联 (选填)</span>`;
     if (t.product_id && t.product_id > 0) {
       const imgUrl = t.product_main_image ? `/api/images/preview?path=${encodeURIComponent(t.product_main_image)}` : "";
       productCardHtml = `
@@ -304,9 +489,12 @@ function renderTaskTable(tasks) {
             👤 ${t.assigned_to_name || t.assigned_to}
           </span>
         </td>
-        <td>
-          <div style="font-size:0.8rem; font-weight:600; color:#334155;">${t.assigned_by}</div>
-          <div style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;">${t.assigned_at || t.created_at}</div>
+        <td style="text-align:center;">
+          <span style="font-size:0.8rem; font-weight:600; color:#334155;">${t.assigned_by}</span>
+        </td>
+        <td style="text-align:center;">
+          <div style="font-size:0.8rem; font-weight:700; color:#0f172a;">📅 ${formatDateOnly(t.assigned_at || t.created_at)}</div>
+          <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">${formatTimeOnly(t.assigned_at || t.created_at)}</div>
         </td>
         <td style="text-align:center;">${statusBadge}</td>
         <td>${deliverableHtml}</td>
@@ -318,16 +506,24 @@ function renderTaskTable(tasks) {
 }
 
 // ============================================================================
-// 模态弹窗 1: 管理员派发新任务
+// 模态弹窗 1: 管理员派发新任务 (支持多条明细，每条生成一个独立任务)
 // ============================================================================
 function openDispatchModal() {
   closeEditTaskModal();
   closeSubmitDeliverableModal();
   const modal = document.getElementById("dispatchTaskModal");
-  if (modal) {
-    document.getElementById("dispatchTaskForm").reset();
-    modal.style.display = "flex";
-  }
+  if (!modal) return;
+
+  const form = document.getElementById("dispatchTaskForm");
+  if (form) form.reset();
+
+  // 派发日期默认当天
+  const dateInput = document.getElementById("dispatchDateInput");
+  if (dateInput) dateInput.value = getTodayString();
+
+  // 默认展示 5 条空白明细，可自行增删
+  resetDispatchItems(DISPATCH_DEFAULT_ROWS);
+  modal.style.display = "flex";
 }
 
 function closeDispatchModal() {
@@ -335,41 +531,145 @@ function closeDispatchModal() {
   if (modal) modal.style.display = "none";
 }
 
+/**
+ * 重置明细列表为指定条数（默认 5 条）
+ */
+function resetDispatchItems(count) {
+  const container = document.getElementById("dispatchItemsContainer");
+  if (!container) return;
+  container.innerHTML = "";
+  for (let i = 0; i < count; i++) {
+    appendDispatchItemRow(false);
+  }
+}
+
+/**
+ * 追加一条任务明细行
+ * @param {boolean} focusNew 是否自动聚焦到新添加的链接输入框
+ */
+function appendDispatchItemRow(focusNew) {
+  const container = document.getElementById("dispatchItemsContainer");
+  if (!container) return;
+
+  const row = document.createElement("div");
+  row.className = "dispatch-item-row";
+  row.innerHTML = `
+    <div class="dispatch-item-head">
+      <span class="dispatch-item-index">任务 #1</span>
+      <button type="button" class="dispatch-item-remove" onclick="removeDispatchItemRow(this)" title="移除该条明细">🗑️ 移除</button>
+    </div>
+    <div class="dispatch-item-fields">
+      <input type="url" class="form-input dispatch-item-url" placeholder="链接：https://... (必填)">
+      <input type="text" class="form-input dispatch-item-instructions" placeholder="说明和要求：这条任务要做什么 / 具体制作要求 (选填)">
+    </div>
+  `;
+  container.appendChild(row);
+  renumberDispatchRows();
+
+  if (focusNew) {
+    const urlInput = row.querySelector(".dispatch-item-url");
+    if (urlInput) urlInput.focus();
+    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+}
+
+/**
+ * 移除一条任务明细行（至少保留一条，最后一条仅清空内容）
+ */
+function removeDispatchItemRow(btn) {
+  const row = btn.closest(".dispatch-item-row");
+  if (!row) return;
+
+  const container = document.getElementById("dispatchItemsContainer");
+  const rowCount = container ? container.querySelectorAll(".dispatch-item-row").length : 0;
+  if (rowCount <= 1) {
+    row.querySelectorAll("input, textarea").forEach(el => { el.value = ""; });
+    return;
+  }
+
+  row.remove();
+  renumberDispatchRows();
+}
+
+/**
+ * 重新编号任务明细行
+ */
+function renumberDispatchRows() {
+  const container = document.getElementById("dispatchItemsContainer");
+  if (!container) return;
+  container.querySelectorAll(".dispatch-item-row").forEach((row, idx) => {
+    const label = row.querySelector(".dispatch-item-index");
+    if (label) label.innerText = `任务 #${idx + 1}`;
+  });
+}
+
+/**
+ * 收集明细行数据（完全留空的行将被忽略）
+ */
+function collectDispatchItems() {
+  const rows = Array.from(document.querySelectorAll("#dispatchItemsContainer .dispatch-item-row"));
+  const items = [];
+
+  rows.forEach((row, idx) => {
+    const urlEl = row.querySelector(".dispatch-item-url");
+    const insEl = row.querySelector(".dispatch-item-instructions");
+
+    const reference_url = urlEl ? urlEl.value.trim() : "";
+    const instructions = insEl ? insEl.value.trim() : "";
+
+    if (!reference_url && !instructions) return; // 跳过空白行
+    items.push({ rowNo: idx + 1, reference_url, instructions, _row: row });
+  });
+
+  return items;
+}
+
 async function handleDispatchSubmit(e) {
   e.preventDefault();
   const assignee = document.getElementById("dispatchAssigneeSelect").value;
-  const title = document.getElementById("dispatchTitleInput").value.trim();
-  const refUrl = document.getElementById("dispatchRefUrlInput").value.trim();
-  const instructions = document.getElementById("dispatchInstructionsInput").value.trim();
+  const dateInput = document.getElementById("dispatchDateInput");
+  const assignedDate = dateInput ? dateInput.value : "";
 
   if (!assignee) {
     alert("请选择执行人！");
     return;
   }
-  if (!refUrl) {
-    alert("请输入参考链接！");
+
+  const items = collectDispatchItems();
+  if (items.length === 0) {
+    alert("请至少填写一条任务明细（链接 / 说明和要求）！");
+    return;
+  }
+
+  const missingRef = items.find(it => !it.reference_url);
+  if (missingRef) {
+    alert(`第 ${missingRef.rowNo} 条任务的【链接】为必填项，请填写后再提交！`);
+    const urlEl = missingRef._row ? missingRef._row.querySelector(".dispatch-item-url") : null;
+    if (urlEl) urlEl.focus();
     return;
   }
 
   const btn = document.getElementById("dispatchSubmitBtn");
   btn.disabled = true;
-  btn.innerText = "正在派发...";
+  btn.innerText = `正在派发 ${items.length} 条任务...`;
 
   try {
-    const res = await fetch("/api/tasks", {
+    const res = await fetch("/api/tasks/batch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         assigned_to: assignee,
-        title: title,
-        reference_url: refUrl,
-        instructions: instructions
+        assigned_date: assignedDate,
+        items: items.map(it => ({
+          reference_url: it.reference_url,
+          instructions: it.instructions
+        }))
       })
     });
     const json = await res.json();
     if (json.code === 0) {
       closeDispatchModal();
-      showToast("🎉 任务派发成功！");
+      showToast(`🎉 已成功派发 ${items.length} 条任务！`);
       await loadTasksList();
     } else {
       alert(`派发失败: ${json.detail || json.msg}`);
@@ -385,7 +685,7 @@ async function handleDispatchSubmit(e) {
 // ============================================================================
 // 模态弹窗 2: 登记成果与关联商品
 // ============================================================================
-function openSubmitDeliverableModal(taskId) {
+async function openSubmitDeliverableModal(taskId) {
   closeDispatchModal();
   closeEditTaskModal();
   closeProductDetailModal();
@@ -397,24 +697,45 @@ function openSubmitDeliverableModal(taskId) {
   document.getElementById("submitRefUrlLink").href = task.reference_url || "#";
   document.getElementById("submitRefUrlLink").innerText = task.reference_url || "(无参考链接)";
   document.getElementById("submitInstructionsText").innerText = task.instructions || "(无特殊要求)";
-
   document.getElementById("deliverableResultUrlInput").value = task.result_url || "";
 
-  // 重新加载商品选项 (仅未被其它任务关联的商品；本任务已关联的商品仍可选)，并清空 SKU 筛选
-  const skuFilter = document.getElementById("deliverableProductSkuFilter");
-  if (skuFilter) skuFilter.value = "";
-  const prodSelect = document.getElementById("deliverableProductSelect");
-  if (prodSelect) prodSelect.value = "";
+  // 重置关联商品选择状态（关联商品为选填项）
+  clearDeliverableProduct();
 
-  loadProductOptions(task.id).then(() => {
-    if (prodSelect && task.product_id && task.product_id > 0) {
-      prodSelect.value = String(task.product_id);
-      handleProductSelectChange(prodSelect);
-    }
-  });
+  // 默认勾选「仅显示我名下录入的商品」
+  const onlyMineChk = document.getElementById("deliverableProductOnlyMine");
+  if (onlyMineChk) onlyMineChk.checked = true;
 
   const modal = document.getElementById("submitDeliverableModal");
   if (modal) modal.style.display = "flex";
+
+  // 加载可选商品（仅未关联商品；本任务已关联的商品仍可选；默认仅自己名下录入）
+  await loadProductOptions(task.id, true);
+
+  // 回填该任务已关联的商品（若仍可选）
+  if (task.product_id && task.product_id > 0) {
+    let found = (taskState.products || []).find(x => Number(x.id) === Number(task.product_id));
+    if (!found && onlyMineChk && onlyMineChk.checked) {
+      // 已关联的商品不在「仅我名下」范围内时，自动放宽为全部商品再查一次
+      onlyMineChk.checked = false;
+      await loadProductOptions(task.id, false);
+      found = (taskState.products || []).find(x => Number(x.id) === Number(task.product_id));
+    }
+
+    if (found) {
+      selectDeliverableProduct(task.product_id);
+    } else {
+      // 商品可能已被删除，降级使用任务上冗余的商品信息展示
+      const hiddenEl = document.getElementById("deliverableProductId");
+      if (hiddenEl) hiddenEl.value = task.product_id;
+      renderSelectedProductPreview({
+        title: task.product_title,
+        parent_sku: task.product_parent_sku,
+        store_account: "",
+        main_image: task.product_main_image
+      });
+    }
+  }
 }
 
 function closeSubmitDeliverableModal() {
@@ -422,52 +743,16 @@ function closeSubmitDeliverableModal() {
   if (modal) modal.style.display = "none";
 }
 
-function handleProductSelectChange(selectEl) {
-  const previewCard = document.getElementById("selectedProductPreviewCard");
-  const val = selectEl.value;
-  if (!val || val === "0") {
-    if (previewCard) previewCard.style.display = "none";
-    return;
-  }
-
-  const opt = selectEl.options[selectEl.selectedIndex];
-  if (opt && previewCard) {
-    const title = opt.dataset.title || "已选商品";
-    const sku = opt.dataset.sku || "-";
-    const store = opt.dataset.store || "-";
-    const img = opt.dataset.image;
-
-    document.getElementById("previewProductTitle").innerText = title;
-    document.getElementById("previewProductSku").innerText = sku;
-    document.getElementById("previewProductStore").innerText = store;
-
-    const imgEl = document.getElementById("previewProductImg");
-    if (img) {
-      imgEl.src = `/api/images/preview?path=${encodeURIComponent(img)}`;
-      imgEl.style.display = "block";
-    } else {
-      imgEl.style.display = "none";
-    }
-
-    previewCard.style.display = "flex";
-  }
-}
-
 async function handleSubmitDeliverable(e) {
   e.preventDefault();
   const taskId = document.getElementById("submitTargetTaskId").value;
   const resultUrl = document.getElementById("deliverableResultUrlInput").value.trim();
-  const productId = parseInt(document.getElementById("deliverableProductSelect").value) || 0;
+  const productId = parseInt(document.getElementById("deliverableProductId").value) || 0;
 
-  // 校验成品链接与关联商品均为必填项
+  // 成品链接为必填项；关联商品为选填项，允许不选择
   if (!resultUrl) {
     alert("【成品链接】为必填项，请输入成品链接！");
     document.getElementById("deliverableResultUrlInput").focus();
-    return;
-  }
-  if (!productId || productId <= 0) {
-    alert("【关联的品】为必选项，请选择已录入的商品！");
-    document.getElementById("deliverableProductSelect").focus();
     return;
   }
 
@@ -487,7 +772,9 @@ async function handleSubmitDeliverable(e) {
     const json = await res.json();
     if (json.code === 0) {
       closeSubmitDeliverableModal();
-      showToast("🎉 已成功登记成果并关联商品，任务状态更新为【已完成】！");
+      showToast(productId > 0
+        ? "🎉 已成功登记成果并关联商品，任务状态更新为【已完成】！"
+        : "🎉 已成功登记成果，任务状态更新为【已完成】！");
       await loadTasksList();
     } else {
       alert(`登记失败: ${json.detail || json.msg}`);

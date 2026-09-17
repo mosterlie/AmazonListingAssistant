@@ -4,16 +4,37 @@
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from server.database import get_db_connection
-from server.models.task_schemas import TaskCreateSchema, TaskUpdateSchema, TaskSubmitSchema
+from server.models.task_schemas import (
+    TaskCreateSchema,
+    TaskBatchCreateSchema,
+    TaskUpdateSchema,
+    TaskSubmitSchema,
+)
 
 
 class TaskService:
     """任务管理核心业务：派发任务、成果登记、关联商品及权限隔离"""
 
     @staticmethod
+    def _resolve_assigned_at(assigned_date: Optional[str]) -> str:
+        """
+        解析派发日期 (YYYY-MM-DD)，返回统一的 assigned_at 字符串：
+        - 未传或为空：使用当前时刻（默认当天）
+        - 传入日期：日期采用所选值，时间部分取当前时刻
+        """
+        now = datetime.now()
+        if assigned_date and assigned_date.strip():
+            try:
+                d = datetime.strptime(assigned_date.strip(), "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("派发日期格式不正确，应为 YYYY-MM-DD！")
+            return f"{d.strftime('%Y-%m-%d')} {now.strftime('%H:%M:%S')}"
+        return now.strftime("%Y-%m-%d %H:%M:%S")
+
+    @staticmethod
     def create_task(data: TaskCreateSchema, current_user: Dict[str, Any]) -> Dict[str, Any]:
         """
-        管理员派发新任务
+        管理员派发单条任务
         :param data: 任务派发参数
         :param current_user: 当前登录管理员信息
         """
@@ -34,7 +55,8 @@ class TaskService:
             if not title:
                 title = f"任务-{datetime.now().strftime('%m%d%H%M')}"
 
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            real_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            assigned_at = TaskService._resolve_assigned_at(getattr(data, "assigned_date", None))
 
             cursor.execute("""
             INSERT INTO tasks (
@@ -46,7 +68,7 @@ class TaskService:
             """, (
                 title, data.reference_url.strip(), (data.instructions or "").strip(),
                 assigned_by, assigned_to, assigned_to_name,
-                now_str, now_str, now_str
+                assigned_at, real_now, real_now
             ))
 
             task_id = cursor.lastrowid
@@ -56,15 +78,81 @@ class TaskService:
             conn.close()
 
     @staticmethod
+    def create_tasks_batch(data: TaskBatchCreateSchema, current_user: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        管理员批量派发任务：每条明细生成一个独立任务，同一事务提交
+        :param data: 批量派发参数 (执行人 + 派发日期 + 明细列表)
+        :param current_user: 当前登录管理员信息
+        """
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        try:
+            assigned_by = current_user.get("username", "admin")
+            assigned_to = (data.assigned_to or "").strip()
+            if not assigned_to:
+                raise ValueError("请选择执行人！")
+
+            # 查询被指派人的真实姓名/昵称
+            cursor.execute("SELECT display_name FROM users WHERE username = ?;", (assigned_to,))
+            user_row = cursor.fetchone()
+            assigned_to_name = (user_row["display_name"] if user_row and user_row["display_name"] else assigned_to)
+
+            # 过滤掉完全空白的明细行
+            raw_items = list(data.items or [])
+            items = [
+                it for it in raw_items
+                if (it.reference_url or "").strip() or (it.title or "").strip() or (it.instructions or "").strip()
+            ]
+            if not items:
+                raise ValueError("请至少填写一条有效的任务明细（链接 / 说明 / 要求）！")
+
+            # 逐条校验链接必填
+            for idx, it in enumerate(items):
+                if not (it.reference_url or "").strip():
+                    raise ValueError(f"第 {idx + 1} 条任务的【链接】为必填项，请填写后再提交！")
+
+            real_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            assigned_at = TaskService._resolve_assigned_at(data.assigned_date)
+            created_ids: List[int] = []
+
+            for idx, it in enumerate(items):
+                title = (it.title or "").strip()
+                if not title:
+                    title = f"任务-{datetime.now().strftime('%m%d%H%M')}-{idx + 1}"
+
+                cursor.execute("""
+                INSERT INTO tasks (
+                    title, reference_url, instructions,
+                    assigned_by, assigned_to, assigned_to_name,
+                    assigned_at, result_url, status,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, '', 'pending', ?, ?)
+                """, (
+                    title, (it.reference_url or "").strip(), (it.instructions or "").strip(),
+                    assigned_by, assigned_to, assigned_to_name,
+                    assigned_at, real_now, real_now
+                ))
+                created_ids.append(cursor.lastrowid)
+
+            conn.commit()
+            return [TaskService.get_task_by_id(tid) for tid in created_ids]
+        finally:
+            conn.close()
+
+    @staticmethod
     def list_tasks(
         current_user: Dict[str, Any],
         status_filter: Optional[str] = None,
         search: Optional[str] = None,
-        assigned_to_filter: Optional[str] = None
+        assigned_to_filter: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         查询任务列表 (所有人可见全部任务, 编辑权限另行控制)
         - assigned_to_filter: 执行人筛选 (管理员专用, 普通用户传参忽略)
+        - date_from / date_to: 按派发日期 (assigned_at 的日期部分) 范围筛选, 格式 YYYY-MM-DD
         """
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -84,7 +172,15 @@ class TaskService:
                 where_clauses.append("status = ?")
                 params.append(status_filter.strip())
 
-            # 3. 关键词模糊检索
+            # 3. 派发日期范围过滤 (按 assigned_at 的日期部分比对)
+            if date_from and date_from.strip():
+                where_clauses.append("DATE(assigned_at) >= DATE(?)")
+                params.append(date_from.strip())
+            if date_to and date_to.strip():
+                where_clauses.append("DATE(assigned_at) <= DATE(?)")
+                params.append(date_to.strip())
+
+            # 4. 关键词模糊检索
             if search and search.strip():
                 s = f"%{search.strip()}%"
                 where_clauses.append("""
@@ -120,9 +216,9 @@ class TaskService:
     @staticmethod
     def submit_task_deliverable(task_id: int, data: TaskSubmitSchema, current_user: Dict[str, Any]) -> Dict[str, Any]:
         """
-        登记成果信息与关联商品，自动流转任务状态：
-        - 仅登记成果链接未关联商品：状态为 'pending' (待处理)
-        - 关联已录入商品 (product_id > 0)：状态自动变为 'completed' (已完成)
+        登记成果信息与关联商品 (关联商品为选填)，自动流转任务状态：
+        - 未关联商品 (product_id <= 0)：仅登记成果链接，状态同样流转为 'completed'
+        - 关联已录入商品 (product_id > 0)：校验商品存在且未被其它任务关联
         """
         task = TaskService.get_task_by_id(task_id, current_user)
         if not task:
@@ -140,8 +236,6 @@ class TaskService:
             product_id = int(data.product_id or 0)
             if not result_url:
                 raise ValueError("成品链接为必填项，请输入成品链接！")
-            if not product_id or product_id <= 0:
-                raise ValueError("关联的品为必填项，请选择已录入的商品！")
 
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -149,30 +243,35 @@ class TaskService:
             product_parent_sku = ""
             product_main_image = ""
 
-            # 从 product_items (is_parent = 1) 查询
-            cursor.execute("""
-            SELECT id, title, parent_sku, main_image 
-            FROM product_items 
-            WHERE id = ? AND is_parent = 1;
-            """, (product_id,))
-            p_row = cursor.fetchone()
+            if product_id and product_id > 0:
+                # 从 product_items (is_parent = 1) 查询
+                cursor.execute("""
+                SELECT id, title, parent_sku, main_image 
+                FROM product_items 
+                WHERE id = ? AND is_parent = 1;
+                """, (product_id,))
+                p_row = cursor.fetchone()
 
-            if not p_row:
-                raise ValueError("所选关联商品不存在或已被删除！")
+                if not p_row:
+                    raise ValueError("所选关联商品不存在或已被删除！")
 
-            # 校验该商品是否已被其它任务关联 (同一商品只能被一个任务关联)
-            cursor.execute(
-                "SELECT id, title FROM tasks WHERE product_id = ? AND id != ?;",
-                (product_id, task_id)
-            )
-            other = cursor.fetchone()
-            if other:
-                raise ValueError(f"该商品已被任务 #{other['id']}《{other['title']}》关联，不能重复关联！")
+                # 校验该商品是否已被其它任务关联 (同一商品只能被一个任务关联)
+                cursor.execute(
+                    "SELECT id, title FROM tasks WHERE product_id = ? AND id != ?;",
+                    (product_id, task_id)
+                )
+                other = cursor.fetchone()
+                if other:
+                    raise ValueError(f"该商品已被任务 #{other['id']}《{other['title']}》关联，不能重复关联！")
 
-            product_title = p_row["title"] or ""
-            product_parent_sku = p_row["parent_sku"] or ""
-            product_main_image = p_row["main_image"] or ""
-            status = "completed"  # 登记成果且关联商品后即为已完成
+                product_title = p_row["title"] or ""
+                product_parent_sku = p_row["parent_sku"] or ""
+                product_main_image = p_row["main_image"] or ""
+            else:
+                # 选填：允许不关联商品，清空历史关联信息
+                product_id = 0
+
+            status = "completed"  # 登记成果链接后即为已完成（关联商品为选填项）
 
             cursor.execute("""
             UPDATE tasks SET
@@ -261,11 +360,17 @@ class TaskService:
             conn.close()
 
     @staticmethod
-    def get_product_options(task_id: Optional[int] = None, keyword: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_product_options(
+        task_id: Optional[int] = None,
+        keyword: Optional[str] = None,
+        only_mine: bool = False,
+        current_user: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
         """
         获取供任务关联选择的已录入商品列表下拉选项
         - 仅返回尚未被任何任务关联的商品 (tasks.product_id 未引用)
         - task_id 非空时，额外放行该任务当前已关联的商品 (便于重新登记)
+        - only_mine 为 True 时，仅返回当前登录用户名下录入的商品 (created_by)
         - keyword 非空时，按 Parent SKU / SKU / 标题模糊过滤
         """
         conn = get_db_connection()
@@ -279,6 +384,12 @@ class TaskService:
               AND (id = ? OR id NOT IN (SELECT product_id FROM tasks WHERE product_id IS NOT NULL AND product_id > 0))
             """
             params: List[Any] = [task_id if task_id else 0]
+
+            if only_mine and current_user:
+                username = (current_user.get("username") or "").strip()
+                if username:
+                    sql += " AND created_by = ?"
+                    params.append(username)
 
             if keyword and keyword.strip():
                 kw = f"%{keyword.strip()}%"

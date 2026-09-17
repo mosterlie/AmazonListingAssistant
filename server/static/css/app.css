@@ -437,6 +437,120 @@ body {
   box-shadow: none;
 }
 
+/* ===== 变体明细表格：标题行批量取值 / 清空 / 批量填入控件 ===== */
+.bulk-th {
+  padding: 6px 4px !important;
+  vertical-align: middle !important;
+}
+
+.bulk-th-top {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.bulk-th-inp {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.78rem;
+  text-align: center;
+  outline: none;
+  background: #fff;
+  color: #0f172a;
+}
+
+.bulk-th-inp:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.bulk-th-clear {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  padding: 0;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #64748b;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bulk-th-clear:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+
+.bulk-th-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.bulk-th-apply {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  padding: 0;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #2563eb;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.bulk-th-apply:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.row-fill-btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  padding: 0;
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.row-fill-btn:hover {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+/* 采购价为空时红色醒目提示 */
+.table-input.purchase-price-inp.is-empty {
+  border-color: #f87171 !important;
+  background: #fef2f2 !important;
+  color: #dc2626 !important;
+}
+
+.table-input.purchase-price-inp.is-empty::placeholder {
+  color: #ef4444 !important;
+  font-weight: 700;
+}
+
 .sku-inp,
 .ean-inp {
   width: 75px !important;
@@ -971,10 +1085,22 @@ input[type="text"],
   color: #0f172a !important;
 }
 
+/* 弹窗内的 <form> 通常是 body + footer 的父容器，需将其变为可收缩的纵向 flex 容器，
+   否则弹窗内容会撑破弹窗高度且无法滚动 */
+.custom-modal-dialog > form {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
 .custom-modal-body {
   padding: 22px 24px !important;
   overflow-y: auto !important;
-  flex: 1 !important;
+  flex: 1 1 auto !important;
+  /* 关键：flex 子项必须允许收缩，否则内容会撑开弹窗导致超出视口且无法滚动 */
+  min-height: 0 !important;
 }
 
 .custom-modal-footer {

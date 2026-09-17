@@ -1,7 +1,7 @@
 """
 任务管理 Pydantic 数据验证与响应模型
 """
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -11,6 +11,21 @@ class TaskCreateSchema(BaseModel):
     reference_url: str = Field(..., description="1. 参考链接 (必填)")
     instructions: Optional[str] = Field("", description="2. 任务说明与要求")
     assigned_to: str = Field(..., description="执行人用户名 (必填)")
+    assigned_date: Optional[str] = Field(None, description="派发日期 YYYY-MM-DD (默认当天)")
+
+
+class TaskBatchItemSchema(BaseModel):
+    """批量派发任务中的单条明细 (每条明细生成一个独立任务)"""
+    title: Optional[str] = Field("", description="说明 (任务标题或简述)")
+    reference_url: str = Field(..., description="链接 (必填)")
+    instructions: Optional[str] = Field("", description="要求 (具体制作要求/注意事项)")
+
+
+class TaskBatchCreateSchema(BaseModel):
+    """管理员批量派发任务入参模型"""
+    assigned_to: str = Field(..., description="执行人用户名 (必填)")
+    assigned_date: Optional[str] = Field(None, description="派发日期 YYYY-MM-DD (默认当天)")
+    items: List[TaskBatchItemSchema] = Field(..., min_length=1, description="任务明细列表 (至少 1 条)")
 
 
 class TaskUpdateSchema(BaseModel):
@@ -22,9 +37,9 @@ class TaskUpdateSchema(BaseModel):
 
 
 class TaskSubmitSchema(BaseModel):
-    """执行人/管理员登记成果与关联商品入参模型 (成品链接与关联商品均为必填项)"""
+    """执行人/管理员登记成果入参模型 (成品链接必填，关联商品选填)"""
     result_url: str = Field(..., min_length=1, description="1. 成品链接 (必填)")
-    product_id: int = Field(..., gt=0, description="2. 关联的已录入商品 ID (必填且大于0)")
+    product_id: Optional[int] = Field(0, description="2. 关联的已录入商品 ID (选填，0 表示不关联)")
 
 
 class TaskResponseSchema(BaseModel):

@@ -5,7 +5,12 @@ from typing import Optional
 from fastapi import APIRouter, Request, HTTPException, Depends, Query, status
 from server.routers.auth_router import get_current_user_from_request
 from server.services.task_service import TaskService
-from server.models.task_schemas import TaskCreateSchema, TaskUpdateSchema, TaskSubmitSchema
+from server.models.task_schemas import (
+    TaskCreateSchema,
+    TaskBatchCreateSchema,
+    TaskUpdateSchema,
+    TaskSubmitSchema,
+)
 
 router = APIRouter(prefix="/api/tasks", tags=["任务管理模块"])
 
@@ -38,13 +43,17 @@ async def list_tasks(
     status: Optional[str] = Query(None, description="状态过滤 (all/pending/completed)"),
     search: Optional[str] = Query(None, description="搜索关键词"),
     assigned_to: Optional[str] = Query(None, description="执行人筛选 (仅管理员可用)"),
+    date_from: Optional[str] = Query(None, description="派发日期起 (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="派发日期止 (YYYY-MM-DD)"),
     user: dict = Depends(require_auth)
 ):
     tasks = TaskService.list_tasks(
         current_user=user,
         status_filter=status,
         search=search,
-        assigned_to_filter=assigned_to
+        assigned_to_filter=assigned_to,
+        date_from=date_from,
+        date_to=date_to
     )
     return {"code": 0, "msg": "查询成功", "data": tasks, "total": len(tasks)}
 
@@ -53,9 +62,12 @@ async def list_tasks(
 async def get_product_options(
     task_id: Optional[int] = Query(None, description="当前任务 ID (放行该任务已关联的商品)"),
     keyword: Optional[str] = Query(None, description="按 Parent SKU / SKU / 标题模糊筛选"),
+    only_mine: bool = Query(False, description="仅返回当前登录用户名下录入的商品"),
     user: dict = Depends(require_auth)
 ):
-    products = TaskService.get_product_options(task_id=task_id, keyword=keyword)
+    products = TaskService.get_product_options(
+        task_id=task_id, keyword=keyword, only_mine=only_mine, current_user=user
+    )
     return {"code": 0, "msg": "获取成功", "data": products}
 
 
@@ -69,6 +81,20 @@ async def create_task(
         return {"code": 0, "msg": "任务派发成功！", "data": task}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/batch", summary="管理员批量派发新任务（每条明细生成一个任务）")
+async def create_tasks_batch(
+    data: TaskBatchCreateSchema,
+    admin: dict = Depends(require_admin)
+):
+    try:
+        tasks = TaskService.create_tasks_batch(data, current_user=admin)
+        return {"code": 0, "msg": f"成功派发 {len(tasks)} 条任务！", "data": tasks, "total": len(tasks)}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"批量派发失败: {str(e)}")
 
 
 @router.get("/{task_id}", summary="获取任务详情")

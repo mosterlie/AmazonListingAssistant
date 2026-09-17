@@ -48,9 +48,9 @@ async function loadSystemSettings() {
     if (result.code === 0 && result.data) {
       if (result.data.pricing_config) {
         state.pricingConfig = { ...state.pricingConfig, ...result.data.pricing_config };
-        const batchProfitInp = document.getElementById("batchProfitCoeffInput");
-        if (batchProfitInp && (!batchProfitInp.value || batchProfitInp.value === "1.0")) {
-          batchProfitInp.value = state.pricingConfig.default_profit_coeff || 1.0;
+        const bulkProfitInp = document.getElementById("bulkProfitCoeffInput");
+        if (bulkProfitInp && !bulkProfitInp.value) {
+          bulkProfitInp.value = state.pricingConfig.default_profit_coeff || 1.0;
         }
       }
       if (result.data.ai_config) {
@@ -1158,10 +1158,10 @@ async function autoGenerateMatrix() {
   }
 
   // 子 SKU 规则: 父 SKU + 两位序号 (父SKU01、父SKU02...), 优先取父 SKU, 其次批量前缀
-  const baseSku = (document.getElementById("parentSkuInput")?.value || document.getElementById("baseSkuInput")?.value || "SKU").trim();
-  const basePurchasePrice = parseFloat(document.getElementById("batchPurchasePriceInput")?.value) || 0;
-  const baseProfitCoeff = parseFloat(document.getElementById("batchProfitCoeffInput")?.value) || (state.pricingConfig.default_profit_coeff || 1.0);
-  const baseQty = parseInt(document.getElementById("batchQtyInput")?.value || 40, 10);
+  const baseSku = (document.getElementById("parentSkuInput")?.value || "SKU").trim();
+  const basePurchasePrice = parseFloat(document.getElementById("bulkPurchasePriceInput")?.value) || 0;
+  const baseProfitCoeff = parseFloat(document.getElementById("bulkProfitCoeffInput")?.value) || (state.pricingConfig.default_profit_coeff || 1.0);
+  const baseQty = 40;
 
   try {
     const res = await fetch("/api/products/generate-matrix", {
@@ -1287,6 +1287,9 @@ function renderMatrixTable() {
           ¥${f.cost} ${f.channel}${f.channel === cheapestChannel ? " (最便宜)" : ""}
         </option>
       `).join("");
+    } else if (row.shipping_channel) {
+      // 尺寸/重量超出所有渠道限制时无可用渠道，仍保留显示原保存的渠道，避免编辑时信息丢失
+      channelOptionsHtml = `<option value="${row.shipping_channel}" selected>${row.shipping_channel} (尺寸/重量超出渠道限制)</option>`;
     }
 
     tr.innerHTML = `
@@ -1302,8 +1305,13 @@ function renderMatrixTable() {
       <td><input type="text" inputmode="decimal" class="table-input width-inp" placeholder="宽" style="width:52px; text-align:center;" value="${row.width_cm || ""}" data-idx="${idx}"></td>
       <td><input type="text" inputmode="decimal" class="table-input height-inp" placeholder="高" style="width:52px; text-align:center;" value="${row.height_cm || ""}" data-idx="${idx}"></td>
       <td><input type="text" inputmode="decimal" class="table-input weight-inp" placeholder="重量" style="width:58px; text-align:center;" value="${row.weight ? row.weight : ""}" data-idx="${idx}"></td>
-      <td><input type="text" inputmode="decimal" class="table-input purchase-price-inp" placeholder="进价¥" style="width:68px; text-align:center; font-weight:600; color:#b45309;" value="${row.purchase_price ? row.purchase_price : ""}" data-idx="${idx}"></td>
-      <td><input type="text" inputmode="decimal" class="table-input profit-coeff-inp" placeholder="系数" style="width:54px; text-align:center;" value="${row.profit_coefficient !== undefined ? row.profit_coefficient : 1.0}" data-idx="${idx}"></td>
+      <td><input type="text" inputmode="decimal" class="table-input purchase-price-inp ${row.purchase_price ? "" : "is-empty"}" placeholder="进价¥" style="width:68px; text-align:center; font-weight:600; color:#b45309;" value="${row.purchase_price ? row.purchase_price : ""}" data-idx="${idx}"></td>
+      <td>
+        <div style="display:flex; align-items:center; gap:3px; justify-content:center;">
+          <input type="text" inputmode="decimal" class="table-input profit-coeff-inp" placeholder="系数" style="width:46px; text-align:center;" value="${row.profit_coefficient !== undefined ? row.profit_coefficient : 1.0}" data-idx="${idx}">
+          <button type="button" class="row-fill-btn" tabindex="-1" onclick="applyBulkToRow(${idx})" title="把标题行上方的批量值填入本行（标题行为空则清空本行对应字段）">📥</button>
+        </div>
+      </td>
       <td style="text-align:center;">
         <select class="channel-select" id="channel_select_${idx}" data-idx="${idx}" onchange="handleChannelChange(${idx}, this.value)" onmouseenter="showChannelTooltip(event, this)" onmouseleave="hideSkuTooltip()" onfocus="showChannelTooltip(event, this)" onblur="hideSkuTooltip()">
           ${channelOptionsHtml}
@@ -1358,6 +1366,7 @@ function renderMatrixTable() {
     inp.addEventListener("input", (e) => {
       const idx = e.target.dataset.idx;
       state.variations[idx].purchase_price = parseFloat(e.target.value) || 0;
+      e.target.classList.toggle("is-empty", !e.target.value.trim());
       recalcRowPricing(idx);
     });
   });
@@ -1365,6 +1374,14 @@ function renderMatrixTable() {
     inp.addEventListener("input", (e) => {
       const idx = e.target.dataset.idx;
       state.variations[idx].profit_coefficient = parseFloat(e.target.value) || 1.0;
+      recalcRowPricing(idx);
+    });
+    // 系数默认值为 1：清空后失焦自动恢复为 1
+    inp.addEventListener("blur", (e) => {
+      if (e.target.value.trim()) return;
+      const idx = e.target.dataset.idx;
+      e.target.value = "1";
+      state.variations[idx].profit_coefficient = 1.0;
       recalcRowPricing(idx);
     });
   });
@@ -1434,6 +1451,165 @@ function syncPackageDimFromMaxVolumeSku() {
     if (pkgWeightInp && maxVar.weight !== undefined && maxVar.weight > 0) {
       pkgWeightInp.value = maxVar.weight;
     }
+  }
+}
+
+// ============================================================================
+// 标题行批量取值：单行填入 / 整列批量填入 (含联动核算)
+// ============================================================================
+const BULK_FIELD_CONFIG = [
+  { field: "length_cm", inputId: "bulkLenInput", label: "长(cm)" },
+  { field: "width_cm", inputId: "bulkWidthInput", label: "宽(cm)" },
+  { field: "height_cm", inputId: "bulkHeightInput", label: "高(cm)" },
+  { field: "weight", inputId: "bulkWeightInput", label: "重量(kg)" },
+  { field: "purchase_price", inputId: "bulkPurchasePriceInput", label: "采购价(¥)" },
+  // 系数默认值为 1：留空/被清空时自动回退为 1，而不是清空
+  { field: "profit_coefficient", inputId: "bulkProfitCoeffInput", label: "系数", defaultValue: 1 },
+];
+
+/**
+ * 标题行批量输入框：设有默认值的字段（如系数）在清空失焦后自动恢复默认值
+ */
+function initBulkThInputs() {
+  BULK_FIELD_CONFIG.forEach(cfg => {
+    if (cfg.defaultValue === undefined) return;
+    const inp = document.getElementById(cfg.inputId);
+    if (!inp) return;
+    inp.addEventListener("blur", () => {
+      if (!inp.value.trim()) inp.value = cfg.defaultValue;
+    });
+  });
+}
+
+/**
+ * 一键清空标题行所有批量输入框
+ */
+function clearAllBulkThInputs() {
+  BULK_FIELD_CONFIG.forEach(cfg => {
+    const inp = document.getElementById(cfg.inputId);
+    if (!inp) return;
+    // 设有默认值的字段（系数）清空后回退为默认值 1
+    inp.value = cfg.defaultValue !== undefined ? cfg.defaultValue : "";
+  });
+  const firstInp = document.getElementById(BULK_FIELD_CONFIG[0].inputId);
+  if (firstInp) firstInp.focus();
+  showToast("🧹 已清空标题行全部批量输入框（系数保持默认 1）");
+}
+
+/**
+ * 读取标题行各列输入框的值（含空值；空值表示该字段应被清空）
+ */
+function getBulkThValues() {
+  const values = {};
+  BULK_FIELD_CONFIG.forEach(cfg => {
+    const inp = document.getElementById(cfg.inputId);
+    const raw = inp ? inp.value.trim() : "";
+    // 空值：设有默认值的字段（系数）回退为默认值，其余字段表示赋空
+    const emptyVal = cfg.defaultValue !== undefined ? cfg.defaultValue : "";
+    if (raw === "") {
+      values[cfg.field] = emptyVal;
+      return;
+    }
+    const num = parseFloat(raw);
+    values[cfg.field] = isNaN(num) ? emptyVal : num;
+  });
+  return values;
+}
+
+/**
+ * 将 state 中某行的数值同步回该行的输入框（不重建整张表）
+ */
+function syncRowInputsFromState(idx) {
+  const tbody = document.getElementById("matrixTableBody");
+  const row = state.variations[idx];
+  if (!tbody || !row) return;
+  const tr = tbody.children[idx];
+  if (!tr) return;
+
+  const setVal = (selector, val) => {
+    const el = tr.querySelector(selector);
+    if (el) el.value = (val === undefined || val === null) ? "" : val;
+  };
+
+  setVal(".len-inp", row.length_cm || "");
+  setVal(".width-inp", row.width_cm || "");
+  setVal(".height-inp", row.height_cm || "");
+  setVal(".weight-inp", row.weight || "");
+  setVal(".purchase-price-inp", row.purchase_price || "");
+  const ppEl = tr.querySelector(".purchase-price-inp");
+  if (ppEl) ppEl.classList.toggle("is-empty", !(parseFloat(row.purchase_price) > 0));
+  // 系数默认值为 1，空值一律回退为 1
+  const coeffVal = (row.profit_coefficient !== undefined && row.profit_coefficient !== "" && row.profit_coefficient !== null)
+    ? row.profit_coefficient : 1.0;
+  setVal(".profit-coeff-inp", coeffVal);
+}
+
+/**
+ * 行内填入：把标题行各列输入框的值写入该子 SKU 行对应字段；
+ * 标题行某列输入框为空（或被清空）时，对应字段一并赋空。
+ */
+function applyBulkToRow(idx) {
+  const row = state.variations[idx];
+  if (!row) return;
+
+  const values = getBulkThValues();
+  const filled = [];
+  const cleared = [];
+
+  Object.keys(values).forEach(f => {
+    const cfg = BULK_FIELD_CONFIG.find(c => c.field === f);
+    if (values[f] === "") {
+      row[f] = "";
+      cleared.push(cfg.label);
+    } else {
+      row[f] = values[f];
+      filled.push(`${cfg.label}=${values[f]}`);
+    }
+  });
+
+  // 联动触发后续计算
+  recalcRowPricing(idx);
+  syncRowInputsFromState(idx);
+  syncPackageDimFromMaxVolumeSku();
+
+  const parts = [];
+  if (filled.length) parts.push(`填入 ${filled.join(" / ")}`);
+  if (cleared.length) parts.push(`清空 ${cleared.join(" / ")}`);
+  showToast(`✅ 第 ${idx + 1} 行已更新：${parts.join("；")}`);
+}
+
+/**
+ * 标题行批量填入：按本列表头输入框的值批量写入该列所有子 SKU；
+ * 若表头输入框为空（或被清空），则清空该列所有子 SKU 的对应字段。
+ */
+function applyBulkColumnToAll(field, inputId) {
+  const cfg = BULK_FIELD_CONFIG.find(c => c.field === field);
+  if (!cfg) return;
+
+  if (!state.variations || state.variations.length === 0) {
+    showToast("暂无变体行，无法批量填入！", "warning");
+    return;
+  }
+
+  const inp = document.getElementById(inputId);
+  const raw = inp ? inp.value.trim() : "";
+  const num = parseFloat(raw);
+  // 设有默认值的字段（系数）留空时回退为默认值 1，其余字段留空表示清空该列
+  const val = (raw === "" || isNaN(num))
+    ? (cfg.defaultValue !== undefined ? cfg.defaultValue : "")
+    : num;
+
+  state.variations.forEach(v => { v[field] = val; });
+
+  // 联动触发后续计算（逐行重算售价与物流渠道）
+  state.variations.forEach((_, i) => recalcRowPricing(i));
+  state.variations.forEach((_, i) => syncRowInputsFromState(i));
+  syncPackageDimFromMaxVolumeSku();
+
+  if (val === "") {
+    showToast(`🧹 标题行【${cfg.label}】为空，已清空全部 ${state.variations.length} 行的该字段`);
+  } else {
+    showToast(`⚡ 已将【${cfg.label} = ${val}】批量填入全部 ${state.variations.length} 行并完成联动核算`);
   }
 }
 
@@ -1527,85 +1703,6 @@ async function handleFileSelect(e) {
   }
 
   e.target.value = "";
-}
-
-// ============================================================================
-// Batch Operations
-// ============================================================================
-function initBatchOperations() {
-  const batchPurchasePriceBtn = document.getElementById("applyBatchPurchasePriceBtn");
-  const batchProfitCoeffBtn = document.getElementById("applyBatchProfitCoeffBtn");
-  const batchQtyBtn = document.getElementById("applyBatchQtyBtn");
-  const batchRecalcPricingBtn = document.getElementById("batchRecalcPricingBtn");
-  const regenerateEanBtn = document.getElementById("regenerateEanBtn");
-
-  if (batchPurchasePriceBtn) {
-    batchPurchasePriceBtn.addEventListener("click", () => {
-      const p = parseFloat(document.getElementById("batchPurchasePriceInput")?.value) || 0;
-      state.variations.forEach(v => v.purchase_price = p);
-      recalcAllPricing();
-      showToast(`已批量设置所有变体采购价为: ¥${p} 并重新核算日元售价`);
-    });
-  }
-
-  if (batchProfitCoeffBtn) {
-    batchProfitCoeffBtn.addEventListener("click", () => {
-      const coeff = parseFloat(document.getElementById("batchProfitCoeffInput")?.value) || (state.pricingConfig.default_profit_coeff || 1.0);
-      state.variations.forEach(v => v.profit_coefficient = coeff);
-      recalcAllPricing();
-      showToast(`已批量设置所有变体利润系数为: ${coeff} 并重新核算日元售价`);
-    });
-  }
-
-  if (batchQtyBtn) {
-    batchQtyBtn.addEventListener("click", () => {
-      const q = parseInt(document.getElementById("batchQtyInput")?.value || 40, 10);
-      state.variations.forEach(v => v.quantity = q);
-      renderMatrixTable();
-      showToast(`已批量设置所有变体库存为: ${q}`);
-    });
-  }
-
-  if (batchRecalcPricingBtn) {
-    batchRecalcPricingBtn.addEventListener("click", () => {
-      recalcAllPricing();
-    });
-  }
-
-  if (regenerateEanBtn) {
-    regenerateEanBtn.addEventListener("click", () => {
-      const seen = new Set();
-      state.variations.forEach(v => {
-        let ean = generateSingleEAN13();
-        while (seen.has(ean)) {
-          ean = generateSingleEAN13();
-        }
-        seen.add(ean);
-        v.ean = ean;
-      });
-      renderMatrixTable();
-      showToast("🎲 已按照 EAN-13 规范为所有变体生成全新合规条码！");
-    });
-  }
-
-  const applyBatchSkuBtn = document.getElementById("applyBatchSkuBtn");
-  if (applyBatchSkuBtn) {
-    applyBatchSkuBtn.addEventListener("click", () => {
-      const parentSkuInp = document.getElementById("parentSkuInput");
-      const baseSkuInp = document.getElementById("baseSkuInput");
-      const val = (baseSkuInp?.value || parentSkuInp?.value || "").trim();
-      if (!val) {
-        showToast("请输入有效的前缀/父 SKU 编码！", "warning");
-        return;
-      }
-      const oldVal = window.lastParentSkuValue || "";
-      if (parentSkuInp) parentSkuInp.value = val;
-      if (baseSkuInp) baseSkuInp.value = val;
-      syncChildSkusWithParent(oldVal, val);
-      window.lastParentSkuValue = val;
-      showToast(`已批量同步更新父 SKU 与所有子变体 SKU 编码为: ${val}`);
-    });
-  }
 }
 
 // ============================================================================
@@ -2014,8 +2111,14 @@ async function loadProductForEdit(productId) {
         main_image: v.variant_image || v.main_image || "",
         variant_image: v.variant_image || v.main_image || "",
         condition: v.condition || "新品",
-        description: v.description || ""
+        description: v.description || "",
+        // 标记为"用户已手动选择渠道"，重算时优先沿用原渠道而不是直接切到最便宜
+        manually_selected: !!(v.shipping_channel || v.selected_channel)
       }));
+
+      // 基于回填的尺寸/重量/采购价/系数重新核算物流渠道与日元售价：
+      // 否则 freights 为空，快递列只会显示「未核算」（调整 SKU 等操作后也一直不显示）
+      state.variations.forEach((_, i) => recalcRowPricing(i));
     }
 
     renderAttrImageCards();
@@ -2629,7 +2732,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   initGlobalTooltip();
   renderProductGallery();
   initAttributeBoxManagers();
-  initBatchOperations();
+  initBulkThInputs();
   initBulletPointsManager();
   initKeywordsManager();
   bindIdentifierToParentSku();

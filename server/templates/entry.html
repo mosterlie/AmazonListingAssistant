@@ -349,19 +349,6 @@
       <span>变体明细表格与精准配置</span>
       <span class="tag-badge" id="variationCountBadge" style="background:#f1f5f9; color:#475569; border:none; margin-left:8px;">0 个组合</span>
     </div>
-    <!-- 批量操作控制台 -->
-    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-      <input type="text" class="form-input" id="baseSkuInput" value="" style="width:120px;" placeholder="SKU前缀/父SKU" title="变体 SKU 前缀，与上方父 SKU 双向联动">
-      <button class="btn btn-outline btn-sm" id="applyBatchSkuBtn" type="button" title="点击将此前缀同步覆盖至所有子变体 SKU">批量SKU前缀</button>
-      <input type="text" inputmode="decimal" class="form-input" id="batchPurchasePriceInput" value="" style="width:80px;" placeholder="采购价¥">
-      <button class="btn btn-outline btn-sm" id="applyBatchPurchasePriceBtn" type="button">批量采购价</button>
-      <input type="text" inputmode="decimal" class="form-input" id="batchProfitCoeffInput" value="1.0" style="width:70px;" placeholder="系数">
-      <button class="btn btn-outline btn-sm" id="applyBatchProfitCoeffBtn" type="button">批量系数</button>
-      <input type="text" inputmode="numeric" class="form-input" id="batchQtyInput" value="40" style="width:65px;" placeholder="库存">
-      <button class="btn btn-outline btn-sm" id="applyBatchQtyBtn" type="button">批量库存</button>
-      <button class="btn btn-primary btn-sm" id="batchRecalcPricingBtn" type="button" style="background:#059669;" title="基于尺寸、重量、采购价与系数核算最优物流与日元售价">⚡ 智能核算价格</button>
-      <button class="btn btn-outline btn-sm" id="regenerateEanBtn" type="button" title="按照 EAN-13 校验规则为每个变体自动生成专属条码">🎲 生成EAN</button>
-    </div>
   </div>
   <div class="card-body" style="padding:0;">
     <div class="table-wrapper">
@@ -372,12 +359,61 @@
             <th style="width:60px; text-align:center;">图片</th>
             <th style="width:60px; text-align:center;">颜色</th>
             <th style="width:60px; text-align:center;">尺寸</th>
-            <th style="width:55px; text-align:center;">长(cm)</th>
-            <th style="width:55px; text-align:center;">宽(cm)</th>
-            <th style="width:55px; text-align:center;">高(cm)</th>
-            <th style="width:65px; text-align:center;">重量(kg)</th>
-            <th style="width:70px; text-align:center;">采购价(¥)</th>
-            <th style="width:60px; text-align:center;">系数</th>
+            <th class="bulk-th" style="width:72px;">
+              <div class="bulk-th-top">
+                <input type="text" inputmode="decimal" class="bulk-th-inp" id="bulkLenInput" placeholder="批量">
+              </div>
+              <div class="bulk-th-bottom">
+                <span>长(cm)</span>
+                <button type="button" class="bulk-th-apply" tabindex="-1" onclick="applyBulkColumnToAll('length_cm', 'bulkLenInput')" title="将上方输入值批量填入该列所有子SKU">⬇</button>
+              </div>
+            </th>
+            <th class="bulk-th" style="width:72px;">
+              <div class="bulk-th-top">
+                <input type="text" inputmode="decimal" class="bulk-th-inp" id="bulkWidthInput" placeholder="批量">
+              </div>
+              <div class="bulk-th-bottom">
+                <span>宽(cm)</span>
+                <button type="button" class="bulk-th-apply" tabindex="-1" onclick="applyBulkColumnToAll('width_cm', 'bulkWidthInput')" title="将上方输入值批量填入该列所有子SKU">⬇</button>
+              </div>
+            </th>
+            <th class="bulk-th" style="width:72px;">
+              <div class="bulk-th-top">
+                <input type="text" inputmode="decimal" class="bulk-th-inp" id="bulkHeightInput" placeholder="批量">
+              </div>
+              <div class="bulk-th-bottom">
+                <span>高(cm)</span>
+                <button type="button" class="bulk-th-apply" tabindex="-1" onclick="applyBulkColumnToAll('height_cm', 'bulkHeightInput')" title="将上方输入值批量填入该列所有子SKU">⬇</button>
+              </div>
+            </th>
+            <th class="bulk-th" style="width:78px;">
+              <div class="bulk-th-top">
+                <input type="text" inputmode="decimal" class="bulk-th-inp" id="bulkWeightInput" placeholder="批量">
+              </div>
+              <div class="bulk-th-bottom">
+                <span>重量(kg)</span>
+                <button type="button" class="bulk-th-apply" tabindex="-1" onclick="applyBulkColumnToAll('weight', 'bulkWeightInput')" title="将上方输入值批量填入该列所有子SKU">⬇</button>
+              </div>
+            </th>
+            <th class="bulk-th" style="width:84px;">
+              <div class="bulk-th-top">
+                <input type="text" inputmode="decimal" class="bulk-th-inp" id="bulkPurchasePriceInput" placeholder="批量">
+              </div>
+              <div class="bulk-th-bottom">
+                <span>采购价(¥)</span>
+                <button type="button" class="bulk-th-apply" tabindex="-1" onclick="applyBulkColumnToAll('purchase_price', 'bulkPurchasePriceInput')" title="将上方输入值批量填入该列所有子SKU">⬇</button>
+              </div>
+            </th>
+            <th class="bulk-th" style="width:86px;">
+              <div class="bulk-th-top">
+                <input type="text" inputmode="decimal" class="bulk-th-inp" id="bulkProfitCoeffInput" placeholder="批量">
+                <button type="button" class="bulk-th-clear" tabindex="-1" onclick="clearAllBulkThInputs()" title="清空标题行全部批量输入框">🧹</button>
+              </div>
+              <div class="bulk-th-bottom">
+                <span>系数</span>
+                <button type="button" class="bulk-th-apply" tabindex="-1" onclick="applyBulkColumnToAll('profit_coefficient', 'bulkProfitCoeffInput')" title="将上方输入值批量填入该列所有子SKU">⬇</button>
+              </div>
+            </th>
             <th style="width:85px; text-align:center;">快递选择</th>
             <th style="width:85px; text-align:center;">价格(JPY)</th>
             <th style="width:55px; text-align:center;">库存</th>
