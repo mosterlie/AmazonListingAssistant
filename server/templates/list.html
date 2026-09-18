@@ -700,7 +700,8 @@ function renderVariantDimensionCards(p) {
   const options = (dim === 'size' ? (p.size_options || []) : (p.color_options || []));
   const mapping = p.variant_dimension_images || {};
 
-  const allKeys = Array.from(new Set([...options, ...Object.keys(mapping)]));
+  // 以当前有效选项为准（避免编辑时删除的选项仍展示历史图片配置）；仅在无选项时回退到历史映射键
+  const allKeys = options.length ? options : Object.keys(mapping);
   if (!allKeys.length) {
     return '<div style="grid-column:1/-1; color:#94a3b8; font-size:0.82rem; padding:10px 0;">暂无变体选项配置</div>';
   }

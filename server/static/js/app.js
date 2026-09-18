@@ -1786,7 +1786,12 @@ async function saveProduct() {
   const colorJoined = validColors.join("-");
   const sizeJoined = validSizes.join("-");
   const imgDim = document.querySelector("input[name='imageDimensionRadio']:checked")?.value || state.imageDimension || "color";
-  const varDimImages = imgDim === "size" ? state.sizeImages : state.colorImages;
+  // 仅保留当前有效选项的图片映射：编辑时删除/清空属性选项后，避免旧选项的图片配置残留在详情页
+  const validAttrKeys = imgDim === "size" ? validSizes : validColors;
+  const varDimImages = Object.fromEntries(
+    Object.entries(imgDim === "size" ? state.sizeImages : state.colorImages)
+      .filter(([k]) => validAttrKeys.includes(k))
+  );
 
   // 同步变体明细表中所有输入框与下拉选择框的最新值
   const tbody = document.getElementById("matrixTableBody");
@@ -1867,8 +1872,8 @@ async function saveProduct() {
       size: validSizes,
       color_joined: colorJoined,
       size_joined: sizeJoined,
-      color_images: imgDim === "color" ? state.colorImages : {},
-      size_images: imgDim === "size" ? state.sizeImages : {}
+      color_images: imgDim === "color" ? varDimImages : {},
+      size_images: imgDim === "size" ? varDimImages : {}
     },
     bullet_points,
     chinese_translations,
