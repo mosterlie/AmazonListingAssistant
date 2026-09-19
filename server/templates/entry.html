@@ -17,6 +17,7 @@
     </span>
   </div>
   <div style="display:flex; gap:10px; flex-shrink:0;">
+    <button class="btn btn-outline btn-lg" type="button" onclick="openPromptPickerModal()" title="从提示词模板快速生成并复制提示词" style="color:#7c3aed; border-color:#ddd6fe; background:#f5f3ff;">📝 生成提示词</button>
     <a href="/list" class="btn btn-outline btn-lg" style="text-decoration:none;">返回</a>
     <button class="btn btn-primary btn-lg" id="saveProductBtn" type="button">保存</button>
   </div>
@@ -563,4 +564,8 @@
   </div>
 </div>
 
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/prompts.js?v=20260919_prompt_v11"></script>
 {% endblock %}

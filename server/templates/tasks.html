@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}任务管理与成果登记看板{% endblock %}
+{% block title %}任务管理{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -35,26 +35,17 @@
 {% block content %}
 <div class="form-card" style="margin-bottom:20px;">
   <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-    <div>
-      <div class="card-title" style="margin:0;">
-        <div class="card-title-icon">📌</div>
-        <span>任务管理与成果登记看板</span>
-      </div>
-      <div style="font-size:0.83rem; color:var(--text-muted); margin-top:3px;">
-        {% if current_user.role == 'admin' %}
-          👑 管理员视角：可查看全部成员任务、向成员派发新任务，并监控成果提交与商品关联状态。
-        {% else %}
-          👤 成员视角：展示分配给您的待办任务，请在完成制作后登记成品链接并关联系统中已录入的商品。
-        {% endif %}
-      </div>
+    <div class="card-title" style="margin:0;">
+      <div class="card-title-icon">📌</div>
+      <span>任务管理</span>
     </div>
-    <div style="display:flex; gap:10px; align-items:center;">
+    <div style="display:flex; gap:10px; align-items:center; margin-left:auto;">
       <button class="btn btn-outline btn-sm" onclick="loadTasksList()" style="display:inline-flex; align-items:center; gap:4px;">
         <span>🔄</span> 刷新
       </button>
       {% if current_user.role == 'admin' %}
       <button class="btn btn-primary btn-sm" onclick="openDispatchModal()" style="display:inline-flex; align-items:center; gap:4px;">
-        <span>➕</span> 派发新任务
+        <span>➕</span> 新建
       </button>
       {% endif %}
     </div>
@@ -106,12 +97,12 @@
           <tr style="background:#f8fafc;">
             <th style="width:50px; text-align:center;">ID</th>
             <th style="min-width:180px;">派发信息 (参考链接)</th>
-            <th style="min-width:220px;">任务说明 (具体要求)</th>
-            <th style="width:105px; text-align:center;">执行人</th>
+            <th style="min-width:160px;">任务说明</th>
+            <th style="width:140px; text-align:center;">执行人</th>
             <th style="width:95px; text-align:center;">派发人</th>
             <th style="width:110px; text-align:center;">派发日期</th>
             <th style="width:95px; text-align:center;">任务状态</th>
-            <th style="min-width:170px;">成果信息 (成品链接 / 登记时间)</th>
+            <th style="min-width:130px;">成果信息</th>
             <th style="min-width:210px;">关联的品 (录入商品)</th>
             <th style="width:130px; text-align:center;">操作</th>
           </tr>
@@ -342,5 +333,5 @@
   window.currentUserRole = "{{ current_user.role }}";
   window.currentUsername = "{{ current_user.username }}";
 </script>
-<script src="/static/js/tasks.js?v=20260918_attr_clean"></script>
+<script src="/static/js/tasks.js?v=20260919_col_width"></script>
 {% endblock %}

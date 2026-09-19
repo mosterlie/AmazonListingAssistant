@@ -1,44 +1,36 @@
 {% extends "base.html" %}
 
-{% block title %}系统管理与全局配置{% endblock %}
+{% block title %}系统管理{% endblock %}
 
 {% block content %}
 <style>
-  .settings-layout { display: flex; gap: 16px; align-items: flex-start; }
+  /* 子菜单样式与知识库页 (kb-subnav) 保持一致: 顶部横向胶囊切换 */
+  .settings-layout { min-width: 0; }
   .settings-nav {
-    width: 190px; flex-shrink: 0; position: sticky; top: 120px;
+    display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;
     background: var(--bg-card, #fff); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); overflow: hidden; box-shadow: 0 2px 8px rgba(15,23,42,0.05);
+    border-radius: var(--radius-sm); padding: 6px; box-shadow: 0 2px 8px rgba(15,23,42,0.05);
+    width: fit-content;
   }
   .settings-nav-item {
-    display: flex; align-items: center; gap: 8px; width: 100%;
-    padding: 11px 14px; border: none; background: transparent; cursor: pointer;
-    font-size: 0.88rem; color: var(--text-main); text-align: left;
-    border-left: 3px solid transparent; transition: background 0.15s, border-color 0.15s;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 20px; border: none; border-radius: 8px;
+    background: transparent; cursor: pointer; font-size: 0.92rem;
+    color: var(--text-main); font-weight: 600; transition: all 0.15s;
   }
-  .settings-nav-item:hover { background: #f8fafc; }
-  .settings-nav-item.active {
-    background: #eff6ff; border-left-color: var(--primary);
-    color: var(--primary); font-weight: 700;
-  }
+  .settings-nav-item:hover { background: #f1f5f9; }
+  .settings-nav-item.active { background: #6366f1; color: #fff; box-shadow: 0 2px 6px rgba(99,102,241,0.35); }
   .settings-panel { display: none; flex: 1; min-width: 0; }
   .settings-panel.active { display: block; }
-  @media (max-width: 768px) {
-    .settings-layout { flex-direction: column; }
-    .settings-nav { width: 100%; position: static; display: flex; overflow-x: auto; }
-    .settings-nav-item { border-left: none; border-bottom: 3px solid transparent; white-space: nowrap; flex: 1; justify-content: center; }
-    .settings-nav-item.active { border-bottom-color: var(--primary); }
-  }
 </style>
 
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; position:sticky; top:64px; z-index:90; background:var(--bg-main); padding:10px 12px; margin-left:-12px; margin-right:-12px; border-radius:0 0 var(--radius-sm) var(--radius-sm); box-shadow:0 2px 8px rgba(15,23,42,0.06);">
   <div>
-    <h1 style="font-size:1.4rem; font-weight:700; color:var(--text-main); margin:0;">⚙️ 系统管理与全局参数配置</h1>
-    <p style="color:var(--text-muted); font-size:0.88rem; margin:4px 0 0 0;">点击左侧子菜单切换配置项，修改后点击右上角保存，全局实时生效。</p>
+    <h1 style="font-size:1.4rem; font-weight:700; color:var(--text-main); margin:0;">⚙️ 系统管理</h1>
   </div>
   <div style="display:flex; gap:10px; flex-shrink:0;">
-    <button class="btn btn-outline" id="resetDefaultsBtn" type="button">🔄 恢复默认值</button>
-    <button class="btn btn-primary" id="saveSettingsBtn" type="button">💾 保存系统配置</button>
+    <button class="btn btn-outline" id="resetDefaultsBtn" type="button">🔄 恢复默认</button>
+    <button class="btn btn-primary" id="saveSettingsBtn" type="button">💾 保存配置</button>
   </div>
 </div>
 

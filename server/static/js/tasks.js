@@ -430,18 +430,18 @@ function renderTaskTable(tasks) {
       `;
     }
 
-    // 成果信息
+    // 成果信息 (过短列宽, 超长省略号 + 悬浮看全文)
     let deliverableHtml = `<span style="color:var(--text-muted); font-size:0.82rem;">尚未登记</span>`;
     if (t.result_url) {
       deliverableHtml = `
-        <div style="font-size:0.82rem;">
+        <div style="font-size:0.82rem; max-width:150px;">
           <div style="margin-bottom:3px;">
-            <a href="${t.result_url}" target="_blank" style="color:#2563eb; text-decoration:none; font-weight:600; display:inline-flex; align-items:center; gap:3px;">
-              <span>🔗 成品链接</span>
-              <span style="font-size:0.7rem;">↗</span>
+            <a href="${t.result_url}" target="_blank" title="${t.result_url}" style="color:#2563eb; text-decoration:none; font-weight:600; display:inline-flex; align-items:center; gap:3px; max-width:140px;">
+              <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🔗 ${t.result_url}</span>
+              <span style="font-size:0.7rem; flex-shrink:0;">↗</span>
             </a>
           </div>
-          ${t.submitted_at ? `<div style="font-size:0.72rem; color:var(--text-muted);">登记: ${t.submitted_at}</div>` : ''}
+          ${t.submitted_at ? `<div style="font-size:0.72rem; color:var(--text-muted); white-space:nowrap;">登记: ${t.submitted_at}</div>` : ''}
         </div>
       `;
     }
@@ -451,25 +451,21 @@ function renderTaskTable(tasks) {
       ? `<div style="margin-top:4px;"><a href="${t.reference_url}" target="_blank" style="color:#2563eb; text-decoration:none; font-weight:600; display:inline-flex; align-items:center; gap:3px; word-break:break-all;"><span>🔗 参考链接</span><span style="font-size:0.7rem;">↗</span></a></div>`
       : `<span style="color:var(--text-muted); font-size:0.75rem;">无参考链接</span>`;
 
-    // 任务说明 (单独一列展示)
+    // 任务说明 (单独一列展示, 超过2行省略号 + 悬浮看全文)
     const instructionsHtml = t.instructions
-      ? `<div style="font-size:0.8rem; color:#334155; line-height:1.45; white-space:pre-wrap; word-break:break-word; max-width:280px;">${t.instructions}</div>`
+      ? `<div title="${t.instructions}" style="font-size:0.8rem; color:#334155; line-height:1.45; word-break:break-word; max-width:180px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; cursor:help;">${t.instructions}</div>`
       : `<span style="color:var(--text-muted); font-size:0.78rem;">(无特殊说明)</span>`;
 
-    // 操作按钮 (登记/关联仅任务执行人或管理员可见)
+    // 操作按钮 (关联仅任务执行人或管理员可见; 按钮风格与其他页面一致: 单行图标+文字)
     const isAdmin = (window.currentUserRole === "admin");
     const canSubmit = isAdmin || (window.currentUsername && window.currentUsername === t.assigned_to);
     const actionsHtml = `
-      <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
+      <div style="display:flex; gap:4px; align-items:center; justify-content:center;">
         ${canSubmit ? `
-        <button class="btn btn-outline btn-sm" onclick="openSubmitDeliverableModal(${t.id})" style="padding:3px 8px; font-size:0.75rem; width:100%; border-color:#3b82f6; color:#2563eb; background:#eff6ff;">
-          📝 登记/关联
-        </button>` : '<span style="font-size:0.7rem; color:#94a3b8;">仅执行人可登记</span>'}
+        <button class="btn btn-outline btn-sm" onclick="openSubmitDeliverableModal(${t.id})" style="padding:3px 8px; font-size:0.75rem; white-space:nowrap; border-color:#3b82f6; color:#2563eb; background:#eff6ff;" title="登记成果链接并关联商品">🔗 关联</button>` : '<span style="font-size:0.7rem; color:#94a3b8;">仅执行人可登记</span>'}
         ${isAdmin ? `
-          <div style="display:flex; gap:4px; width:100%;">
-            <button class="btn btn-outline btn-sm" onclick="openEditTaskModal(${t.id})" style="padding:3px 8px; font-size:0.75rem; flex:1;">✏️ 编辑</button>
-            <button class="btn btn-outline btn-sm" onclick="handleDeleteTask(${t.id})" style="padding:3px 8px; font-size:0.75rem; flex:1; color:#ef4444; border-color:#fca5a5;">🗑️ 删除</button>
-          </div>
+          <button class="btn btn-outline btn-sm" onclick="openEditTaskModal(${t.id})" style="padding:3px 8px; font-size:0.75rem; white-space:nowrap;">✏️ 编辑</button>
+          <button class="btn btn-outline btn-sm" onclick="handleDeleteTask(${t.id})" style="padding:3px 8px; font-size:0.75rem; white-space:nowrap; color:#ef4444; border-color:#fca5a5;">🗑️ 删除</button>
         ` : ''}
       </div>
     `;

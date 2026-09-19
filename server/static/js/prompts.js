@@ -38,31 +38,36 @@ function initKbSubnav() {
 // ============================================================================
 async function loadPrompts() {
   try {
-    const res = await fetch("/api/prompts");
-    const result = await res.json();
-    if (result.code === 0 && Array.isArray(result.data)) {
-      promptsState.templates = result.data;
-      renderPromptTable();
-    } else {
-      throw new Error(result.msg || "接口返回异常");
-    }
+    await fetchPromptsData();
+    renderPromptTable();
   } catch (err) {
     const tbody = document.getElementById("promptTableBody");
     if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:24px; color:#ef4444;">❌ 加载提示词模板失败: ${err.message}</td></tr>`;
   }
 }
 
-function renderPromptTable() {
-  const tbody = document.getElementById("promptTableBody");
-  const badge = document.getElementById("promptCountBadge");
-  if (!tbody) return;
+async function fetchPromptsData() {
+  const res = await fetch("/api/prompts");
+  const result = await res.json();
+  if (result.code === 0 && Array.isArray(result.data)) {
+    promptsState.templates = result.data;
+  } else {
+    throw new Error(result.msg || "接口返回异常");
+  }
+}
 
-  const isAdmin = !!window.IS_ADMIN;
+// 渲染提示词表格到指定 tbody (知识库页 & 生成提示词弹窗共用)
+// opts: { adminActions: 是否渲染编辑/删除按钮, countBadge: 模板数徽标元素 }
+function renderPromptTableInto(tbody, opts = {}) {
+  if (!tbody) return;
+  const adminActions = opts.adminActions === true && !!window.IS_ADMIN;
+  const badge = opts.countBadge || null;
+
   tbody.innerHTML = "";
   if (badge) badge.innerText = `共 ${promptsState.templates.length} 套模板`;
 
   if (promptsState.templates.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:28px; color:var(--text-muted);">${isAdmin ? "暂无提示词模板，请点击右上角「➕ 新增模板」添加" : "暂无提示词模板，请联系管理员维护"}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:28px; color:var(--text-muted);">${adminActions ? "暂无提示词模板，请点击右上角「➕ 新增模板」添加" : "暂无提示词模板，请联系管理员在「知识库 → 提示词模板」中维护"}</td></tr>`;
     return;
   }
 
@@ -99,8 +104,9 @@ function renderPromptTable() {
         ${paramInputsHtml}
       </td>
       <td class="prompt-action-cell">
-        <button class="btn btn-primary btn-sm" style="padding:4px 10px; font-size:0.78rem; background:#8b5cf6; border-color:#8b5cf6; font-weight:700;" onclick="copyGeneratedPrompt(${item.id})" title="${hasVars ? "按行内已填参数生成并复制完整提示词" : "复制提示词全文"}">📋 复制使用</button>
-        ${isAdmin ? `
+        <button class="btn btn-outline btn-sm" style="padding:3px 8px; font-size:0.75rem; color:#475569; border-color:#cbd5e1;" onclick="showPromptDetail(${item.id})" title="查看完整提示词详情">🔍 详情</button>
+        <button class="btn btn-primary btn-sm" style="padding:3px 8px; font-size:0.75rem; background:#8b5cf6; border-color:#8b5cf6;" onclick="copyGeneratedPrompt(${item.id})" title="${hasVars ? "按行内已填参数生成并复制完整提示词" : "复制提示词全文"}">📋 复制</button>
+        ${adminActions ? `
         <button class="btn btn-outline btn-sm" style="padding:3px 8px; font-size:0.75rem; color:#6366f1; border-color:#c7d2fe;" onclick="openPromptEditor(${item.id})" title="编辑模板">✏️ 编辑</button>
         <button class="btn btn-outline btn-sm" style="padding:3px 8px; font-size:0.75rem; color:var(--danger); border-color:#fecaca;" onclick="removePrompt(${item.id})" title="删除模板">🗑️</button>
         ` : ""}
@@ -111,6 +117,14 @@ function renderPromptTable() {
 
   // 渲染各行初始生成预览 (含缓存的已填参数)
   tbody.querySelectorAll(".prompt-gen-preview").forEach(renderPreviewInto);
+}
+
+// 知识库页主表格渲染入口
+function renderPromptTable() {
+  renderPromptTableInto(document.getElementById("promptTableBody"), {
+    adminActions: true,
+    countBadge: document.getElementById("promptCountBadge")
+  });
 }
 
 function escapeHtml(text) {
@@ -177,7 +191,7 @@ document.addEventListener("input", (e) => {
   if (!pid || !varName) return;
   if (!promptsState.paramValues[pid]) promptsState.paramValues[pid] = {};
   promptsState.paramValues[pid][varName] = inp.value;
-  const preview = document.querySelector(`.prompt-gen-preview[data-pid="${pid}"]`);
+  const preview = inp.closest("tr")?.querySelector(`.prompt-gen-preview[data-pid="${pid}"]`);
   if (preview) renderPreviewInto(preview);
 });
 
@@ -186,6 +200,107 @@ function copyGeneratedPrompt(id) {
   if (!item) return;
   const values = promptsState.paramValues[id] || {};
   copyPromptText(generatePromptText(item.content, values));
+}
+
+// ============================================================================
+// 生成提示词弹窗 (商品录入/编辑等页面快速使用, 所有角色可用)
+// ============================================================================
+function ensurePromptPickerStyles() {
+  if (document.getElementById("promptPickerStyle")) return;
+  const st = document.createElement("style");
+  st.id = "promptPickerStyle";
+  st.textContent = `
+    .prompt-name-cell { font-weight: 700; color: #1e293b; font-size: 0.90rem; word-break: break-word; }
+    .prompt-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; cursor: help; }
+    .prompt-action-cell { white-space: nowrap; text-align: center; }
+  `;
+  document.head.appendChild(st);
+}
+
+async function openPromptPickerModal() {
+  ensurePromptPickerStyles();
+
+  // 防止重复打开
+  const existed = document.getElementById("promptPickerModal");
+  if (existed) existed.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "promptPickerModal";
+  modal.style.cssText = "position:fixed; inset:0; z-index:999999; display:flex; align-items:center; justify-content:center; background:rgba(15,23,42,0.6);";
+  modal.innerHTML = `
+    <div style="background:#fff; border-radius:12px; width:min(1020px, 96vw); max-height:88vh; display:flex; flex-direction:column; box-shadow:0 25px 50px -12px rgba(0,0,0,0.4); overflow:hidden;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #e2e8f0; background:#f8fafc;">
+        <div style="font-weight:700; color:#1e293b; font-size:1rem;">📝 生成提示词
+          <span style="font-weight:400; color:#64748b; font-size:0.82rem; margin-left:10px;">在行内输入框填入参数，点「📋 复制」即可使用完整提示词</span>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <a href="https://chat.deepseek.com/" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="text-decoration:none; color:#4756f1; border-color:#c7d2fe; background:#f8faff; font-weight:600;" title="在新窗口打开 DeepSeek 对话框">↪ 跳转 DS</a>
+          <button class="prompt-picker-close" style="border:none; background:transparent; font-size:1.2rem; cursor:pointer; color:#64748b;">✕</button>
+        </div>
+      </div>
+      <div style="flex:1; overflow:auto; padding:14px 18px;">
+        <div style="border:1px solid #e2e8f0; border-radius:8px; overflow:hidden;">
+          <table class="matrix-table" style="width:100%; font-size:0.88rem; margin-bottom:0;">
+            <thead>
+              <tr style="background:#f8fafc;">
+                <th style="width:45px; text-align:center;">#</th>
+                <th style="width:180px; min-width:140px;">模板名称</th>
+                <th style="width:180px; min-width:130px;">用途说明</th>
+                <th>提示词内容与参数</th>
+                <th style="width:150px; min-width:120px; text-align:center;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="promptPickerTableBody">
+              <tr><td colspan="5" style="text-align:center; padding:28px; color:#64748b;">⏳ 正在加载提示词模板...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  modal.querySelector(".prompt-picker-close").addEventListener("click", () => modal.remove());
+  document.body.appendChild(modal);
+
+  try {
+    await fetchPromptsData();
+    renderPromptTableInto(document.getElementById("promptPickerTableBody"), { adminActions: false });
+  } catch (err) {
+    const tbody = document.getElementById("promptPickerTableBody");
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:24px; color:#ef4444;">❌ 加载提示词模板失败: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+// 详情弹窗: 查看拼接后的完整提示词 (所有角色可用)
+function showPromptDetail(id) {
+  const item = promptsState.templates.find(t => t.id === id);
+  if (!item) return;
+  const values = promptsState.paramValues[id] || {};
+  const varNames = extractPromptVars(item.content);
+
+  const modal = document.createElement("div");
+  modal.style.cssText = "position:fixed; inset:0; z-index:999999; display:flex; align-items:center; justify-content:center; background:rgba(15,23,42,0.6);";
+  modal.innerHTML = `
+    <div style="background:#fff; border-radius:12px; width:min(760px, 92vw); max-height:84vh; display:flex; flex-direction:column; box-shadow:0 25px 50px -12px rgba(0,0,0,0.4); overflow:hidden;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #e2e8f0; background:#f8fafc;">
+        <div style="font-weight:700; color:#1e293b; font-size:1rem;">📝 ${escapeHtml(item.name)}${item.description ? `<span style="font-weight:400; color:#64748b; font-size:0.82rem; margin-left:10px;">${escapeHtml(item.description)}</span>` : ""}</div>
+        <button class="prompt-modal-close" style="border:none; background:transparent; font-size:1.2rem; cursor:pointer; color:#64748b;">✕</button>
+      </div>
+      ${varNames.length ? `<div style="padding:10px 18px 0; font-size:0.8rem; color:#9333ea;">🧩 含 ${varNames.length} 个参数：${varNames.map(n => `{${escapeHtml(n)}}`).join("、")}，已按行内当前填写的参数生成 ↓</div>` : ""}
+      <div style="padding:10px 18px 0; font-size:0.8rem; font-weight:700; color:#64748b;">完整提示词</div>
+      <pre class="prompt-detail-body" style="margin:0; padding:12px 18px; overflow:auto; white-space:pre-wrap; word-break:break-word; font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size:0.86rem; line-height:1.7; color:#334155; flex:1;"></pre>
+      <div style="padding:12px 18px; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end; gap:10px; background:#f8fafc;">
+        <button class="btn btn-primary btn-sm prompt-modal-copy" style="background:#8b5cf6; border-color:#8b5cf6;">📋 复制</button>
+      </div>
+    </div>
+  `;
+  modal.querySelector(".prompt-detail-body").textContent = generatePromptText(item.content, values);
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  modal.querySelector(".prompt-modal-close").addEventListener("click", () => modal.remove());
+  modal.querySelector(".prompt-modal-copy").addEventListener("click", () => {
+    copyPromptText(modal.querySelector(".prompt-detail-body").textContent, () => modal.remove());
+  });
+  document.body.appendChild(modal);
 }
 
 function copyPromptText(text, afterCb) {

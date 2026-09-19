@@ -1,20 +1,19 @@
 {% extends "base.html" %}
 
-{% block title %}用户管理与权限维护{% endblock %}
+{% block title %}用户管理{% endblock %}
 
 {% block content %}
 <div class="form-card">
   <div class="card-header">
     <div class="card-title">
       <div class="card-title-icon" style="background:#8b5cf6;">👥</div>
-      <span>用户管理与权限维护</span>
+      <span>用户管理</span>
       <span class="tag-badge" id="userTotalCountBadge" style="background:#f1f5f9; color:#475569; border:none; margin-left:8px;">共 0 个用户</span>
     </div>
     <div style="display:flex; gap:10px; align-items:center;">
       <button class="btn btn-primary btn-sm" id="openAddUserModalBtn" type="button" style="background:#7c3aed; border-color:#7c3aed;">
-        ➕ 新增用户
+        ➕ 新增
       </button>
-      <span class="tag-badge" style="background:#fef2f2; color:#b91c1c; border-color:#fecaca;">🔒 仅超级管理员可见</span>
     </div>
   </div>
   <div class="card-body" style="padding:0;">

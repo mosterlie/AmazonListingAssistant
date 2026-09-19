@@ -53,9 +53,9 @@ body {
 }
 
 .nav-container {
-  max-width: 1380px;
+  max-width: 1760px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 28px;
   height: 64px;
   display: flex;
   align-items: center;
@@ -110,9 +110,9 @@ body {
 
 /* Layout */
 .main-wrapper {
-  max-width: 1380px;
+  max-width: 1760px;
   margin: 24px auto 60px;
-  padding: 0 24px;
+  padding: 0 28px;
 }
 
 /* Section Card */

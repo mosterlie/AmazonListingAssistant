@@ -17,19 +17,13 @@
 </style>
 <div class="form-card" style="margin-bottom:20px;">
   <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-    <div>
-      <div class="card-title" style="margin:0;">
-        <div class="card-title-icon">📢</div>
-        <span>广告投放任务管理（赛狐 SP 批量创建）</span>
-      </div>
-      <div style="font-size:0.83rem; color:var(--text-muted); margin-top:3px;">
-        维护广告投放参数 → 点击「自动投放」驱动赛狐完成录入，执行结果自动登记。
-        <span style="color:#b45309; font-weight:600;">当前阶段执行到「提交」前停止，需人工在赛狐页面核对后手动提交。</span>
-      </div>
+    <div class="card-title" style="margin:0;">
+      <div class="card-title-icon">📢</div>
+      <span>广告任务管理</span>
     </div>
-    <div style="display:flex; gap:10px; align-items:center;">
+    <div style="display:flex; gap:10px; align-items:center; margin-left:auto;">
       <span id="cdpStatusBadge" style="font-size:0.78rem; padding:4px 10px; border-radius:9999px; border:1px solid #e2e8f0; background:#f8fafc; color:#64748b;">
-        🔌 检测调试浏览器中...
+        🔌 检测 9222 中...
       </span>
       <button id="cdpLaunchBtn" class="btn btn-outline btn-sm" onclick="launchDebugBrowser()"
               style="display:none; color:#b45309; border-color:#fde68a;">🚀 启动调试浏览器</button>
@@ -40,7 +34,7 @@
         <span>🎯</span> 生成ASIN
       </button>
       <button class="btn btn-primary btn-sm" onclick="openAdTaskModal(null)" style="display:inline-flex; align-items:center; gap:4px;">
-        <span>➕</span> 新增广告任务
+        <span>➕</span> 新建
       </button>
     </div>
   </div>
@@ -577,7 +571,7 @@ async function checkCdpStatus() {
   try {
     const j = await (await fetch('/api/ads/cdp-status')).json();
     const ok = j.data && j.data.available;
-    badge.innerText = ok ? '🟢 调试浏览器已就绪' : '🔴 未检测到调试浏览器(9222)';
+    badge.innerText = ok ? '🟢 9222 就绪' : '🔴 9222 未就绪';
     badge.style.color = ok ? '#059669' : '#dc2626';
     badge.style.borderColor = ok ? '#a7f3d0' : '#fecaca';
     badge.style.background = ok ? '#ecfdf5' : '#fef2f2';
@@ -676,13 +670,13 @@ function clampLines(text, maxLines, fs) {
 function renderAdTable(tasks) {
   const tbody = document.getElementById('adTableBody');
   if (!tasks.length) {
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:40px; color:var(--text-muted);">📭 暂无广告任务，点击右上角「新增广告任务」创建</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:40px; color:var(--text-muted);">📭 暂无广告任务，点击右上角「新建」创建</td></tr>';
     return;
   }
   const isAdmin = (CURRENT_USER_ROLE === 'admin');
   const runBtn = (t) => t.running
     ? '<button class="btn btn-outline btn-sm" onclick="stopAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem; color:#dc2626; border-color:#fecaca;" title="请求终止执行">⏹ 终止</button>'
-    : '<button class="btn btn-primary btn-sm" onclick="runAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="执行自动投放">▶ 投放</button>';
+    : '<button class="btn btn-primary btn-sm" onclick="runAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="执行自动投放">▶</button>';
   tbody.innerHTML = tasks.map(t => {
     const asins = t.asins || [];
     const period = (t.start_date || '-') + ' ~ ' + (t.end_date || '不限');

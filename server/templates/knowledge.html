@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}知识库与常用工具导航{% endblock %}
+{% block title %}知识库{% endblock %}
 
 {% block extra_head %}
 <style>
@@ -205,16 +205,15 @@
   <div class="card-header" style="flex-wrap:wrap; gap:12px;">
     <div class="card-title" style="display:flex; align-items:center; gap:8px;">
       <div class="card-title-icon" style="background:#6366f1;">📚</div>
-      <span>知识库与常用工具导航</span>
+      <span>网站导航</span>
       <span class="tag-badge" id="siteCountBadge" style="background:#eef2ff; color:#4f46e5; border-color:#c7d2fe;">共 0 个网址</span>
     </div>
 
     <div style="display:flex; gap:10px; align-items:center; margin-left:auto;">
       {% if current_user and current_user.role == 'admin' %}
       <button class="btn btn-primary btn-sm" id="openAddSiteBtn" type="button" style="background:#6366f1; border-color:#6366f1; font-weight:600;">
-        ➕ 新增网站
+        ➕ 新增
       </button>
-      <span class="tag-badge" style="background:#fdf4ff; color:#9333ea; border-color:#f0abfc;">👑 管理员可编辑</span>
       {% else %}
       <span class="tag-badge" style="background:#f8fafc; color:#64748b; border-color:#e2e8f0;">👤 查阅与参数直达模式</span>
       {% endif %}
@@ -263,9 +262,9 @@
         <span class="tag-badge" id="promptCountBadge" style="background:#f5f3ff; color:#7c3aed; border-color:#ddd6fe;">共 0 套模板</span>
       </div>
       <div style="display:flex; gap:10px; align-items:center; margin-left:auto;">
+        <a href="https://chat.deepseek.com/" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="text-decoration:none; color:#4756f1; border-color:#c7d2fe; background:#f8faff; font-weight:600;" title="在新窗口打开 DeepSeek 对话框">↪ 跳转 DS</a>
         {% if current_user and current_user.role == 'admin' %}
-        <button class="btn btn-primary btn-sm" id="openAddPromptBtn" type="button" style="background:#8b5cf6; border-color:#8b5cf6; font-weight:600;">➕ 新增模板</button>
-        <span class="tag-badge" style="background:#fdf4ff; color:#9333ea; border-color:#f0abfc;">👑 管理员可编辑</span>
+        <button class="btn btn-primary btn-sm" id="openAddPromptBtn" type="button" style="background:#8b5cf6; border-color:#8b5cf6; font-weight:600;">➕ 新增</button>
         {% else %}
         <span class="tag-badge" style="background:#f8fafc; color:#64748b; border-color:#e2e8f0;">👤 查阅与一键复制模式</span>
         {% endif %}
@@ -305,5 +304,5 @@
   window.IS_ADMIN = {{ 'true' if (current_user and current_user.role == 'admin') else 'false' }};
 </script>
 <script src="/static/js/knowledge.js?v=20260913_knowledge_v10"></script>
-<script src="/static/js/prompts.js?v=20260919_prompt_v6"></script>
+<script src="/static/js/prompts.js?v=20260919_prompt_v11"></script>
 {% endblock %}

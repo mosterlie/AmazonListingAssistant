@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}商品管理与数据列表{% endblock %}
+{% block title %}商品列表{% endblock %}
 
 {% block content %}
 <script>
@@ -68,67 +68,34 @@
     }
   }
 </script>
-<!-- 1. 多维度查询与高级筛选卡片 -->
-<div class="form-card" style="margin-bottom: 16px;">
-  <div class="card-body" style="padding: 16px 20px;">
-    <form id="productFilterForm" onsubmit="handleSearchSubmit(event)" style="margin:0;">
-      <div style="display: grid; grid-template-columns: minmax(220px, 2fr) minmax(150px, 1fr) minmax(130px, 1fr) auto; gap: 12px; align-items: end;">
-        <!-- 关键词搜索 -->
-        <div>
-          <label style="font-size: 0.82rem; font-weight: 700; color: #475569; margin-bottom: 4px; display: block;">
-            🔍 关键词搜索
-          </label>
-          <input type="text" class="form-input" id="filterKeyword" placeholder="搜索标题 / Parent SKU / 型号 / 关键词" style="width: 100%; font-size: 0.86rem;">
-        </div>
-
-        <!-- 店铺账号筛选 -->
-        <div>
-          <label style="font-size: 0.82rem; font-weight: 700; color: #475569; margin-bottom: 4px; display: block;">
-            🏬 店铺账号
-          </label>
-          <select class="form-select" id="filterStoreAccount" style="width: 100%; font-size: 0.86rem;" onchange="fetchAndRenderProducts()">
-            <option value="">全部店铺</option>
-          </select>
-        </div>
-
-        <!-- 维护人筛选 -->
-        <div>
-          <label style="font-size: 0.82rem; font-weight: 700; color: #475569; margin-bottom: 4px; display: block;">
-            👤 维护人
-          </label>
-          <select class="form-select" id="filterCreatedBy" style="width: 100%; font-size: 0.86rem;" onchange="fetchAndRenderProducts()">
-            <option value="">全部维护人</option>
-          </select>
-        </div>
-
-        <!-- 操作按钮组 -->
-        <div style="display: flex; gap: 8px;">
-          <button type="submit" class="btn btn-primary" style="white-space: nowrap; padding: 8px 16px; font-size: 0.86rem;">
-            🔍 查询
-          </button>
-          <button type="button" class="btn btn-outline" onclick="resetFilters()" style="white-space: nowrap; padding: 8px 16px; font-size: 0.86rem;">
-            🔄 重置
-          </button>
-        </div>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- 2. 商品数据列表表格 -->
+<!-- 商品列表: 标头 → 筛选条 → 表格 (与其他页面布局一致) -->
 <div class="form-card">
   <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
     <div class="card-title" style="display: flex; align-items: center; gap: 10px;">
       <div class="card-title-icon">📦</div>
-      <span>已录入商品列表与数据库看板</span>
+      <span>商品列表</span>
       <span class="tag-badge" id="productCountBadge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; font-size:0.8rem; font-weight:600;">
         共 {{ products|length if products else 0 }} 个商品
       </span>
     </div>
     <div style="display:flex; gap:10px;">
       <a href="/entry" class="btn btn-primary btn-sm" style="display:inline-flex; align-items:center; gap:4px;">
-        <span>➕</span> 录入新商品
+        <span>➕</span> 录入
       </a>
+    </div>
+  </div>
+  <!-- 筛选条: 紧邻表格, 靠右对齐 -->
+  <div style="padding:12px 20px; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:12px;">
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <select class="form-select" id="filterStoreAccount" onchange="fetchAndRenderProducts()" style="width:150px; padding:6px 10px; font-size:0.82rem;">
+        <option value="">🏬 全部店铺</option>
+      </select>
+      <select class="form-select" id="filterCreatedBy" onchange="fetchAndRenderProducts()" style="width:140px; padding:6px 10px; font-size:0.82rem;">
+        <option value="">👤 全部维护人</option>
+      </select>
+      <input type="text" class="form-input" id="filterKeyword" placeholder="🔍 搜索标题 / SKU / 型号 / 关键词..." style="width:260px; padding:6px 12px; font-size:0.82rem;" onkeydown="if(event.key==='Enter'){ event.preventDefault(); fetchAndRenderProducts(); }">
+      <button type="button" class="btn btn-primary btn-sm" onclick="fetchAndRenderProducts()">🔍 查询</button>
+      <button type="button" class="btn btn-outline btn-sm" onclick="resetFilters()">🔄 重置</button>
     </div>
   </div>
   <div class="card-body" style="padding:0;">
@@ -226,7 +193,7 @@
             <tr>
               <td colspan="12" style="text-align:center; padding:50px; color:var(--text-muted);">
                 <div style="font-size:2rem; margin-bottom:10px;">📭</div>
-                <div>暂无已录入商品数据，请点击右上角【➕ 录入新商品】保存商品！</div>
+                <div>暂无已录入商品数据，请点击右上角【➕ 录入】保存商品！</div>
               </td>
             </tr>
           {% endif %}
@@ -1132,11 +1099,6 @@ async function loadFilterOptions() {
   } catch (err) {
     console.error("加载筛选下拉选项异常:", err);
   }
-}
-
-function handleSearchSubmit(e) {
-  if (e) e.preventDefault();
-  fetchAndRenderProducts();
 }
 
 function resetFilters() {
