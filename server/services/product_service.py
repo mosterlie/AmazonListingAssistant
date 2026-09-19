@@ -421,6 +421,7 @@ class ProductService:
                 is_parent, parent_sku, sku,
                 store_account, brand, title, sale_type,
                 model_number, model_name, product_identifier, title_translation, identifier_translation,
+                category_name, category_type,
                 item_length, item_width, item_height, item_dim_unit,
                 package_length, package_width, package_height, package_dim_unit,
                 package_weight, package_weight_unit,
@@ -430,11 +431,12 @@ class ProductService:
                 description, bullet_points_json, chinese_translations_json,
                 fulfillment_channel, search_terms,
                 status, created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """, (
                 1, parent_sku, parent_sku,
                 data.store_account or "", data.brand or "", data.title or "", data.sale_type or "variation",
                 data.model_number or "", data.model_name or "", data.product_identifier or "", data.title_translation or "", data.identifier_translation or "",
+                data.category_name or "", data.category_type or "",
                 float(data.item_length or 0.0), float(data.item_width or 0.0), float(data.item_height or 0.0), data.item_dimension_unit or "cm",
                 float(data.package_length or 0.0), float(data.package_width or 0.0), float(data.package_height or 0.0), data.package_dimension_unit or "cm",
                 float(data.package_weight or 0.0), data.package_weight_unit or "kg",
@@ -593,6 +595,8 @@ class ProductService:
                     product_identifier = ?,
                     title_translation = ?,
                     identifier_translation = ?,
+                    category_name = ?,
+                    category_type = ?,
                     item_length = ?,
                     item_width = ?,
                     item_height = ?,
@@ -622,6 +626,7 @@ class ProductService:
                     parent_sku, parent_sku,
                     data.store_account or "", data.brand or "", data.title or "", data.sale_type or "variation",
                     data.model_number or "", data.model_name or "", data.product_identifier or "", data.title_translation or "", data.identifier_translation or "",
+                    data.category_name or "", data.category_type or "",
                     float(data.item_length or 0.0), float(data.item_width or 0.0), float(data.item_height or 0.0), data.item_dimension_unit or "cm",
                     float(data.package_length or 0.0), float(data.package_width or 0.0), float(data.package_height or 0.0), data.package_dimension_unit or "cm",
                     float(data.package_weight or 0.0), data.package_weight_unit or "kg",
@@ -640,6 +645,7 @@ class ProductService:
                     id, is_parent, parent_sku, sku,
                     store_account, brand, title, sale_type,
                     model_number, model_name, product_identifier, title_translation, identifier_translation,
+                    category_name, category_type,
                     item_length, item_width, item_height, item_dim_unit,
                     package_length, package_width, package_height, package_dim_unit,
                     package_weight, package_weight_unit,
@@ -649,11 +655,12 @@ class ProductService:
                     description, bullet_points_json, chinese_translations_json,
                     fulfillment_channel, search_terms,
                     status, created_by, created_at, updated_at
-                ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """, (
                     product_id, parent_sku, parent_sku,
                     data.store_account or "", data.brand or "", data.title or "", data.sale_type or "variation",
                     data.model_number or "", data.model_name or "", data.product_identifier or "", data.title_translation or "", data.identifier_translation or "",
+                    data.category_name or "", data.category_type or "",
                     float(data.item_length or 0.0), float(data.item_width or 0.0), float(data.item_height or 0.0), data.item_dimension_unit or "cm",
                     float(data.package_length or 0.0), float(data.package_width or 0.0), float(data.package_height or 0.0), data.package_dimension_unit or "cm",
                     float(data.package_weight or 0.0), data.package_weight_unit or "kg",

@@ -146,16 +146,25 @@ class ERPBridgeService:
             time.sleep(0.5)
 
             # =========================================================================
-            # 阶段 2：类目自动识别与动态属性加载
+            # 阶段 2：产品分类选择 (手动逐级选类目, 替代原「自动识别产品类型」)
             # =========================================================================
-            emit_log("⏳ [阶段 2/7] 正在点击【自动识别产品类型】...")
-            if engine.click_button("自动识别产品类型"):
-                emit_log("   • 成功触发【自动识别产品类型】，正在等待类目推荐弹窗...")
-                time.sleep(1.5)
-                s_modal = engine.confirm_modal("确定", wait_timeout_ms=8000)
-                if s_modal:
-                    emit_log("✅ 已在推荐弹窗中确认类目，等待动态属性渲染...")
+            category_name = (product.get("category_name") or "").strip()
+            if category_name:
+                emit_log(f"⏳ [阶段 2/7] 正在选择【产品分类】 ➔ 【{category_name}】...")
+                try:
+                    cat_res = engine.select_product_category(category_name)
+                except Exception as cat_e:
+                    cat_res = {"ok": False, "msg": f"产品分类选择异常: {cat_e}"}
+                if cat_res and cat_res.get("ok"):
+                    emit_log(f"✅ 产品分类已选中 ➔ {cat_res.get('selected')}，等待动态属性渲染...")
                     time.sleep(2)
+                else:
+                    emit_log(f"⚠️ 产品分类选择未成功: {(cat_res or {}).get('msg')}")
+                    cands = (cat_res or {}).get("candidates") or []
+                    if cands:
+                        emit_log("   候选分类(去括号后): " + " | ".join(cands[:10]))
+            else:
+                emit_log("ℹ️ [阶段 2/7] 未填写产品分类，跳过类目选择")
             time.sleep(0.5)
 
             # =========================================================================
@@ -591,6 +600,54 @@ class ERPBridgeService:
                 engine.fill("品番", product["model_number"]) or engine.fill("型番", product["model_number"])
             if product.get("model_name"):
                 engine.fill("モデル名", product["model_name"])
+
+            # 8. 厂商建议零售价(税抜)货币选择 JPY；税込み参考价格填入子 SKU 最高价
+            try:
+                cur_ok = engine.select_msrp_currency("JPY")
+                if not cur_ok:
+                    cur_ok = engine.select("价目表货币", "JPY") or engine.select("希望小売価格", "日本円")
+                if cur_ok:
+                    emit_log("✅ 厂商建议零售价货币(价目表货币)已真实选中 JPY！")
+                else:
+                    emit_log("⚠️ 价目表货币下拉框未找到或未能选中 JPY，请人工核查")
+            except Exception as cur_e:
+                emit_log(f"⚠️ 价目表货币选择提示: {cur_e}")
+            time.sleep(0.3)
+
+            try:
+                price_pool = []
+                for v in product.get("variations", []):
+                    try:
+                        pf = float(v.get("price_jpy") or v.get("sale_price_jpy") or 0)
+                        if pf > 0:
+                            price_pool.append(pf)
+                    except (TypeError, ValueError):
+                        continue
+                if not price_pool:
+                    for key in ("price_jpy", "sale_price_jpy", "price"):
+                        try:
+                            pf = float(product.get(key) or 0)
+                            if pf > 0:
+                                price_pool.append(pf)
+                                break
+                        except (TypeError, ValueError):
+                            continue
+                if price_pool:
+                    max_price = max(price_pool)
+                    max_price_str = str(int(max_price)) if max_price == int(max_price) else str(max_price)
+                    tax_ok = (
+                        engine.fill("税込みの参考価格", max_price_str)
+                        or engine.fill("价格表（含税）", max_price_str)
+                    )
+                    if tax_ok:
+                        emit_log(f"✅ 税込み参考价格(价格表含税)已填入子 SKU 最高价 ➔ {max_price_str} JPY！")
+                    else:
+                        emit_log("⚠️ 税込み参考价格输入框未找到，请人工核查")
+                else:
+                    emit_log("⚠️ 未取到任何子 SKU 价格，跳过税込み参考价格填写")
+            except Exception as tp_e:
+                emit_log(f"⚠️ 税込み参考价格填写提示: {tp_e}")
+            time.sleep(0.3)
 
             # =========================================================================
             # 阶段 7：点击【保存】存为草稿 (不直接发布)

@@ -1728,6 +1728,7 @@ async function saveProduct() {
   const variation_theme = document.getElementById("variationThemeSelect")?.value || "カラー/サイズ(颜色/尺寸)";
 
   // 产品属性
+  const category_name = document.getElementById("categoryNameInput")?.value.trim() || "";
   const model_number = document.getElementById("modelNumberInput")?.value.trim() || "";
   const model_name = document.getElementById("modelNameInput")?.value.trim() || "";
   const item_length = parseFloat(document.getElementById("itemLengthInput")?.value) || 0;
@@ -1845,7 +1846,7 @@ async function saveProduct() {
     product_identifier,
     identifier_translation,
     brand: document.getElementById("brandInput")?.value.trim() || "",
-    category_name: "厕所托盘(トイレトレー)",
+    category_name,
     category_type: "LITTER_BOX",
     model_number,
     model_name,
@@ -2021,6 +2022,8 @@ async function loadProductForEdit(productId) {
     if (baseSkuInp) baseSkuInp.value = p.parent_sku || p.sku || "";
 
     // 3. 产品属性
+    const categoryNameInp = document.getElementById("categoryNameInput");
+    if (categoryNameInp) categoryNameInp.value = p.category_name || "";
     const modelNumInp = document.getElementById("modelNumberInput");
     if (modelNumInp) modelNumInp.value = p.model_number || "";
     const modelNameInp = document.getElementById("modelNameInput");

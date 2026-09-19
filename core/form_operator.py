@@ -183,6 +183,309 @@ class FormOperator:
 
         return False
 
+    def select_msrp_currency(self, currency_code: str = "JPY", timeout_ms: int = 10000) -> bool:
+        """专用于「メーカー希望小売価格・定価(税抜)の通貨」(价目表货币) 下拉框的真实选中:
+        定位标记控件 → 物理点击展开 → 物理点击币种选项 → 键盘回车兜底 → 页面回读校验, 循环直到成功"""
+        find_js = """
+        (args) => {
+            const { code } = args;
+            const norm = (t) => (t || '').replace(/\\s+/g, ' ').trim();
+            // 1. 定位标签文本节点 (日文全称含 希望小売価格+通貨, 或中文别名 价目表货币)
+            const leaves = Array.from(document.querySelectorAll('label, span, div, td, th, p'));
+            let labelEl = null;
+            for (const el of leaves) {
+                if (el.children.length > 0) continue;
+                const txt = norm(el.innerText || el.textContent);
+                if (!txt || txt.length > 80) continue;
+                if ((txt.includes('希望小売価格') && txt.includes('通貨')) || txt.includes('价目表货币')) { labelEl = el; break; }
+            }
+            if (!labelEl) return { found: false };
+            // 2. 从标签向上找容器, 再定位下拉控件
+            let container = labelEl.closest('.ant-form-item, .form-group, .form-item, .flex, li, tr') || labelEl.parentElement;
+            let ctrlBox = container ? container.querySelector('.ant-select, .el-select, .d-selector, select') : null;
+            if (!ctrlBox) {
+                // 容器内没有控件时向同级/父级扩展查找
+                let p = labelEl.parentElement;
+                for (let i = 0; i < 3 && !ctrlBox && p; i++) {
+                    const rng = [p.nextElementSibling, p.previousElementSibling, p.parentElement].filter(Boolean);
+                    for (const r of rng) {
+                        ctrlBox = r.querySelector ? r.querySelector('.ant-select, .el-select, .d-selector, select') : null;
+                        if (ctrlBox) break;
+                    }
+                    p = p.parentElement;
+                }
+            }
+            if (!ctrlBox) return { found: false, hasLabel: true };
+            // 3. 已选中检测
+            const selEl = ctrlBox.querySelector('.ant-select-selection-item, .el-select__selected-item, .arco-select-view-value, .d-selector_selection, .d-selector__label, .selected-item');
+            const selTxt = norm(selEl ? selEl.innerText : '');
+            if (selTxt && selTxt.includes(code)) return { found: true, already: true, selected: selTxt };
+            // 4. 标记触发元素供 Playwright 物理点击
+            document.querySelectorAll('[data-msrp-flag]').forEach(e => e.removeAttribute('data-msrp-flag'));
+            const markTarget = ctrlBox.querySelector('.ant-select-selector, .d-selector__trigger, .el-select__wrapper') || ctrlBox;
+            markTarget.setAttribute('data-msrp-flag', '1');
+            return { found: true, already: false, selected: selTxt };
+        }
+        """
+        verify_js = """
+        (args) => {
+            const { code } = args;
+            const norm = (t) => (t || '').replace(/\\s+/g, ' ').trim();
+            const marked = document.querySelector('[data-msrp-flag]');
+            if (!marked) return { ok: false };
+            const box = marked.closest('.ant-select, .d-selector, .el-select') || marked.parentElement;
+            const selEl = box.querySelector('.ant-select-selection-item, .el-select__selected-item, .arco-select-view-value, .d-selector_selection, .d-selector__label, .selected-item');
+            const selTxt = norm(selEl ? selEl.innerText : '');
+            if (selTxt && selTxt.includes(code)) return { ok: true, selected: selTxt };
+            return { ok: false, selected: selTxt };
+        }
+        """
+        start = time.time()
+        while (time.time() - start) * 1000 < timeout_ms:
+            try:
+                st = self.page.evaluate(find_js, {"code": currency_code})
+            except Exception:
+                self.page.wait_for_timeout(300)
+                continue
+            if not st or not st.get("found"):
+                self.page.wait_for_timeout(400)
+                continue
+            if st.get("already"):
+                return True
+            # 原生 <select> 直接赋值
+            try:
+                tag = self.page.evaluate("() => { const e = document.querySelector('[data-msrp-flag]'); return e ? e.tagName : ''; }")
+                if tag == "SELECT":
+                    ok = self.page.evaluate("""(code) => {
+                        const s = document.querySelector('[data-msrp-flag]');
+                        const opt = Array.from(s.options).find(o => (o.text||'').includes(code) || (o.value||'').includes(code));
+                        if (!opt) return false;
+                        s.value = opt.value;
+                        s.dispatchEvent(new Event('change', {bubbles: true}));
+                        return true;
+                    }""", currency_code)
+                    if ok:
+                        self.page.wait_for_timeout(300)
+                        return True
+            except Exception:
+                pass
+            # 物理点击展开下拉框
+            try:
+                trigger = self.page.locator('[data-msrp-flag="1"]').first
+                trigger.scroll_into_view_if_needed(timeout=2000)
+                trigger.click(timeout=2500)
+            except Exception:
+                try:
+                    self.page.evaluate("""() => {
+                        const el = document.querySelector('[data-msrp-flag="1"]');
+                        if (el) { el.dispatchEvent(new MouseEvent('mousedown', {bubbles: true})); el.click(); }
+                    }""")
+                except Exception:
+                    pass
+            self.page.wait_for_timeout(600)
+            # 物理点击币种选项
+            try:
+                opt = self.page.locator(
+                    ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option, "
+                    ".d-selector__options li, .d-selector-options li, [role='option'], .el-select-dropdown__item"
+                ).filter(has_text=currency_code).first
+                if opt.count() > 0:
+                    opt.scroll_into_view_if_needed(timeout=1500)
+                    opt.click(timeout=2500)
+                    self.page.wait_for_timeout(400)
+            except Exception:
+                pass
+            # 键盘兜底: 键入币种代码 + 回车 (适配搜索型下拉)
+            try:
+                chk = self.page.evaluate(verify_js, {"code": currency_code})
+                if not chk or not chk.get("ok"):
+                    self.page.keyboard.type(currency_code, delay=60)
+                    self.page.wait_for_timeout(350)
+                    self.page.keyboard.press("Enter")
+                    self.page.wait_for_timeout(400)
+            except Exception:
+                pass
+            # 回读校验是否真实选中
+            try:
+                chk = self.page.evaluate(verify_js, {"code": currency_code})
+                if chk and chk.get("ok"):
+                    self.page.evaluate("() => { const e = document.querySelector('[data-msrp-flag]'); e && e.removeAttribute('data-msrp-flag'); }")
+                    return True
+            except Exception:
+                pass
+            self.page.wait_for_timeout(300)
+        try:
+            self.page.evaluate("() => { const e = document.querySelector('[data-msrp-flag]'); e && e.removeAttribute('data-msrp-flag'); }")
+        except Exception:
+            pass
+        return False
+
+    def select_product_category(self, category_name: str, timeout_ms: int = 25000) -> Dict[str, Any]:
+        """在店小秘「产品分类」中按层级路径选择 Amazon 类目。
+
+        流程: 点击「选择分类」→ 弹窗内确认类型为「分类名称」→ 搜索叶子节点 →
+        将各结果去掉括号内译文后与目标路径(› 转 /)完全相等者选中 →
+        校验「未选择分类」消失并展示分类项 → 关闭弹窗。
+
+        :param category_name: 形如 '産業・研究開発用品›物流・保管用品›はしご・脚立›はしご'
+        :return: {'ok': bool, 'msg': str, 'selected': str, 'candidates': list}
+        """
+        raw = (category_name or "").strip()
+        if not raw:
+            return {"ok": False, "msg": "产品分类为空，跳过类目选择"}
+
+        # 统一分隔符: › / ＞ > ／ 均视为层级分隔; 并去掉每段括号内的译文
+        norm_sep = raw.replace("＞", "›").replace("／", "›").replace(">", "›").replace("/", "›")
+        parts = [self._strip_paren_text(p) for p in norm_sep.split("›") if p.strip()]
+        if not parts:
+            return {"ok": False, "msg": f"无法解析产品分类: {raw}"}
+        target_path = "/".join(parts)
+        leaf = parts[-1]
+
+        open_js = """
+        () => {
+            const norm = t => (t || '').replace(/\\s+/g, ' ').trim();
+            const fis = Array.from(document.querySelectorAll('.ant-form-item'));
+            const fi = fis.find(x => norm((x.querySelector('.ant-form-item-label') || {}).innerText || '').includes('产品分类'));
+            if (!fi) return { ok: false, msg: '页面上未找到【产品分类】表单项' };
+            const cand = Array.from(fi.querySelectorAll('button, span, a')).filter(el => norm(el.innerText) === '选择分类');
+            if (!cand.length) return { ok: false, msg: '未找到【选择分类】按钮' };
+            const el = cand[0].closest('button') || cand[0];
+            el.scrollIntoView({ block: 'center' });
+            el.click();
+            return { ok: true };
+        }
+        """
+
+        pick_js = """
+        async (args) => {
+            const { targetPath, leaf } = args;
+            const norm = t => (t || '').replace(/\\s+/g, ' ').trim();
+            const stripParen = s => (s || '').replace(/[（(][^（()）]*[)）]/g, '').trim();
+            const clean = s => stripParen(s).replace(/\\s/g, '').replace(/／/g, '/');
+            const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+            let modal = document.querySelector('.ant-modal-content');
+            if (!modal) return { ok: false, msg: '类目弹窗未出现' };
+
+            // 1. 确保类型下拉为「分类名称」
+            const head = modal.querySelector('.modal-body-header') || modal;
+            const typeItem = head.querySelector('.ant-select-selection-item');
+            const curType = norm(typeItem ? typeItem.innerText : '');
+            if (curType && curType !== '分类名称') {
+                const box = typeItem.closest('.ant-select');
+                if (box) {
+                    (box.querySelector('.ant-select-selector') || box).click();
+                    await sleep(600);
+                    const opts = Array.from(document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'));
+                    const t = opts.find(o => norm(o.innerText) === '分类名称');
+                    if (t) { t.click(); await sleep(600); }
+                }
+            }
+
+            // 2. 在搜索栏输入叶子节点并点击搜索
+            const inp = modal.querySelector('input[name="searchCategory"]');
+            if (!inp) return { ok: false, msg: '未找到分类搜索输入框' };
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            setter.call(inp, leaf);
+            inp.dispatchEvent(new Event('input', { bubbles: true }));
+            inp.dispatchEvent(new Event('change', { bubbles: true }));
+            await sleep(300);
+            const sBtn = modal.querySelector('.ant-input-search-button');
+            if (sBtn) sBtn.click();
+
+            // 3. 轮询搜索结果, 按「去括号后完全相等」精确匹配
+            for (let i = 0; i < 24; i++) {
+                await sleep(500);
+                modal = document.querySelector('.ant-modal-content');
+                if (!modal) return { ok: false, msg: '搜索过程中类目弹窗被关闭' };
+                const items = Array.from(modal.querySelectorAll('.search-result-item'));
+                if (!items.length) continue;
+                const cand = items.map(it => clean(it.innerText || it.textContent));
+                const hit = items.find(it => clean(it.innerText || it.textContent) === targetPath);
+                if (!hit) {
+                    return { ok: false, msg: '搜索结果中无与目标完全一致的分类', candidates: cand.slice(0, 20) };
+                }
+                hit.scrollIntoView({ block: 'center' });
+                hit.click();
+                await sleep(1500);
+                const box = document.querySelector('.category-list');
+                const txt = norm(box ? box.innerText : '');
+                if (!txt || txt.includes('未选择分类')) {
+                    return { ok: false, msg: '已点击结果但页面分类未生效', candidates: cand.slice(0, 20) };
+                }
+                const closeBtn = Array.from(modal.querySelectorAll('.ant-modal-footer button'))
+                    .find(b => norm(b.innerText) === '关闭');
+                if (closeBtn) closeBtn.click();
+                await sleep(400);
+                return { ok: true, selected: txt };
+            }
+            return { ok: false, msg: '等待搜索结果超时' };
+        }
+        """
+
+        close_js = """
+        () => {
+            const m = document.querySelector('.ant-modal-content');
+            const b = m && Array.from(m.querySelectorAll('.ant-modal-footer button')).find(x => (x.innerText || '').trim() === '关闭');
+            if (b) { b.click(); return true; }
+            return false;
+        }
+        """
+
+        last = {"ok": False, "msg": "类目选择未执行"}
+        start = time.time()
+        for _ in range(2):
+            if (time.time() - start) * 1000 > timeout_ms:
+                break
+            try:
+                st = self.page.evaluate(open_js)
+            except Exception as e:
+                st = {"ok": False, "msg": f"点击选择分类异常: {e}"}
+            if not st or not st.get("ok"):
+                last = st or {"ok": False, "msg": "点击【选择分类】失败"}
+                self.page.wait_for_timeout(800)
+                continue
+
+            # 等待类目弹窗渲染
+            appeared = False
+            for _ in range(20):
+                self.page.wait_for_timeout(300)
+                try:
+                    if self.page.evaluate("() => !!document.querySelector('.ant-modal-content input[name=\\'searchCategory\\']')"):
+                        appeared = True
+                        break
+                except Exception:
+                    pass
+            if not appeared:
+                last = {"ok": False, "msg": "点击后类目弹窗未出现"}
+                try:
+                    self.page.evaluate(close_js)
+                except Exception:
+                    pass
+                continue
+
+            try:
+                res = self.page.evaluate(pick_js, {"targetPath": target_path, "leaf": leaf})
+            except Exception as e:
+                res = {"ok": False, "msg": f"类目选择执行异常: {e}"}
+            if res and res.get("ok"):
+                return res
+            last = res or {"ok": False, "msg": "类目选择失败"}
+            try:
+                self.page.evaluate(close_js)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(800)
+
+        return last
+
+    @staticmethod
+    def _strip_paren_text(text: str) -> str:
+        """去掉文本中所有半角/全角括号及其内部内容, 如 '产业 · 研究开发用品(産業・研究開発用品)' → '产业 · 研究开发用品'"""
+        import re as _re
+        return _re.sub(r"[（(][^（()）]*[)）]", "", text or "").strip()
+
     def select_store_account(self, store_account: str = "金梧汇辰", expected_site: str = "日本", timeout_ms: int = 15000) -> bool:
         """
         强力选择【店铺账号】，并严格循环重试与校验，直到当前选中的店铺文本确实为 store_account 且站点联动显示 expected_site

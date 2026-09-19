@@ -169,6 +169,18 @@ class BrowserEngine:
             lambda: FormOperator(self.manager._get_active_page_impl()).close_all_popups(max_rounds)
         )
 
+    def select_msrp_currency(self, currency_code: str = "JPY", timeout_ms: int = 10000, page: Optional[Page] = None) -> bool:
+        """专选「メーカー希望小売価格・定価(税抜)の通貨」(价目表货币): 物理点击 + 回读校验, 确保真实选中"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).select_msrp_currency(currency_code, timeout_ms)
+        )
+
+    def select_product_category(self, category_name: str, timeout_ms: int = 25000, page: Optional[Page] = None) -> Dict[str, Any]:
+        """按层级路径选择店小秘「产品分类」(替代原自动识别产品类型), 返回 {'ok','msg','selected','candidates'}"""
+        return self.manager.run_on_browser_thread(
+            lambda: FormOperator(page or self.manager._get_active_page_impl()).select_product_category(category_name, timeout_ms)
+        )
+
     def select_store_account(self, store_account: str = "金梧汇辰", expected_site: str = "日本", timeout_ms: int = 15000, page: Optional[Page] = None) -> bool:
         """强力选择【店铺账号】，并严格循环重试与校验直到选中并联动站点"""
         return self.manager.run_on_browser_thread(

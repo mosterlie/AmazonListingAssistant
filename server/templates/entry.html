@@ -34,17 +34,16 @@
   </div>
   <div class="card-body">
     <div class="grid-2">
-      <div class="form-group">
+      <div class="form-group" style="margin-bottom:0;">
         <label class="form-label required">店铺账号</label>
         <select class="form-select" id="storeAccountSelect">
           <option value="" disabled selected>正在加载店铺配置...</option>
         </select>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" style="margin-bottom:0;">
         <label class="form-label required">品牌 (Brand)</label>
         <input type="text" class="form-input" id="brandInput" readonly placeholder="选择店铺后自动录入" style="background:#f8fafc; font-weight:700; color:#1e293b;" title="由所选店铺 1 对 1 绑定关系自动带入">
-        <small style="color:var(--text-muted); font-size:0.78rem;">选择店铺后 1 对 1 自动录入</small>
       </div>
     </div>
 
@@ -80,6 +79,15 @@
         <button class="btn btn-outline btn-sm" id="translateIdentifierBtn" type="button" style="flex-shrink:0; padding:2px 8px; font-size:0.72rem; color:#7c3aed; border-color:#ddd6fe; background:#f5f3ff;" title="重新调用本地 Ollama 翻译商品标识">🔄</button>
         <button class="btn btn-outline btn-sm js-view-prompt" data-mode="identifier_translation" type="button" style="flex-shrink:0; padding:2px 8px; font-size:0.72rem; color:#475569; border-color:#cbd5e1; background:#f8fafc;" title="查看商品标识英文翻译使用的 Ollama 提示词">📝</button>
       </div>
+    </div>
+
+    <!-- 产品分类 (层级用 › 分隔，上件时自动逐级选择店小秘类目) -->
+    <div class="form-group" style="margin-top:14px;">
+      <label class="form-label">
+        产品分类
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(层级用 › 分隔，上件时自动逐级选择店小秘类目)</span>
+      </label>
+      <input type="text" class="form-input" id="categoryNameInput" placeholder="如: 産業・研究開発用品›物流・保管用品›はしご・脚立›はしご">
     </div>
 
     <!-- 售卖形式 (拆分为独立字段，单选样式，同店小秘) -->

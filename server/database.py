@@ -106,6 +106,10 @@ def init_db():
         cursor.execute("ALTER TABLE product_items ADD COLUMN title_translation TEXT DEFAULT '';")
     if "identifier_translation" not in existing_items_cols:
         cursor.execute("ALTER TABLE product_items ADD COLUMN identifier_translation TEXT DEFAULT '';")
+    if "category_name" not in existing_items_cols:
+        cursor.execute("ALTER TABLE product_items ADD COLUMN category_name TEXT DEFAULT '';")
+    if "category_type" not in existing_items_cols:
+        cursor.execute("ALTER TABLE product_items ADD COLUMN category_type TEXT DEFAULT '';")
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_items_brand ON product_items(brand);")
 
