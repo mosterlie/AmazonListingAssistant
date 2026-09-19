@@ -561,7 +561,7 @@ function pubSetDbStatus(text, ok) {
   const b = $('gDbBadge');   // 公共状态区徽标
   if (b) {
     b.className = 'badge ' + (ok ? 'ok' : 'no');
-    b.innerText = ok ? '💾 数据库已就绪' : '💾 未连接';
+    b.innerText = ok ? '💾 DB已就绪' : '💾 未连接';
     b.title = text || '';
   }
   const line = $('pubDbStatus');

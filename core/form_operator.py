@@ -1876,20 +1876,36 @@ class FormOperator:
             }
             
             let okCount = 0;
+            // 0. 按标签文案定位 (店小秘录入页: 商品长边的长度→L / 商品从下到上的厚度→H / 商品短边的宽度→W)
+            function byLabel(keys) {
+                const labels = document.querySelectorAll('label, .ant-form-item-label, .el-form-item__label');
+                for (const lb of labels) {
+                    const txt = (lb.textContent || '').trim();
+                    if (keys.some(k => txt.includes(k))) {
+                        const scope = lb.closest('.form-group, .ant-form-item, .el-form-item, .form-item') || lb.parentElement;
+                        const inp = scope && scope.querySelector('input[type="text"], input[type="number"], input:not([type])');
+                        if (inp) return inp;
+                    }
+                }
+                return null;
+            }
             // 1. 品目寸法（商品尺寸 L x W x H 或 D x W x H）
-            const itemL = document.getElementById('form_item_item_length_width_height.0.length.value') 
+            const itemL = byLabel(['商品长边的长度', '长边的长度'])
+                       || document.getElementById('form_item_item_length_width_height.0.length.value')
                        || document.getElementById('form_item_item_depth_width_height.0.depth.value')
                        || document.querySelector('input[id*="length_width_height"][id*="length.value"]')
                        || document.querySelector('input[id*="depth_width_height"][id*="depth.value"]')
                        || document.querySelector('div[data-path*="depth_width_height"] input[id*="depth.value"]')
                        || document.querySelector('div[data-path*="length_width_height"] input[id*="length.value"]');
-            const itemW = document.getElementById('form_item_item_length_width_height.0.width.value') 
+            const itemW = byLabel(['商品短边的宽度', '短边的宽度'])
+                       || document.getElementById('form_item_item_length_width_height.0.width.value')
                        || document.getElementById('form_item_item_depth_width_height.0.width.value')
                        || document.querySelector('input[id*="length_width_height"][id*="width.value"]')
                        || document.querySelector('input[id*="depth_width_height"][id*="width.value"]')
                        || document.querySelector('div[data-path*="depth_width_height"] input[id*="width.value"]')
                        || document.querySelector('div[data-path*="length_width_height"] input[id*="width.value"]');
-            const itemH = document.getElementById('form_item_item_length_width_height.0.height.value') 
+            const itemH = byLabel(['商品从下到上的厚度', '从下到上', '厚度'])
+                       || document.getElementById('form_item_item_length_width_height.0.height.value')
                        || document.getElementById('form_item_item_depth_width_height.0.height.value')
                        || document.querySelector('input[id*="length_width_height"][id*="height.value"]')
                        || document.querySelector('input[id*="depth_width_height"][id*="height.value"]')

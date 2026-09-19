@@ -89,7 +89,7 @@ else:
         "/usr/bin/chromium-browser",
         "/usr/bin/chromium",
     ]
-DXM_URL = "https://www.dianxiaomi.com/"
+DXM_URL = "https://www.dianxiaomi.com/web/amazon/add"
 CDP_PORT = 9222
 
 # 预先固定浏览器自动化使用的用户数据目录 (erp_bridge 内部 BrowserEngine 默认值在导入时绑定)
