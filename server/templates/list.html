@@ -508,6 +508,7 @@ async function viewProductDetail(productId) {
           <div><div class="detail-field-label">Parent SKU</div><div class="detail-field-value" style="font-family:monospace; color:#2563eb;">${p.parent_sku || p.sku || '-'}</div></div>
           <div><div class="detail-field-label">售卖形式</div><div class="detail-field-value">${p.sale_type === 'single' ? '单品 (single)' : '多变体 (variation)'}</div></div>
           <div><div class="detail-field-label">变种主题</div><div class="detail-field-value">${p.variation_theme || '-'}</div></div>
+          <div style="grid-column:1/-1;"><div class="detail-field-label">产品分类</div><div class="detail-field-value" style="font-size:0.84rem; font-weight:600; word-break:break-all; color:#1d4ed8;">${p.category_name || '-'}</div></div>
           <div><div class="detail-field-label">品番・型番(型号)</div><div class="detail-field-value">${p.model_number || '-'}</div></div>
           <div><div class="detail-field-label">モデル名(型号名称)</div><div class="detail-field-value">${p.model_name || '-'}</div></div>
           <div><div class="detail-field-label">品目寸法 (长×宽×高)</div><div class="detail-field-value">${p.item_length || 0} × ${p.item_width || 0} × ${p.item_height || 0} ${p.item_dim_unit || p.item_dimension_unit || 'cm'}</div></div>
