@@ -166,6 +166,41 @@
 {% endblock %}
 
 {% block content %}
+<style>
+  /* 知识库子菜单切换 (网站导航 | 提示词模板) */
+  .kb-subnav {
+    display: flex; gap: 8px; margin-bottom: 16px;
+    background: var(--bg-card, #fff); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 6px; box-shadow: 0 2px 8px rgba(15,23,42,0.05);
+    width: fit-content;
+  }
+  .kb-subnav-item {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 20px; border: none; border-radius: 8px;
+    background: transparent; cursor: pointer; font-size: 0.92rem;
+    color: var(--text-main); font-weight: 600; transition: all 0.15s;
+  }
+  .kb-subnav-item:hover { background: #f1f5f9; }
+  .kb-subnav-item.active { background: #6366f1; color: #fff; box-shadow: 0 2px 6px rgba(99,102,241,0.35); }
+  .kb-panel { display: none; }
+  .kb-panel.active { display: block; }
+  /* 提示词内容预览 */
+  .prompt-name-cell { font-weight: 700; color: #1e293b; font-size: 0.90rem; word-break: break-word; }
+  /* 超过2行省略显示, 悬浮 title 查看全文 */
+  .prompt-clamp {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; white-space: pre-wrap; cursor: help;
+  }
+  .prompt-action-cell { white-space: nowrap; text-align: center; }
+</style>
+
+<!-- 子菜单: 与网站导航并列 -->
+<div class="kb-subnav" id="kbSubnav">
+  <button class="kb-subnav-item active" data-tab="sites" type="button">🔗 网站导航</button>
+  <button class="kb-subnav-item" data-tab="prompts" type="button">📝 提示词模板</button>
+</div>
+
+<div class="kb-panel active" data-panel="sites">
 <div class="form-card">
   <div class="card-header" style="flex-wrap:wrap; gap:12px;">
     <div class="card-title" style="display:flex; align-items:center; gap:8px;">
@@ -216,9 +251,59 @@
     </div>
   </div>
 </div>
+</div><!-- /kb-panel sites -->
+
+<!-- 提示词模板面板 (与网站导航并列的子菜单) -->
+<div class="kb-panel" data-panel="prompts">
+  <div class="form-card">
+    <div class="card-header" style="flex-wrap:wrap; gap:12px;">
+      <div class="card-title" style="display:flex; align-items:center; gap:8px;">
+        <div class="card-title-icon" style="background:#8b5cf6;">📝</div>
+        <span>提示词模板维护</span>
+        <span class="tag-badge" id="promptCountBadge" style="background:#f5f3ff; color:#7c3aed; border-color:#ddd6fe;">共 0 套模板</span>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center; margin-left:auto;">
+        {% if current_user and current_user.role == 'admin' %}
+        <button class="btn btn-primary btn-sm" id="openAddPromptBtn" type="button" style="background:#8b5cf6; border-color:#8b5cf6; font-weight:600;">➕ 新增模板</button>
+        <span class="tag-badge" style="background:#fdf4ff; color:#9333ea; border-color:#f0abfc;">👑 管理员可编辑</span>
+        {% else %}
+        <span class="tag-badge" style="background:#f8fafc; color:#64748b; border-color:#e2e8f0;">👤 查阅与一键复制模式</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card-body" style="padding:16px;">
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:14px; line-height:1.6;">
+        💡 <b>说明</b>：维护多套提示词模板。模板中用 <span class="var-pill-red">{参数名}</span> 定义变量，直接在<b>行内输入框</b>填入参数，点「📋 复制使用」即得完整提示词；无参数模板直接点复制使用全文。
+      </p>
+
+      <!-- 管理员新增/编辑工作区容器 -->
+      <div id="promptEditorContainer" style="display:none;"></div>
+
+      <div class="table-wrapper" style="border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden;">
+        <table class="matrix-table" style="width:100%; font-size:0.88rem; margin-bottom:0;">
+          <thead>
+            <tr style="background:#f8fafc;">
+              <th style="width:45px; text-align:center;">#</th>
+              <th style="width:180px; min-width:140px;">模板名称</th>
+              <th style="width:200px; min-width:150px;">用途说明</th>
+              <th>提示词内容</th>
+              <th style="width:210px; min-width:170px; text-align:center;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="promptTableBody">
+            <tr>
+              <td colspan="5" style="text-align:center; padding:36px; color:var(--text-muted);">⏳ 正在加载提示词模板...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div><!-- /kb-panel prompts -->
 
 <script>
   window.IS_ADMIN = {{ 'true' if (current_user and current_user.role == 'admin') else 'false' }};
 </script>
 <script src="/static/js/knowledge.js?v=20260913_knowledge_v10"></script>
+<script src="/static/js/prompts.js?v=20260919_prompt_v6"></script>
 {% endblock %}

@@ -433,6 +433,21 @@ def init_db():
         """, default_sites)
         print("📚 已初始化默认知识库常用网址 (6 条)")
 
+    # 10.2 提示词模板表 (知识库子菜单: 管理员维护多套提示词模板, 所有用户可查阅复制)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS prompt_templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        description TEXT DEFAULT '',
+        sort_order INTEGER DEFAULT 0,
+        created_by VARCHAR(64) DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_prompt_sort ON prompt_templates(sort_order, id);")
+
     # 初始化默认管理员用户 (admin / admin)
     cursor.execute("SELECT id FROM users WHERE username = 'admin';")
     if not cursor.fetchone():

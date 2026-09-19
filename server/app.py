@@ -34,6 +34,7 @@ from server.routers import (
     ad_router,
     asin_router,
     knowledge_router,
+    prompt_router,
     db_agent_router
 )
 
@@ -92,6 +93,7 @@ app.include_router(automation_router.router)
 app.include_router(pricing_router.router)
 app.include_router(settings_router.router)
 app.include_router(knowledge_router.router)
+app.include_router(prompt_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
 app.include_router(db_agent_router.router)
 
