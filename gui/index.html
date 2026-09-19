@@ -183,7 +183,7 @@
       <button class="btn btn-p" id="btnRun" onclick="api.confirm_run()">▶ 开始投放</button>
       <button class="btn btn-d" id="btnStop" onclick="api.stop()" disabled>⏹ 终止</button>
       <span class="spacer"></span>
-      <span class="tag">不提交 · 跑完停在提交前, 人工核对后手动提交</span>
+      <span class="tag">提交由主机配置决定 · 默认不提交 (跑完停在提交前人工核对)</span>
     </div>
   </div>
 
@@ -256,12 +256,24 @@ window.api = {
       return;
     }
     window._pendingParams = p;
-    showModal('确认投放',
-      '店铺: ' + (p.shop || '-') + '\n' +
+    /* 读取主机端「是否自动提交广告」: 开启时必须二次确认 (每批会自动点「确认」真实提交) */
+    let sm = { enabled: false, source: '' };
+    try { sm = (await B().get_submit_mode()) || sm; } catch (e) {}
+    const brief = '店铺: ' + (p.shop || '-') + '\n' +
       'ASIN: ' + p.asins.length + ' 个 (批次上限 ' + (p.batch || '不分批') + ')\n' +
       '预算 ' + (p.budget || '-') + ' / 竞价 ' + (p.bid || '-') +
-      '\n裁剪: ' + (p.trim_variants ? '开, 保留 ' + p.trim_keep + ' 个' : '不裁剪') +
-      '\n\n将驱动赛狐向导录入, 不提交, 停在提交前供人工检查。\n执行期间请勿操作调试 Chrome 窗口。');
+      '\n裁剪: ' + (p.trim_variants ? '开, 保留 ' + p.trim_keep + ' 个' : '不裁剪');
+    if (sm.enabled) {
+      showModal('⚠ 将自动确认提交',
+        brief +
+        '\n\n主机配置为【自动确认提交】: 每批将自动点击「确认」真实提交广告, 提交后不可撤销!\n' +
+        '设置来源: ' + (sm.source || '主机') +
+        '\n\n确认要开始执行吗? (点「取消」则不执行)');
+    } else {
+      showModal('确认投放',
+        brief +
+        '\n\n将驱动赛狐向导录入; 是否自动提交由主机配置决定 (当前为不自动提交, 停在提交前供人工检查)。\n执行期间请勿操作调试 Chrome 窗口。');
+    }
   },
 };
 

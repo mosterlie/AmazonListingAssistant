@@ -298,11 +298,11 @@ def init_db():
         end_date TEXT DEFAULT '',
         daily_budget REAL NOT NULL DEFAULT 300,
         bid_strategy TEXT NOT NULL DEFAULT '动态竞价-只降低',
-        default_bid REAL NOT NULL DEFAULT 15,
+        default_bid REAL NOT NULL DEFAULT 30,
         asins_json TEXT NOT NULL DEFAULT '[]',
         asin_count INTEGER NOT NULL DEFAULT 0,
-        batch_size INTEGER NOT NULL DEFAULT 0,
-        auto_dedup INTEGER NOT NULL DEFAULT 0,
+        batch_size INTEGER NOT NULL DEFAULT 10,
+        auto_dedup INTEGER NOT NULL DEFAULT 1,
         trim_variants INTEGER NOT NULL DEFAULT 1,
         trim_keep INTEGER NOT NULL DEFAULT 5,
         status TEXT NOT NULL DEFAULT 'pending',
@@ -320,7 +320,7 @@ def init_db():
     cursor.execute("PRAGMA table_info(ad_campaign_tasks);")
     _ad_cols = [col["name"] for col in cursor.fetchall()]
     if "auto_dedup" not in _ad_cols:
-        cursor.execute("ALTER TABLE ad_campaign_tasks ADD COLUMN auto_dedup INTEGER NOT NULL DEFAULT 0;")
+        cursor.execute("ALTER TABLE ad_campaign_tasks ADD COLUMN auto_dedup INTEGER NOT NULL DEFAULT 1;")
     if "trim_variants" not in _ad_cols:
         cursor.execute("ALTER TABLE ad_campaign_tasks ADD COLUMN trim_variants INTEGER NOT NULL DEFAULT 1;")
     if "trim_keep" not in _ad_cols:

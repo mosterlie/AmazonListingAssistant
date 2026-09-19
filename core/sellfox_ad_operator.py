@@ -133,7 +133,11 @@ SUBMIT_DLG_STATE_JS = """() => {
             .find(b => (b.textContent||'').trim()==='确认');
         return {
             open: true,
-            loadingMask: !!d.querySelector('.el-loading-mask'),
+            // 只认「可见」的遮罩: el-loading-mask 用 v-show 隐藏时仍留在 DOM,
+            // 直接 querySelector 会误判为"处理中"导致无谓长时间等待
+            loadingMask: [...d.querySelectorAll('.el-loading-mask')]
+                .some(m => m.offsetParent !== null
+                           && getComputedStyle(m).display !== 'none'),
             btnBusy: btn ? (btn.disabled
                              || btn.classList.contains('is-disabled')
                              || btn.classList.contains('is-loading')) : false,
@@ -235,6 +239,8 @@ class SellfoxAdOperator:
         self.stop_requested = False
         self.skips = SkipRecord(sink=self._record_log)
         self._t = time.monotonic()
+        # 本批次内展开失败的活动名: 避免 find_unset_campaign 对其反复无效重试
+        self._expand_blocked = set()
 
     def request_stop(self):
         """请求终止 (线程安全: 仅置布尔标志, 由事件循环内各检查点消费)"""
@@ -852,9 +858,10 @@ class SellfoxAdOperator:
         if not dlg_open:
             self.log("  ✗ 未出现「批量提交广告」确认弹窗, 放弃提交")
             return False
+        t_dlg = time.monotonic()
+        self.log(f"  提交弹窗已出现 (等待 {t_dlg - t_submit:.1f}s)")
         if not confirm:
-            self.log(f"  提交弹窗已打开 (耗时 {time.monotonic() - t_submit:.1f}s, "
-                     f"按配置不自动确认, 请人工检查表格后点击「确认」)")
+            self.log(f"  按配置不自动确认, 请人工检查表格后点击「确认」")
             return True
         # ③ 点「确认」生效。
         #    点确认后赛狐要在服务端完成提交 (数秒~数十秒), 期间弹窗保持打开:
@@ -868,12 +875,18 @@ class SellfoxAdOperator:
             self._check_stop()
             st = await self.js(SUBMIT_DLG_STATE_JS)
             if not st or not st.get("open"):
+                if click_count:
+                    self.log(f"  提交已生效 (确认后 {time.monotonic() - last_click_t:.1f}s 弹窗关闭)")
                 return True  # 弹窗已关闭 = 提交生效
             processing = bool(st.get("loadingMask")) or \
                 (click_count > 0 and bool(st.get("btnBusy")))
             if processing:
                 if not reported:
-                    self.log("  提交处理中, 等待服务端完成...")
+                    if click_count == 0:
+                        self.log(f"  弹窗内数据加载中 (已等 {time.monotonic() - t_dlg:.1f}s), "
+                                 f"就绪后自动点「确认」...")
+                    else:
+                        self.log("  服务端提交处理中, 等待返回...")
                     reported = True
                 if time.monotonic() - t0 > 90:
                     self.log("  ⚠ 提交处理超 90s 未返回, 请稍后在页面确认结果")
@@ -891,7 +904,11 @@ class SellfoxAdOperator:
                     return False
                 click_count += 1
                 last_click_t = time.monotonic()
-                if click_count > 1:
+                if click_count == 1:
+                    self.log(f"  已点「确认」 (点提交后共 {last_click_t - t_submit:.1f}s: "
+                             f"弹窗等待 {t_dlg - t_submit:.1f}s + 就绪等待 {last_click_t - t_dlg:.1f}s)")
+                    reported = False      # 后续若转圈 → 报「服务端提交处理中」
+                else:
                     self.log(f"  ⚠ 确认后弹窗未关闭, 自动补点 ({click_count}/3)...")
             await asyncio.sleep(0.3)
         # 3次仍未关闭: 读取弹窗内容辅助定位原因 (如任务名称重复等)
@@ -966,44 +983,109 @@ class SellfoxAdOperator:
         return None
 
     async def expand_campaign(self, name):
-        """展开广告活动行: 先 scrollIntoView 滚入可视区(真实鼠标对视口外
-        元素点击无效), 再点行首三角 .vxe-table--expand-btn"""
+        """展开广告活动行 (健壮版):
+
+        1) 行首三角/展开单元格 scrollIntoView 后用「实时视口高度」校验坐标
+           (旧实现硬编码 y>950: 大视口下明明可见的按钮被判为视口外 → 直接放弃展开,
+           表现为"录入完已展开的, 后续收起的活动全部无法展开");
+        2) 坐标不可用 → Playwright locator 点击 (自动滚入视口 + actionability);
+           再兜底原生 JS click;
+        3) 点击后轮询组行出现; 超时复查展开态特征仍无 → 返回 False
+           (诚实失败: 由调用方隔离该活动并留日志, 不再"超时放行"造成假成功反复重试)
+        """
         found = await self.js("""(campaign) => {
             const rows = [...document.querySelectorAll('.vxe-body--row')].filter(r=>r.offsetParent!==null);
+            document.querySelectorAll('[data-sf-expand]').forEach(e => e.removeAttribute('data-sf-expand'));
             for (const row of rows) {
                 const cn = row.querySelector('.campaign-name');
                 if (cn && (cn.textContent||'').indexOf(campaign)===0) {
                     const el = row.querySelector('.vxe-table--expand-btn')
                             || row.querySelector('td[class*=col--expand]');
-                    if (!el) return false;
-                    el.scrollIntoView({block: 'center'});
-                    return true;
+                    if (!el) return 'no_el';
+                    el.setAttribute('data-sf-expand', '1');
+                    el.scrollIntoView({block: 'center', behavior: 'instant'});
+                    return 'ok';
                 }
             }
-            return false;
+            return 'no_row';
         }""", name)
-        if not found:
+        if found != 'ok':
+            self.log(f"  ⚠ 展开失败[{name[:26]}]: "
+                     f"{'活动行无展开控件' if found == 'no_el' else '活动行不在DOM(已滚出/已消失)'}")
             return False
         await asyncio.sleep(0.35)
-        pos = await self.js("""(campaign) => {
-            const rows = [...document.querySelectorAll('.vxe-body--row')].filter(r=>r.offsetParent!==null);
-            for (const row of rows) {
-                const cn = row.querySelector('.campaign-name');
-                if (cn && (cn.textContent||'').indexOf(campaign)===0) {
-                    const el = row.querySelector('.vxe-table--expand-btn')
-                            || row.querySelector('td[class*=col--expand]');
+        pos = await self.js("""() => {
+            const el = document.querySelector('[data-sf-expand]');
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return {x: r.x + r.width/2, y: r.y + r.height/2,
+                    vw: window.innerWidth, vh: window.innerHeight};
+        }""")
+
+        def _in_viewport(p):
+            return bool(p) and 0 <= p['y'] <= p['vh'] - 4 and 0 <= p['x'] <= p['vw'] - 4
+
+        if not _in_viewport(pos):
+            # scrollIntoView 后位置仍不可点(虚拟表格回收/组行插入致位移): 微调滚动一次重取
+            try:
+                await self.js("""() => {
+                    const el = document.querySelector('[data-sf-expand]');
+                    if (!el) return false;
+                    const r = el.getBoundingClientRect();
+                    if (r.top < 100) window.scrollBy(0, r.top - 140);
+                    else if (r.bottom > window.innerHeight - 30)
+                        window.scrollBy(0, r.bottom - window.innerHeight + 90);
+                    return true;
+                }""")
+                await asyncio.sleep(0.25)
+                pos = await self.js("""() => {
+                    const el = document.querySelector('[data-sf-expand]');
                     if (!el) return null;
                     const r = el.getBoundingClientRect();
-                    return {x: r.x + r.width/2, y: r.y + r.height/2};
-                }
-            }
-            return null;
-        }""", name)
-        if not pos or pos['y'] < 0 or pos['y'] > 950:
+                    return {x: r.x + r.width/2, y: r.y + r.height/2,
+                            vw: window.innerWidth, vh: window.innerHeight};
+                }""")
+            except Exception:
+                pass
+        clicked = False
+        if _in_viewport(pos):
+            try:
+                hit = await self.js("""(p) => {
+                    const el = document.querySelector('[data-sf-expand]');
+                    if (!el) return false;
+                    const t = document.elementFromPoint(p.x, p.y);
+                    return !!t && (el.contains(t) || t.contains(el));
+                }""", {'x': pos['x'], 'y': pos['y']})
+            except Exception:
+                hit = True
+            if hit:
+                try:
+                    await self.click_at(pos)
+                    clicked = True
+                except Exception:
+                    clicked = False
+        if not clicked:
+            # 坐标路径失败 → 原生 JS click 兜底
+            try:
+                clicked = bool(await self.js("""() => {
+                    const el = document.querySelector('[data-sf-expand]');
+                    if (!el) return false;
+                    el.click();
+                    return true;
+                }"""))
+            except Exception:
+                clicked = False
+        if not clicked:
+            # 最后兜底: Playwright locator 点击 (自动滚入视口 + actionability)
+            try:
+                await self.frame.locator('[data-sf-expand]').first.click(timeout=3000)
+                clicked = True
+            except Exception:
+                pass
+        if not clicked:
+            self.log(f"  ⚠ 展开失败[{name[:26]}]: 点击未送达(坐标/locator/JS 三级均失败)")
             return False
-        await self.click_at(pos)
-        # 轮询展开生效(该活动行后出现组行), 替代固定1.2s
-        for _ in range(14):
+        for _ in range(20):
             rows = await self.collect_rows()
             for i, r in enumerate(rows):
                 if r['type'] == 'campaign' and r['name'].startswith(name):
@@ -1012,7 +1094,24 @@ class SellfoxAdOperator:
                         return True
                     break
             await asyncio.sleep(0.15)
-        return True  # 超时放行, 由上层 locate 复查兜底
+        expanded = await self.js("""(campaign) => {
+            const rows = [...document.querySelectorAll('.vxe-body--row')].filter(r=>r.offsetParent!==null);
+            for (const row of rows) {
+                const cn = row.querySelector('.campaign-name');
+                if (cn && (cn.textContent||'').indexOf(campaign)===0) {
+                    const el = row.querySelector('.vxe-table--expand-btn')
+                            || row.querySelector('td[class*=col--expand]');
+                    if (!el) return false;
+                    const pcls = (el.parentElement && el.parentElement.className) || '';
+                    return /is--expand|expand--|is--active|active/i.test((el.className||'') + ' ' + pcls);
+                }
+            }
+            return false;
+        }""", name)
+        if expanded:
+            return True
+        self.log(f"  ⚠ 展开未生效[{name[:26]}] (已点击, 组行未出现)")
+        return False
 
     async def expand_visible_collapsed(self, visited=None):
         """展开当前视口内收起的广告活动行(收起的组行不进DOM, 无法配置)。
@@ -1055,7 +1154,8 @@ class SellfoxAdOperator:
             return true;
         }}""", up)
 
-    async def find_unset_campaign(self, max_steps=60, from_bottom=False, exclude=None):
+    async def find_unset_campaign(self, max_steps=60, from_bottom=False, exclude=None,
+                                  ignore_blocked=False):
         """扫描找首个未配置活动 (组行带「设置广告产品」按钮)。
 
         - 默认从表头向下扫: 顺序填活动模型下, 已配置区集中在表头前段,
@@ -1080,10 +1180,13 @@ class SellfoxAdOperator:
                     continue
                 nxt = rows[i + 1] if i + 1 < len(rows) else None
                 if nxt and nxt['type'] == 'group':
+                    self._expand_blocked.discard(r['name'])
                     if nxt['has_set_btn']:
                         target = r['name']
                         break
                     continue  # 已展开且已配置
+                if not ignore_blocked and r['name'] in self._expand_blocked:
+                    continue
                 if r['name'] not in visited:
                     need_expand = r['name']
                     break
@@ -1091,7 +1194,9 @@ class SellfoxAdOperator:
                 return target
             if need_expand:
                 visited.add(need_expand)
-                await self.expand_campaign(need_expand)
+                if not await self.expand_campaign(need_expand):
+                    self._expand_blocked.add(need_expand)
+                    self.log(f"  ⚠ 活动 [{need_expand[:26]}] 展开失败, 本轮跳过 (不做无效重试; 其空位由清除环节统一处理)")
                 continue  # 展开后重扫当前视口
             if not await self._scroll_table(up=from_bottom):
                 return None
@@ -1161,7 +1266,8 @@ class SellfoxAdOperator:
             await self._close_dialog_any()
             st = await self.locate_campaign(campaign, from_bottom=False)
             if st == 'folded':
-                await self.expand_campaign(campaign)
+                if not await self.expand_campaign(campaign):
+                    self.log(f"  ⚠ 活动 [{campaign[:26]}] 录入前展开失败")
                 st = await self.locate_campaign(campaign)
             if st is not True:
                 return False
@@ -1583,8 +1689,9 @@ class SellfoxAdOperator:
         """
         removed = 0
         for _ in range(max_rounds):
-            # 清除环节从表头向下扫 (从后往前分配后空活动集中在表头)
-            target = await self.find_unset_campaign(from_bottom=False)
+            # 清除环节从表头向下扫 (从后往前分配后空活动集中在表头);
+            # 单次清除不宜采信"展开失败"的临时判断, 故忽略 _expand_blocked
+            target = await self.find_unset_campaign(from_bottom=False, ignore_blocked=True)
             if not target:
                 break
             ok = await self.remove_campaign(target)
@@ -1903,6 +2010,7 @@ class SellfoxAdOperator:
                 # - 名额全部填满 或 供给耗尽 → 本批结束
                 entered = 0
                 burned = set()
+                self._expand_blocked = set()   # 新批次: 重置展开失败记录
                 pos = 0
                 while entered + len(burned) < k and pos < len(remaining):
                     self._check_stop()

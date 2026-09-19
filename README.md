@@ -159,3 +159,44 @@ python3 examples/03_parse_specified_url.py "https://example.com/product/101"
   ]
 }
 ```
+
+---
+
+## 🖥️ ERP 全能桌面助手 (Windows 桌面版)
+
+统一整合「商品上件」与「赛狐广告批量投放」两大功能于一个桌面程序 (单窗口双面板, pywebview 原生窗口 + 系统 WebView)。
+
+### 启动 (源码)
+
+```bash
+python unified_app.py            # 桌面窗口
+python unified_app.py --serve    # 浏览器模式 http://127.0.0.1:8317 (调试/备用)
+python unified_app.py --selftest # 打包产物自检 (结果写 exe 同目录 unified_selftest.txt)
+```
+
+或双击 `bat/启动全能助手.bat`。
+
+### 打包为 Windows 桌面程序 (onedir, 双击秒开无终端)
+
+```bash
+python -m PyInstaller ERP全能助手.spec --noconfirm
+# 产物: dist/ERP全能助手/ERP全能助手.exe
+# 分发时把整个 dist/ERP全能助手 文件夹拷到目标机器即可运行
+```
+
+或双击 `bat/打包全能助手.bat`。
+> Windows 10/11 需具备 WebView2 运行时 (一般随 Edge 预装)。
+
+### 双面板说明
+
+| 面板 | 说明 |
+| --- | --- |
+| 📦 商品上件 | 与「ERP 桌面上件助手」(`desktop_app.py`) 完全同逻辑: 本地/远程数据库 (远程走 ERP 内嵌 DB 代理, 图片自动从主库下载缓存)、Chrome 9222 登录店小秘、Parent SKU 查询 → 一键上件、强制终止 |
+| 📢 广告投放 | 与 mac 独立版 (`sellfox_ad_gui.py` + `gui/index.html`) 完全一致的界面与逻辑: 直接复用 `sellfox_ad_gui.Bridge` 与 `core/sellfox_ad_operator.py`, 店铺/ASIN/预算/竞价/裁剪变体参数驱动赛狐批量创建向导, 不提交, 停在提交前人工核对 |
+
+### 相关文件
+
+- `unified_app.py` — 统一入口 (pywebview 窗口 + UnifiedBridge 聚合层; 广告方法名与 mac 版零改动)
+- `gui/app.html` — 统一界面 (双 Tab; 广告面板与 mac 版逐字一致)
+- `ERP全能助手.spec` — Windows 打包配置 (onedir)
+- 原有独立入口保持不变: `desktop_app.py` (上件, tkinter)、`sellfox_ad_gui.py` (广告, mac)

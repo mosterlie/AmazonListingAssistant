@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP 全能助手 · 上件 + 广告投放</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei UI",sans-serif;
+    background:#f1f5f9; color:#0f172a; display:flex; flex-direction:column;
+  }
+
+  /* ── 应用外壳: 顶部 Tab 导航 + 面板容器 ── */
+  .appnav { flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:8px 14px; background:#0f172a; color:#e2e8f0; }
+  .appbrand { font-size:.92rem; font-weight:800; letter-spacing:.3px; margin-right:8px; }
+  .tabbtn { border:1px solid rgba(148,163,184,.4); background:transparent; color:#cbd5e1; border-radius:8px;
+            padding:6px 14px; font-size:.84rem; font-weight:700; cursor:pointer; transition:all .15s; }
+  .tabbtn:hover { border-color:#3b82f6; color:#93c5fd; }
+  .tabbtn.on { background:#2563eb; border-color:#2563eb; color:#fff; }
+  .appnav .navnote { margin-left:auto; font-size:.74rem; color:#94a3b8; }
+  /* 公共状态区 (9222 / 数据库) */
+  .appnav .navst { margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .appnav .badge { border-color:rgba(148,163,184,.45); background:rgba(148,163,184,.12); color:#cbd5e1; }
+  .appnav .badge.ok { background:#064e3b; color:#6ee7b7; border-color:#065f46; }
+  .appnav .badge.no { background:#450a0a; color:#fca5a5; border-color:#7f1d1d; }
+  .appnav .badge.chk { background:#451a03; color:#fcd34d; border-color:#78350f; }
+  .btn-sm { padding:5px 10px; font-size:.78rem; }
+  .appnav .navuser { font-size:.78rem; color:#93c5fd; font-weight:700; max-width:160px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .appnav .navlogout { background:transparent; color:#cbd5e1; border:1px solid rgba(148,163,184,.45); }
+  .appnav .navlogout:hover { border-color:#f87171; color:#fca5a5; }
+  /* 提交方式标签 */
+  .tag-safe { background:#ecfdf5; color:#059669; border-color:#a7f3d0; font-weight:700; font-size:.86rem; }
+  .tag-danger { background:#fef2f2; color:#dc2626; border-color:#fecaca; font-weight:800;
+    font-size:.92rem; letter-spacing:.5px; box-shadow:0 0 0 2px rgba(220,38,38,.15); }
+  .panels { flex:1; position:relative; overflow:hidden; }
+  .panel { position:absolute; inset:0; overflow-y:auto; display:none; }
+  .panel.on { display:block; }
+  .pubwrap { height:auto; min-height:100%; }
+
+  /* 头部 */
+  .hdr { display:flex; align-items:center; gap:10px; background:linear-gradient(135deg,#3b82f6,#2563eb);
+         border-radius:12px; padding:12px 16px; color:#fff; box-shadow:0 2px 8px rgba(37,99,235,.25); }
+  .hdr .logo { background:rgba(255,255,255,.2); padding:4px 10px; border-radius:6px; font-weight:800; font-size:.85rem; }
+  .hdr h1 { font-size:1.05rem; font-weight:700; flex:1; }
+  .badge { font-size:.78rem; padding:4px 10px; border-radius:9999px; border:1px solid rgba(255,255,255,.35);
+           background:rgba(255,255,255,.15); display:inline-flex; align-items:center; gap:4px; font-weight:500;
+           cursor:pointer; user-select:none; transition:all .15s ease; }
+  .badge:hover { filter:brightness(0.95); transform:translateY(-1px); box-shadow:0 2px 6px rgba(0,0,0,.15); }
+  .badge:active { transform:translateY(0); }
+  .badge.ok { background:#ecfdf5; color:#059669; border-color:#a7f3d0; }
+  .badge.no { background:#fef2f2; color:#dc2626; border-color:#fecaca; }
+  .badge.chk { background:#fffbeb; color:#b45309; border-color:#fde68a; }
+  .btn {
+    display:inline-flex; align-items:center; gap:4px; border:none; border-radius:8px;
+    padding:8px 14px; font-size:.85rem; font-weight:600; cursor:pointer; transition:all .15s;
+  }
+  .btn:disabled { opacity:.55; cursor:not-allowed; }
+  .btn-p { background:#2563eb; color:#fff; } .btn-p:hover:not(:disabled){ background:#1d4ed8; }
+  .btn-o { background:#fff; color:#334155; border:1px solid #cbd5e1; }
+  .btn-o:hover:not(:disabled) { border-color:#2563eb; color:#2563eb; }
+  .btn-w { background:#fffbeb; color:#b45309; border:1px solid #fde68a; }
+  .btn-d { background:#fef2f2; color:#dc2626; border:1px solid #fecaca; }
+
+  /* 卡片 */
+  .card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:10px 14px; }
+  .card.params { flex:0 0 auto; }
+  .card-title { display:flex; align-items:center; gap:6px; font-size:.92rem; font-weight:700; color:#0f172a; margin-bottom:8px; }
+  .form-grid { display:grid; grid-template-columns:110px 1fr 90px 1fr; gap:8px 10px; align-items:center; }
+  .lbl { font-size:.85rem; font-weight:600; color:#334155; text-align:right; }
+  .req::after { content:" *"; color:#ef4444; }
+  input[type=text], input[type=number], input[type=password] {
+    width:100%; border:1.5px solid #e2e8f0; border-radius:8px; padding:8px 10px;
+    font-size:.88rem; outline:none; transition:border .15s; background:#fff; }
+  input:focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.12); }
+  input:disabled { background:#f8fafc; color:#94a3b8; }
+  textarea {
+    width:100%; border:1.5px solid #e2e8f0; border-radius:8px; padding:8px 10px;
+    font-family:"Menlo",monospace; font-size:.82rem; outline:none; resize:vertical; background:#fff; }
+  textarea:focus { border-color:#2563eb; }
+  textarea.hint { color:#94a3b8; }
+  .hint-row { display:flex; justify-content:space-between; align-items:center; font-size:.78rem; color:#64748b; margin-top:3px; }
+  .shop-dd {
+    display:none; position:absolute; left:0; right:0; top:100%; margin-top:2px;
+    border:1px solid #e2e8f0; border-radius:8px; background:#fff;
+    max-height:180px; overflow:auto; box-shadow:0 10px 24px rgba(15,23,42,.16); z-index:60; }
+  .shop-dd div { padding:7px 12px; font-size:.85rem; cursor:pointer; }
+  .shop-dd div:hover { background:#eff6ff; color:#1d4ed8; }
+  .seg { display:flex; gap:8px; flex-wrap:wrap; }
+  .seg label { display:inline-flex; align-items:center; gap:5px; padding:6px 12px; border-radius:8px;
+    border:1.5px solid #e2e8f0; background:#fff; color:#475569; font-size:.84rem; font-weight:600;
+    cursor:pointer; user-select:none; }
+  .seg label.on { border-color:#2563eb; background:#eff6ff; color:#1d4ed8; }
+  .seg input { accent-color:#2563eb; margin:0; width:auto; }
+  .note { font-size:.75rem; color:#94a3b8; }
+  .note.w { color:#b45309; }
+  .inline-chk { display:flex; gap:14px; align-items:center; font-size:.84rem; color:#334155; }
+  .inline-chk label { display:flex; align-items:center; gap:5px; cursor:pointer; }
+  .inline-chk input { accent-color:#2563eb; width:auto; }
+
+  /* 动作条 */
+  .actions { display:flex; align-items:center; gap:10px; }
+  .spacer { flex:1; }
+  .tag { font-size:.76rem; color:#b45309; background:#fffbeb; border:1px solid #fde68a;
+         padding:4px 10px; border-radius:8px; }
+
+  /* 日志 */
+  .log-card { flex:1 1 200px; display:flex; flex-direction:column; min-height:200px; }
+  #logBox, #pubLogBox {
+    flex:1; min-height:150px; background:#0f172a; color:#cbd5e1; border-radius:8px; padding:8px 10px;
+    font-family:"Menlo",Consolas,monospace; font-size:.74rem; line-height:1.55; overflow-y:auto;
+    white-space:pre-wrap; word-break:break-all;
+  }
+  .log-card .card-title { margin-bottom:6px; }
+  #logBox .ok, #pubLogBox .ok { color:#6ee7b7; }
+  #logBox .err, #pubLogBox .err { color:#fca5a5; }
+  #logBox .wr, #pubLogBox .wr { color:#fcd34d; }
+
+  /* 弹窗 */
+  .modal { display:none; position:fixed; inset:0; background:rgba(15,23,42,.55); z-index:100;
+          align-items:center; justify-content:center; }
+  .modal.show { display:flex; }
+  .modal .box { background:#fff; border-radius:12px; padding:18px 20px; max-width:400px; width:90%;
+               box-shadow:0 20px 50px rgba(15,23,42,.3); }
+  .modal h3 { font-size:.95rem; margin-bottom:10px; }
+  /* 弹框内醒目的「提交方式」提醒条 (点击投放后突出显示) */
+  .modal .modal-warn { display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:9px;
+    font-size:.88rem; font-weight:800; line-height:1.5; margin-bottom:12px; }
+  .modal .modal-warn.danger { background:#fef2f2; color:#dc2626; border:1.5px solid #fecaca;
+    animation:warnBlink 1.4s ease-in-out infinite; }
+  .modal .modal-warn.safe { background:#ecfdf5; color:#059669; border:1.5px solid #a7f3d0; }
+  @keyframes warnBlink { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,0); } 50% { box-shadow:0 0 0 4px rgba(220,38,38,.18); } }
+  .modal p { font-size:.85rem; color:#475569; line-height:1.7; white-space:pre-line; margin-bottom:14px; }
+  .modal .row { display:flex; justify-content:flex-end; gap:8px; }
+  #toast { position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:200;
+          background:#0f172a; color:#fff; padding:9px 16px; border-radius:8px; font-size:.84rem;
+          opacity:0; transition:opacity .25s; pointer-events:none; }
+  #toast.show { opacity:.95; }
+
+  /* ── 登录页 (登录成功前覆盖全部界面) ── */
+  #loginPage { position:fixed; inset:0; z-index:900; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(158deg,#0b1220 0%,#0f172a 48%,#111827 100%); }
+  #loginPage.off { display:none; }
+  .lg-card { display:flex; flex-direction:column; gap:12px; background:rgba(30,41,59,.7);
+    border:1px solid rgba(148,163,184,.25); border-radius:16px; padding:28px 30px; width:368px;
+    box-shadow:0 24px 60px rgba(0,0,0,.45); }
+  .lg-brand { display:flex; align-items:center; gap:10px; font-size:1.05rem; font-weight:800; color:#f1f5f9; }
+  .lg-logo { background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border-radius:10px;
+    padding:6px 10px; font-size:.85rem; }
+  .lg-sub { font-size:.8rem; color:#94a3b8; margin-top:-4px; }
+  .lg-field { display:flex; align-items:center; gap:8px; }
+  .lg-field span { font-size:.82rem; color:#cbd5e1; width:52px; text-align:right; }
+  .lg-field input { flex:1; background:#0f172a; border:1.5px solid #334155; color:#e2e8f0; }
+  .lg-field input:focus { border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,.18); }
+  .lg-err { font-size:.78rem; color:#fca5a5; min-height:1em; }
+  .lg-btn { justify-content:center; padding:10px; font-size:.95rem; }
+  .lg-note { font-size:.7rem; color:#64748b; line-height:1.55; }
+</style>
+</head>
+<body>
+
+<!-- ══════════ 登录页 (账号与角色来自 ERP 服务端) ══════════ -->
+<div id="loginPage">
+  <div class="lg-card">
+    <div class="lg-brand"><span class="lg-logo">ERP</span> ERP 全能助手</div>
+    <div class="lg-sub">请使用 ERP 系统账号登录</div>
+    <div class="lg-field"><span>用户名</span>
+      <input type="text" id="lgUser" autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div class="lg-field"><span>密　码</span>
+      <input type="password" id="lgPass" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div class="lg-err" id="lgErr"></div>
+    <button class="btn btn-p lg-btn" id="lgBtn" onclick="doLogin()">登 录</button>
+    <div class="lg-note">账号、密码与角色由 ERP 服务端统一管理；管理员可使用全部功能，其它角色仅可使用「商品上件」。</div>
+  </div>
+</div>
+
+<!-- ══════════ 顶部导航 (三面板) + 公共状态区 (9222 / 数据库) ══════════ -->
+<div class="appnav">
+  <span class="appbrand">🧩 ERP 全能助手</span>
+  <button class="tabbtn on" data-tab="pub" onclick="switchTab('pub')">📦 商品上件</button>
+  <button class="tabbtn" data-tab="ads" onclick="switchTab('ads')">📢 广告投放</button>
+  <button class="tabbtn" data-tab="sys" onclick="switchTab('sys')">⚙️ 系统配置</button>
+  <span class="navst">
+    <span class="badge chk admin-only" id="gCdpBadge" onclick="checkCdp(true)" title="点击检查 9222 调试端口">🔌 9222 检测中...</span>
+    <button class="btn btn-w btn-sm admin-only" id="gBtnLaunch" onclick="api.launch_or_check()" style="display:none">🚀 启动调试浏览器</button>
+    <span class="badge chk admin-only" id="gDbBadge" onclick="pubReconnect()" title="点击重新连接数据库">💾 数据库: 未连接</span>
+    <span class="navuser" id="navUser"></span>
+    <button class="btn btn-sm navlogout" id="navLogout" onclick="doLogout()" title="退出登录">🚪 退出</button>
+  </span>
+</div>
+
+<div class="panels">
+
+<!-- ══════════════════════════════════════════════════════════
+     📦 商品上件面板 (desktop_app.py 的 Web 复刻)
+     ══════════════════════════════════════════════════════════ -->
+<section class="panel on" id="panel-pub">
+<div class="wrap pubwrap">
+
+  <div class="hdr">
+    <span class="logo">ERP</span>
+    <h1>商品上件助手 · 店小秘自动化</h1>
+    <button class="btn btn-o" id="pubBtnOpenDxm" onclick="pubOpenDxm()" style="background:#fff">打开店小秘上件页面</button>
+  </div>
+
+  <!-- 上件操作 -->
+  <div class="card">
+    <div class="card-title">📦 商品上件 <span class="note" style="font-weight:400">（输入 Parent SKU）</span></div>
+    <div class="form-grid" style="grid-template-columns:110px 1fr 120px 108px 100px;">
+      <span class="lbl req">Parent SKU</span>
+      <input type="text" id="pubSku" placeholder="输入 Parent SKU 后回车查询" autocomplete="off"
+             onkeydown="if(event.key==='Enter')pubQuery()">
+      <button class="btn btn-o" id="pubBtnQuery" onclick="pubQuery()">🔍 查询商品</button>
+      <button class="btn btn-p" id="pubBtnRun" onclick="pubStart()" disabled>🚀 上件</button>
+      <button class="btn btn-d" id="pubBtnStop" onclick="pubStop()" disabled>🛑 终止</button>
+    </div>
+    <div class="note" id="pubProductInfo" style="margin-top:6px;"></div>
+  </div>
+
+  <!-- 4. 日志 -->
+  <div class="card log-card">
+    <div class="card-title">
+      📜 上件执行日志
+      <span class="spacer"></span>
+      <button class="btn btn-o" style="padding:2px 10px; font-size:.75rem" onclick="pubClearLog()">清空</button>
+    </div>
+    <div id="pubLogBox"></div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     📢 广告投放面板 (与 mac 独立版 sellfox_ad_gui + gui/index.html 完全一致)
+     ══════════════════════════════════════════════════════════ -->
+<section class="panel" id="panel-ads">
+<div class="wrap">
+
+  <div class="hdr">
+    <span class="logo">SELLFOX</span>
+    <h1>赛狐广告批量投放助手</h1>
+    <button class="btn btn-o" onclick="api.open_sellfox()" style="background:#fff">打开批量创建页</button>
+  </div>
+
+  <div class="card params">
+    <div class="card-title">📢 投放参数 <span class="note" style="font-weight:400">（全程数据不落库）</span></div>
+    <div class="form-grid">
+      <span class="lbl req">店铺名称</span>
+      <div style="position:relative">
+        <input type="text" id="shop" placeholder="点击选择或直接输入店铺名称" autocomplete="off" onfocus="openShopDD()" style="width:100%">
+        <div class="shop-dd" id="shopDD"></div>
+        <div class="note" id="shopHint" style="margin-top:2px"></div>
+      </div>
+      <span></span><span></span>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin:8px 0 2px;">
+      <span class="lbl req" style="text-align:left">ASIN 列表</span>
+      <span class="note" style="font-size:.78rem">逗号 / 空格 / 换行分隔, 自动转大写</span>
+    </div>
+    <textarea id="asins" rows="5" placeholder="输入格式：逗号/空格/换行分隔, 如 B0HHRWYPTD,B0HHWJB3X9,B0HHWM14MF"></textarea>
+    <div class="hint-row">
+      <span id="asinCnt">已识别 0 个 ASIN</span>
+      <span class="inline-chk" style="gap:12px">
+        <label><input type="checkbox" id="dedup" checked> 自动去重</label>
+        <label><input type="checkbox" id="trimVar" checked onchange="document.getElementById('trimKeep').disabled=!this.checked; document.getElementById('trimKeep').parentElement.style.opacity=this.checked?1:.45">
+          裁剪变体</label>
+        <span>保留 <input type="number" id="trimKeep" value="5" min="1" max="50" style="width:58px; padding:4px 6px;"> 个</span>
+      </span>
+    </div>
+
+    <div class="form-grid" style="margin-top:8px;">
+      <span class="lbl">批次数量</span>
+      <div><input type="number" id="batch" value="10" min="1" style="width:90px">
+        <span class="note">每批最多录入的 ASIN 数</span></div>
+      <span class="lbl">创建方式</span>
+      <div class="seg" id="segCreate"></div>
+    </div>
+
+    <div class="form-grid" style="margin-top:8px;">
+      <span class="lbl req">开始时间</span>
+      <input type="date" id="startDate" style="width:150px">
+      <span class="lbl">结束时间</span>
+      <input type="date" id="endDate" value="" style="width:150px">
+      <span class="note" style="grid-column:1/5">结束时间留空 = 不限 (日期框可一键清除)</span>
+    </div>
+
+    <div class="form-grid" style="margin-top:8px;">
+      <span class="lbl req">每日预算</span>
+      <input type="number" id="budget" value="300" min="1" style="width:90px">
+      <span class="lbl req">默认竞价</span>
+      <input type="number" id="bid" value="30" min="0.01" step="0.01" style="width:90px">
+    </div>
+
+    <div class="form-grid" style="margin-top:8px;">
+      <span class="lbl">竞价策略</span>
+      <div class="seg" id="segBid" style="grid-column:2/5"></div>
+    </div>
+
+    <div class="actions" style="margin-top:10px;">
+      <span class="spacer"></span>
+      <span class="tag" id="submitModeTag">提交方式: 读取中...</span>
+      <button class="btn btn-p" id="btnRun" onclick="api.confirm_run()">▶ 投放</button>
+      <button class="btn btn-d" id="btnStop" onclick="api.stop()" disabled>⏹ 停止</button>
+    </div>
+  </div>
+
+  <div class="card log-card">
+    <div class="card-title">
+      📜 执行日志
+      <span class="spacer"></span>
+      <button class="btn btn-o" style="padding:2px 10px; font-size:.75rem" onclick="api.clear_log()">清空</button>
+    </div>
+    <div id="logBox"></div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════
+     ⚙️ 系统配置面板 (商品数据库 · 用户数据目录 · 公共参数)
+     ══════════════════════════════════════════════════════════ -->
+<section class="panel" id="panel-sys">
+<div class="wrap">
+
+  <div class="hdr" style="background:linear-gradient(135deg,#475569,#334155); box-shadow:0 2px 8px rgba(51,65,85,.25);">
+    <span class="logo">SYS</span>
+    <h1>系统配置 · 公共参数</h1>
+  </div>
+
+  <!-- 1. 商品数据库配置 -->
+  <div class="card">
+    <div class="card-title">1️⃣ 商品数据库配置 <span class="note" style="font-weight:400">（远程主机 IP/域名）</span></div>
+    <div class="form-grid" id="pubRemoteRow" style="grid-template-columns:110px 1fr 48px 78px 48px 1fr 78px;">
+      <span class="lbl">主机 (IP/域名)</span>
+      <input type="text" id="pubHost" placeholder="主库机器 IP 或域名" autocomplete="off">
+      <span class="lbl" style="text-align:left">端口</span>
+      <input type="number" id="pubPort" placeholder="8000">
+      <span class="lbl" style="text-align:left">令牌</span>
+      <input type="password" id="pubToken" placeholder="访问令牌">
+      <button class="btn btn-p" onclick="pubApplyDb()">应用</button>
+    </div>
+
+    <div class="form-grid" style="grid-template-columns:110px 1fr 84px 78px; margin-top:8px;">
+      <span class="lbl">图片存储目录</span>
+      <input type="text" id="pubImageRoot" placeholder="留空 = 用数据库内配置 (远程模式自动从主库下载缓存)" autocomplete="off">
+      <button class="btn btn-o" onclick="pubBrowse('dir')">浏览...</button>
+      <button class="btn btn-p" onclick="pubApplyImage()">应用</button>
+    </div>
+
+    <div class="note" style="margin-top:6px;">远程模式: 填主库 IP/域名 + 端口 8000 (或隧道端口), 图片自动从主库服务器下载缓存后上传店小秘,
+      无需共享文件夹; 图片目录为可选的本机覆盖路径 (留空即可)。</div>
+    <div class="note" id="pubDbStatus" style="margin-top:2px;">数据库: 未连接</div>
+  </div>
+
+  <!-- 2. 用户数据目录 (上件与广告共用同一配置) -->
+  <div class="card">
+    <div class="card-title">2️⃣ 用户数据目录 <span class="note" style="font-weight:400">（上件与广告投放共用同一配置）</span></div>
+    <div class="form-grid" style="grid-template-columns:110px 1fr 130px;">
+      <span class="lbl">Chrome 数据目录</span>
+      <input type="text" id="sysChromeDir" placeholder="C:\ChromeDebugUser" autocomplete="off" onchange="sysApplyChromeDir()">
+      <button class="btn btn-p" onclick="sysApplyChromeDir()">应用</button>
+    </div>
+    <div class="note" style="margin-top:4px;">登录态与 Cookie 保存在此目录, 与日常浏览器隔离; 上件与广告投放共用, 修改后重新「启动调试浏览器」生效。</div>
+  </div>
+
+  <!-- 3. 公共操作 -->
+  <div class="card">
+    <div class="card-title">3️⃣ 调试浏览器 <span class="note" style="font-weight:400">（Chrome 9222 · 公共实例）</span></div>
+    <div class="form-grid" style="grid-template-columns:110px 1fr 130px 130px;">
+      <span class="lbl">9222 状态</span>
+      <span class="badge chk" id="gCdpBadge2" onclick="checkCdp(true)" style="justify-self:start">🔌 检测中...</span>
+      <button class="btn btn-w" id="gBtnLaunch2" onclick="api.launch_or_check()">🚀 启动调试浏览器</button>
+      <button class="btn btn-o" onclick="refreshDbNow()">🔄 检查数据库</button>
+    </div>
+    <div class="note" style="margin-top:4px;">启动后请在弹出的 Chrome 中登录店小秘/赛狐 (登录态长期有效, 上件与广告共用该浏览器实例)。</div>
+  </div>
+
+</div>
+</section>
+
+</div><!-- /panels -->
+
+<!-- 广告确认弹窗 (原样) -->
+<div class="modal" id="modal">
+  <div class="box">
+    <h3 id="mTitle">确认投放</h3>
+    <div class="modal-warn" id="mWarn" style="display:none"></div>
+    <p id="mBody"></p>
+    <div class="row">
+      <button class="btn btn-o" onclick="api.modal(false)">取消</button>
+      <button class="btn btn-p" onclick="doConfirm()">确认开始</button>
+    </div>
+  </div>
+</div>
+
+<!-- 上件确认弹窗 -->
+<div class="modal" id="pmModal">
+  <div class="box">
+    <h3 id="pmTitle">提示</h3>
+    <p id="pmBody"></p>
+    <div class="row">
+      <button class="btn btn-o" onclick="window.__pmResolve && window.__pmResolve(false)">取消</button>
+      <button class="btn btn-p" onclick="window.__pmResolve && window.__pmResolve(true)">确定</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ══════════ 登录与权限 (账号/密码/角色 均来自 ERP 服务端) ══════════ */
+window._loginUser = null;
+
+async function doLogin() {
+  const btn = $('lgBtn'), err = $('lgErr');
+  const u = $('lgUser').value.trim(), p = $('lgPass').value;
+  if (!u || !p) { err.innerText = '请输入用户名和密码'; return; }
+  btn.disabled = true; btn.innerText = '登录中...'; err.innerText = '';
+  try {
+    const r = await B().desktop_login(u, p);
+    if (r && r.ok) {
+      window._loginUser = r.user || { role: 'user' };
+      applyRole(window._loginUser);
+      syncNavUser();
+      $('loginPage').classList.add('off');
+      toast('✅ 欢迎, ' + (window._loginUser.display_name || window._loginUser.username) +
+            ' (' + (window._loginUser.role === 'admin' ? '管理员' : '普通用户') + ')');
+      pubInit();
+      if (window._loginUser.role === 'admin') { initUI(); refreshSubmitMode(); }
+      checkCdp(false);
+    } else {
+      err.innerText = (r && r.msg) || '登录失败';
+    }
+  } catch (e) {
+    err.innerText = '登录异常: ' + (e.message || e);
+  } finally {
+    btn.disabled = false; btn.innerText = '登 录';
+  }
+}
+
+/* 菜单权限 (与 ERP 服务端一致): admin=全部功能; 其它角色=仅商品上件 */
+function applyRole(user) {
+  const isAdmin = !!user && user.role === 'admin';
+  document.querySelectorAll('.tabbtn').forEach(b => {
+    const t = b.dataset.tab;
+    b.style.display = (!isAdmin && (t === 'ads' || t === 'sys')) ? 'none' : '';
+  });
+  /* 调试状态徽标/启动按钮仅管理员可见; 用户信息与「退出」对所有角色保留 */
+  document.querySelectorAll('.appnav .navst .admin-only').forEach(el => {
+    el.style.display = isAdmin ? '' : 'none';
+  });
+  if (!isAdmin) switchTab('pub');
+}
+
+/* 顶部导航: 当前登录用户显示 */
+function syncNavUser() {
+  const el = $('navUser');
+  const u = window._loginUser;
+  if (el) el.innerText = u ? ('👤 ' + (u.display_name || u.username) + (u.role === 'admin' ? ' (管理员)' : '')) : '';
+}
+
+/* 退出登录: 回到登录页并收起受限菜单 */
+function doLogout() {
+  window._loginUser = null;
+  syncNavUser();
+  try {
+    const pass = $('lgPass'); if (pass) pass.value = '';
+    const err = $('lgErr'); if (err) err.innerText = '';
+  } catch (e) { /* ignore */ }
+  applyRole(null);                       // 隐藏「广告投放 / 系统配置」入口
+  $('loginPage').classList.remove('off');
+  setTimeout(() => { const u = $('lgUser'); if (u) u.focus(); }, 120);
+  toast('已退出登录');
+}
+
+/* ───────── Tab 切换 (商品上件 / 广告投放 / 系统配置) ───────── */
+function switchTab(name) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === 'panel-' + name));
+  document.querySelectorAll('.tabbtn').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  if (name === 'pub') { pubInit().then(ok => { if (ok) { pubPollLogs(); pubCheckChrome(false); } }); }
+  else if (name === 'ads') { initUI().then(() => refreshSubmitMode()); }
+  else if (name === 'sys') { pubInit(); initUI(); refreshSubmitMode(); checkCdp(false); }
+}
+
+/* ───────── 桥接 (pywebview 为 window.pywebview.api; 浏览器模式为 fetch) ───────── */
+function B() {
+  if (window.pywebview && window.pywebview.api) return window.pywebview.api;
+  if (window.py_bridge) return window.py_bridge;
+  if (location.protocol.startsWith('http')) {
+    if (!window._httpBridge) {
+      window._httpBridge = new Proxy({}, {
+        get: (_, fn) => async (...args) => {
+          const r = await fetch('/api/' + fn, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(args.length === 1 && typeof args[0] === 'object' ? args[0] : {args})
+          });
+          const j = await r.json();
+          return j && j.result !== undefined ? j.result : j;
+        }
+      });
+    }
+    return window._httpBridge;
+  }
+  throw new Error('bridge not ready');
+}
+
+const $ = id => document.getElementById(id);
+const esc = s => (s===null||s===undefined) ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+  .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+function toast(msg) {
+  const t = $('toast'); t.innerText = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('show'), 2600);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   📦 商品上件 (桥接 pub_* , 等价 desktop_app.DesktopApp)
+   ══════════════════════════════════════════════════════════════ */
+window.__pubInited = false;
+window.__pubRunning = false;
+let pubLogTimer = null, pubStateTimer = null, pubLogSeen = 0, pubApplying = false, pubLastResult = '';
+
+async function pubInit() {
+  if (window.__pubInited) return true;
+  let o = null;
+  try { o = await B().pub_get_options(); } catch (e) { return false; }
+  if (!o) return false;
+  window.__pubInited = true;
+
+  $('pubHost').value = o.host || '';
+  $('pubPort').value = o.port || '8000';
+  $('pubToken').value = o.token || '';
+  $('pubImageRoot').value = o.image_root || '';
+  const dc = $('sysChromeDir');
+  if (dc) dc.value = o.chrome_dir || o.default_chrome_dir || '';
+  pubSetDbStatus(o.db_status || '数据库: 未连接', !!o.db_ok);
+  pubCheckChrome(false);
+  if (o.product) { pubRenderProduct(o.product); $('pubBtnRun').disabled = false; }
+  if (o.last_result) pubRenderResult(o.last_result);
+
+  if (!pubLogTimer) pubLogTimer = setInterval(pubPollLogs, 900);
+  if (!pubStateTimer) pubStateTimer = setInterval(pubPollState, 2000);
+  pubAutoConnect();   // 启动后自动检查数据库连接, 刷新右上角状态
+  return true;
+}
+
+function pubCollectDb() {
+  // 远程模式固定 (本地/共享已废弃); chrome_dir 由「系统配置」单独维护, 不在数据库表单里提交
+  return {
+    conn_mode: 'remote',
+    host: $('pubHost').value.trim(),
+    port: $('pubPort').value.trim(),
+    token: $('pubToken').value,
+    image_root: $('pubImageRoot').value.trim(),
+  };
+}
+
+function pubSetDbStatus(text, ok) {
+  const b = $('gDbBadge');   // 公共状态区徽标
+  if (b) {
+    b.className = 'badge ' + (ok ? 'ok' : 'no');
+    b.innerText = ok ? '💾 数据库已就绪' : '💾 未连接';
+    b.title = text || '';
+  }
+  const line = $('pubDbStatus');
+  if (line) { line.innerText = text || ''; line.className = 'note' + (ok ? '' : ' w'); }
+}
+
+async function pubApplyDb(create) {
+  if (pubApplying) return;
+  pubApplying = true;
+  const cfg = pubCollectDb();
+  try {
+    let r = await B().pub_apply_db(cfg, create === true);
+    if (r && r.need_create) {
+      if (await pubConfirm('数据库不存在', r.msg + '\n\n是否新建空数据库？')) {
+        r = await B().pub_apply_db(cfg, true);
+      } else { return; }
+    }
+    if (r && r.ok) {
+      pubSetDbStatus(r.status || '', true);
+      toast('✅ ' + (r.msg || '数据库已连接'));
+    } else {
+      pubSetDbStatus((r && r.status) || '', false);
+      toast('❌ ' + String((r && r.msg) || '连接失败').split('\n')[0]);
+    }
+  } catch (e) {
+    toast('调用失败: ' + (e.message || e));
+  } finally { pubApplying = false; }
+}
+
+async function pubApplyImage() {
+  try {
+    const r = await B().pub_apply_image_root({ image_root: $('pubImageRoot').value.trim() });
+    if (r && r.warn) {
+      if (!(await pubConfirm('图片目录不可访问', r.warn + '\n\n仍要使用该目录吗？'))) return;
+    }
+    if (r && r.ok) {
+      pubSetDbStatus(r.status || '', true);
+      toast('🖼️ 图片目录已应用');
+    } else {
+      toast('❌ ' + String((r && r.msg) || '应用失败').split('\n')[0]);
+    }
+  } catch (e) { toast('调用失败: ' + (e.message || e)); }
+}
+
+async function pubReconnect() {
+  toast('正在重新连接数据库...');
+  await pubApplyDb();
+}
+
+/* 启动后自动检查数据库连接 (静默: 仅更新右上角状态徽标, 不弹提示) */
+async function pubAutoConnect() {
+  try {
+    const r = await B().pub_apply_db(pubCollectDb());
+    if (r && r.need_create) { pubSetDbStatus((r.status || '数据库不存在'), false); return; }
+    if (r && r.ok) pubSetDbStatus(r.status || '数据库: 已连接', true);
+    else pubSetDbStatus((r && r.status) || '数据库: 连接失败', false);
+  } catch (e) { /* ignore */ }
+}
+
+async function pubBrowse(mode) {
+  try {
+    const r = await B().pub_browse(mode);
+    if (!r || !r.ok) { if (r && r.msg) toast(r.msg); return; }
+    if (mode === 'dir') { $('pubImageRoot').value = r.path; await pubApplyImage(); }
+  } catch (e) { toast('打开选择框失败: ' + (e.message || e)); }
+}
+
+/* ───────── 浏览器 (Chrome 9222, 与广告投放共用实例) ───────── */
+async function pubCheckChrome(showToast) {
+  return checkCdp(showToast);   // 统一走公共状态区 9222 徽标
+}
+
+/* 系统配置: 用户数据目录 (上件与广告共用同一份配置) */
+async function sysApplyChromeDir() {
+  const el = $('sysChromeDir');
+  const d = el ? el.value.trim() : '';
+  if (!d) { toast('请填写用户数据目录'); return; }
+  try {
+    await B().sys_set_chrome_dir(d);
+    toast('✅ 用户数据目录已应用 (上件/广告共用)');
+  } catch (e) { toast('应用失败: ' + (e.message || e)); }
+}
+
+async function pubLaunchChrome() {
+  const el = $('sysChromeDir');
+  const dir = el ? el.value.trim() : '';
+  try {
+    if (dir) await B().sys_set_chrome_dir(dir);
+    await B().pub_launch_chrome(dir);
+    toast('正在启动调试浏览器，等待 9222 端口就绪...');
+    const t0 = Date.now();
+    while (Date.now() - t0 < 12000) {
+      await new Promise(r => setTimeout(r, 1000));
+      if (await pubCheckChrome(false)) { toast('🟢 Chrome 9222 已就绪，已打开店小秘'); break; }
+    }
+  } catch (e) { toast('启动失败: ' + (e.message || e)); }
+}
+
+/* 上件页面: 打开店小秘上件页面 (启动/复用 9222 浏览器并跳转) */
+async function pubOpenDxm() {
+  const btn = $('pubBtnOpenDxm');
+  if (btn) btn.disabled = true;
+  try {
+    await pubLaunchChrome();
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* ───────── 商品查询与上件 ───────── */
+function pubRenderProduct(p) {
+  const el = $('pubProductInfo');
+  if (!p) { el.innerText = ''; el.className = 'note'; return; }
+  el.className = 'note';
+  el.innerText = `商品信息: #${p.id}  [${p.parent_sku}]  ${p.title || '未命名'}  |  店铺: ${p.store_account || '-'}`
+    + `  |  变体: ${p.variation_count} 个  |  状态: ${p.status}`;
+}
+
+function pubRenderResult(text) {
+  if (!text || text === pubLastResult) return;
+  pubLastResult = text;
+  const el = $('pubProductInfo');
+  el.innerText = '上件结果: ' + text;
+  el.className = 'note' + (text.indexOf('✅') >= 0 ? '' : ' w');
+}
+
+async function pubQuery() {
+  const sku = $('pubSku').value.trim();
+  if (!sku) { toast('请输入 Parent SKU！'); return; }
+  const btn = $('pubBtnQuery');
+  btn.disabled = true; btn.innerText = '查询中...';
+  try {
+    const r = await B().pub_query_product(sku);
+    if (r && r.ok) {
+      pubRenderProduct(r.product);
+      $('pubBtnRun').disabled = false;
+      toast('✅ 已找到商品，可点击上件');
+    } else {
+      $('pubBtnRun').disabled = true;
+      const el = $('pubProductInfo');
+      el.className = 'note w';
+      el.innerText = '商品信息: ' + String((r && r.msg) || '未找到').split('\n')[0];
+      toast('❌ ' + String((r && r.msg) || '未找到商品').split('\n')[0]);
+    }
+  } catch (e) { toast('查询失败: ' + (e.message || e)); }
+  finally { btn.disabled = false; btn.innerText = '🔍 查询商品'; }
+}
+
+function pubSetRunState(running) {
+  window.__pubRunning = running;
+  $('pubBtnRun').disabled = running;
+  $('pubBtnStop').disabled = !running;
+  $('pubBtnQuery').disabled = running;
+}
+
+async function pubStart() {
+  if (window.__pubRunning) { toast('当前已有上件任务在执行中'); return; }
+  try {
+    const r = await B().pub_start_publish();
+    if (!r || !r.ok) {
+      if (r && r.need_chrome) {
+        if (await pubConfirm('Chrome 未启动', 'Chrome 9222 尚未启动，是否现在启动？\n启动后在打开的 Chrome 里登录店小秘，再点「上件」。')) {
+          pubLaunchChrome();
+        }
+        return;
+      }
+      toast('❌ ' + String((r && r.msg) || '无法开始上件').split('\n')[0]);
+      return;
+    }
+    pubSetRunState(true);
+  } catch (e) { toast('启动失败: ' + (e.message || e)); }
+}
+
+async function pubStop() {
+  try {
+    const r = await B().pub_stop_publish();
+    toast(r && r.ok ? '⏹ 已发出终止请求, 当前环节结束后停止...' : String((r && r.msg) || '无进行中任务').split('\n')[0]);
+  } catch (e) { toast('终止失败: ' + (e.message || e)); }
+}
+
+async function pubPollState() {
+  try {
+    const st = await B().pub_run_state();
+    if (!st) return;
+    if (window.__pubRunning && !st.running) {
+      pubSetRunState(false);
+      pubRenderResult(st.result);
+      pubCheckChrome(false);
+    } else if (st.running && !window.__pubRunning) {
+      pubSetRunState(true);
+    }
+  } catch (e) { /* ignore */ }
+}
+
+/* ───────── 日志 ───────── */
+function pubFormatTs() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+async function pubPollLogs() {
+  try {
+    const r = await B().pub_poll_logs(pubLogSeen);
+    const lines = (r && r.lines) || [];
+    if (lines.length) {
+      const box = $('pubLogBox');
+      const span = document.createElement('span');
+      const ts = pubFormatTs();
+      span.innerText = lines.map(l => `[${ts}] ${l}`).join('\n') + '\n';
+      box.appendChild(span); box.scrollTop = box.scrollHeight;
+      pubLogSeen += lines.length;
+    }
+  } catch (e) { /* ignore */ }
+}
+
+async function pubClearLog() {
+  $('pubLogBox').innerText = '';
+  try { await B().pub_clear_log(); } catch (e) {}
+}
+
+function pubConfirm(title, body) {
+  return new Promise(resolve => {
+    $('pmTitle').innerText = title;
+    $('pmBody').innerText = body;
+    $('pmModal').classList.add('show');
+    window.__pmResolve = v => { $('pmModal').classList.remove('show'); resolve(!!v); };
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   📢 广告投放 (与 mac 独立版 gui/index.html 完全一致, 方法名零改动)
+   ══════════════════════════════════════════════════════════════ */
+
+/* ───────── 提交方式 (主机配置) 读取与展示 ───────── */
+async function refreshSubmitMode() {
+  const tag = $('submitModeTag');
+  if (!tag) return;
+  tag.className = 'tag';
+  tag.innerText = '提交方式: 读取中...';
+  let sm = { enabled: false, source: '' };
+  try { sm = (await B().get_submit_mode()) || sm; }
+  catch (e) { tag.innerText = '提交方式: 读取失败'; return; }
+  window._submitMode = sm;
+  if (sm.enabled) {
+    tag.className = 'tag tag-danger';
+    tag.innerText = '⚠ 自动提交: 开';
+    tag.title = '主机配置为自动提交 (来源: ' + (sm.source || '主机') + '); 点击投放将二次确认';
+  } else {
+    tag.className = 'tag tag-safe';
+    tag.innerText = '自动提交: 关';
+    tag.title = '非自动提交 (来源: ' + (sm.source || '主机') + '); 投放后停在提交前人工核对';
+  }
+}
+
+/* 系统配置: 立即检查数据库连接 */
+async function refreshDbNow() {
+  toast('正在检查数据库连接...');
+  await pubApplyDb();
+}
+
+/* 全局 api: onclick 内联调用的统一入口 (pywebview/py_bridge/serve 三模式通吃) */
+window.api = {
+  launch_browser:  () => launchBrowserWithFeedback(),
+  launch_or_check: () => (window._cdpReady ? checkCdp(true) : launchBrowserWithFeedback()),
+  check_cdp:       (showToast = true) => checkCdp(showToast),
+  open_sellfox:    () => B().open_sellfox(),
+  stop:            async () => { window._jobRunning = false; return B().stop(); },
+  clear_log:       () => { $('logBox').innerText = ''; return B().clear_log(); },
+  modal:           show => $('modal').classList.toggle('show', !!show),
+  set_user_dir:    d  => B().set_user_dir(d),
+  /* 开始投放: 收集参数 → 预检 9222 端口 → Python 校验 → 通过则弹确认框 */
+  confirm_run: async () => {
+    const p = collectParams();
+    let r;
+    try { r = await B().confirm_run(p); }
+    catch (e) { toast('调用失败: ' + e.message); return; }
+    if (r && r.error) { toast(r.error); return; }
+    const ok = await checkCdp(false);
+    if (!ok) {
+      toast('🔴 未检测到 9222 调试浏览器，请先启动并登录赛狐');
+      return;
+    }
+    window._pendingParams = p;
+    /* 主机端「是否自动提交」: 两种情况都弹确认框, 并在弹框内醒目提示提交方式 */
+    let sm = { enabled: false, source: '' };
+    try { sm = (await B().get_submit_mode()) || sm; } catch (e) {}
+    refreshSubmitMode();
+    const brief = '店铺: ' + (p.shop || '-') + '\n' +
+      'ASIN: ' + p.asins.length + ' 个 (批次上限 ' + (p.batch || '不分批') + ')\n' +
+      '预算 ' + (p.budget || '-') + ' / 竞价 ' + (p.bid || '-') +
+      '\n裁剪: ' + (p.trim_variants ? '开, 保留 ' + p.trim_keep + ' 个' : '不裁剪');
+    if (sm.enabled) {
+      showModal('⚠ 将自动确认提交',
+        brief +
+        '\n\n主机配置为【自动确认提交】: 每批将自动点击「确认」真实提交广告, 提交后不可撤销!\n' +
+        '设置来源: ' + (sm.source || '主机') +
+        '\n\n确认要开始执行吗? (点「取消」则不执行)');
+    } else {
+      showModal('确认投放',
+        brief +
+        '\n\n当前为【非自动提交】: 每批将停在「批量提交广告」确认弹窗前, ' +
+        '由人工核对表格后手动点「确认」, 程序不会自动提交。' +
+        '\n\n确认要开始执行吗? (点「取消」则不执行)');
+    }
+    setModalWarn(sm.enabled);
+  },
+};
+
+/* 页面加载即初始化默认值 (不依赖桥接异步返回，保证开始日期默认今天、结束日期默认空、用户目录默认 ~/ChromeDebugUser) */
+(function initFieldDefaults() {
+  const d = new Date();
+  const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const sInp = $('startDate'), eInp = $('endDate'), uInp = $('sysChromeDir');
+  if (sInp && !sInp.value) sInp.value = today;
+  if (eInp) eInp.value = '';
+  if (uInp && !uInp.value) uInp.value = 'C:\\ChromeDebugUser';
+})();
+
+/* ───────── 段选组 ───────── */
+function segRender(id, name, options, selected) {
+  const box = $(id);
+  box.innerHTML = options.map(v =>
+    `<label class="${v===selected?'on':''}"><input type="radio" name="${name}" value="${esc(v)}"${v===selected?' checked':''}>${esc(v)}</label>`).join('');
+  box.onclick = e => {
+    const lb = e.target.closest('label'); if (!lb) return;
+    lb.querySelector('input').checked = true;
+    box.querySelectorAll('label').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
+  };
+}
+function segValue(name) {
+  const el = document.querySelector(`input[name="${name}"]:checked`);
+  return el ? el.value : '';
+}
+
+/* ───────── ASIN 计数 ───────── */
+function parseAsinsLocal() {
+  const raw = $('asins').value;
+  if (raw.includes('输入格式：')) return [];
+  const parts = raw.split(/[,，;；\s\r\n\t]+/).map(x=>x.trim().toUpperCase()).filter(Boolean);
+  if (!$('dedup').checked) return parts;
+  const out = []; new Set(parts).forEach(a => out.push(a));
+  return out;
+}
+function countAsins() {
+  const lst = parseAsinsLocal();
+  const seen = new Set(); let dup = 0;
+  for (const a of lst) { if (seen.has(a)) dup++; seen.add(a); }
+  const bad = [...seen].filter(a => !/^[A-Z0-9]{10}$/.test(a));
+  let m = `已识别 ${lst.length} 个 ASIN`;
+  if (dup) m += ` · 重复 ${dup} 个`;
+  if (bad.length) m += ` · ⚠ ${bad.length} 个格式异常: ${esc(bad.slice(0,3).join(', '))}`;
+  $('asinCnt').innerText = m;
+}
+
+/* ───────── 弹窗/日志 ───────── */
+function showLog(lines, cls) {
+  const box = $('logBox');
+  const span = document.createElement('span');
+  span.className = cls || '';
+  span.innerText = lines + '\n';
+  box.appendChild(span); box.scrollTop = box.scrollHeight;
+}
+function showModal(title, body) {
+  $('mTitle').innerText = title; $('mBody').innerText = body;
+  const w = $('mWarn'); if (w) w.style.display = 'none';   // 是否显示由 setModalWarn 决定
+  $('modal').classList.add('show');
+}
+
+/* 弹框内醒目的「提交方式」提醒 (点击投放后突出显示) */
+function setModalWarn(enabled) {
+  const el = $('mWarn');
+  if (!el) return;
+  el.className = 'modal-warn ' + (enabled ? 'danger' : 'safe');
+  el.innerText = enabled
+    ? '⚠ 自动提交：开 —— 每批将自动点击「确认」真实提交广告'
+    : '✔ 自动提交：关 —— 每批停在提交前，人工核对后手动确认';
+  el.style.display = '';
+}
+
+function collectParams() {
+  return {
+    shop: $('shop').value,
+    asins: parseAsinsLocal(),
+    dedup: $('dedup').checked,
+    trim_variants: $('trimVar').checked,
+    trim_keep: parseInt($('trimKeep').value || '5', 10),
+    batch: parseInt($('batch').value || '0', 10) || 0,
+    create_mode: segValue('cm'),
+    bid_strategy: segValue('bs'),
+    budget: $('budget').value,
+    bid: $('bid').value,
+    start_date: $('startDate').value,
+    end_date: $('endDate').value,
+    user_dir: ($('sysChromeDir') || {}).value ? $('sysChromeDir').value.trim() : '',
+  };
+}
+
+async function doConfirm() {
+  $('modal').classList.remove('show');
+  $('btnRun').disabled = true; $('btnStop').disabled = false;
+  window._jobRunning = true;
+  try {
+    const r = await B().modal_ok();
+    if (r === 'no-params' || r === 'running') {
+      window._jobRunning = false;
+      $('btnRun').disabled = false; $('btnStop').disabled = true;
+      toast(r === 'running' ? '任务正在执行中' : '参数已失效, 请重新点击开始投放');
+      return;
+    }
+    pollState();
+  } catch (e) {
+    window._jobRunning = false;
+    $('btnRun').disabled = false; $('btnStop').disabled = true;
+    toast('启动失败: ' + e.message);
+  }
+}
+let pollTimer = null;
+async function pollState() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    try {
+      const st = await B().run_state();
+      if (!st.running) {
+        clearInterval(pollTimer); pollTimer = null;
+        window._jobRunning = false;
+        $('btnRun').disabled = false; $('btnStop').disabled = true;
+        checkCdp(false);
+      }
+    } catch (e) { /* ignore */ }
+  }, 2000);
+}
+
+/* 日志输出 (Python 侧直调 window.pushLog; 浏览器模式走轮询) */
+let logSeen = 0, logTimer = null;
+/* 统一日志轮询: pywebview 与浏览器模式都走 bridge.poll_logs (增量) */
+function startLogPolling() {
+  if (logTimer) return;
+  logTimer = setInterval(async () => {
+    try {
+      const r = await B().poll_logs(logSeen);
+      const lines = (r && r.lines) || [];
+      if (lines.length) {
+        showLog(lines.join('\n'));
+        logSeen = (r.seen || logSeen) + lines.length;
+      }
+    } catch (e) { /* ignore */ }
+  }, 900);
+}
+
+async function initUI() {
+  try { B(); } catch (e) { return false; }   // 桥接未就绪则稍后重试
+  if (window.__uiInited) return true;
+
+  // 1. 尝试从 Python 桥接获取动态选项 (容错处理)
+  let cm = ['所有产品合并创建广告', '每个产品单独创建广告'];
+  let bs = ['动态竞价-只降低', '动态竞价-提高和降低', '固定竞价'];
+  let cmDef = cm[0], bsDef = bs[0];
+  let o = { user_dir: '~/ChromeDebugUser', shop_names: [], today: '' };
+
+  try { cm = (await B().get_create_modes()) || cm; } catch (e) {}
+  try { cmDef = (await B().get_default('cm')) || cmDef; } catch (e) {}
+  try { bs = (await B().get_bid_strategies()) || bs; } catch (e) {}
+  try { bsDef = (await B().get_default('bs')) || bsDef; } catch (e) {}
+  try { o = (await B().get_options()) || o; } catch (e) {}
+
+  segRender('segCreate', 'cm', cm, cmDef);
+  segRender('segBid', 'bs', bs, bsDef);
+
+  // 2. 用户数据目录: 由「系统配置」统一维护 (上件/广告共用), 此处仅回填展示
+  if (o && o.user_dir) { const dc = $('sysChromeDir'); if (dc) dc.value = o.user_dir; }
+
+  if (o && o.today) $('startDate').value = o.today;
+  else if (!$('startDate').value) {
+    const d = new Date();
+    $('startDate').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  $('endDate').value = ''; // 确保结束时间默认留空
+
+  $('shopHint').innerText = (o && o.shop_names && o.shop_names.length)
+    ? `共 ${o.shop_names.length} 个可选店铺 (点击输入框选择)`
+    : '⚠ 系统未维护店铺';
+  window.SHOP_NAMES = (o && o.shop_names) || [];
+
+  if (!window.__eventsBound) {
+    window.__eventsBound = true;
+    $('asins').addEventListener('input', countAsins);
+    $('dedup').addEventListener('change', countAsins);
+  }
+  startLogPolling();   // 桌面/浏览器模式统一轮询
+  checkCdp(false);
+  window.__uiInited = true;
+  return true;
+}
+window.addEventListener('pywebviewready', () => { initUI(); });
+/* 兜底: 事件错过/浏览器模式 → 轮询直到桥接就绪 */
+(function waitBridge() {
+  initUI().then(ok => { if (!ok) setTimeout(waitBridge, 300); });
+})();
+/* 上件面板: 同样在页面加载后即初始化 (后台自动连接数据库) */
+(function waitPubBridge() {
+  pubInit().then(ok => { if (!ok) setTimeout(waitPubBridge, 300); });
+})();
+
+/* ───────── CDP 状态与检测 ───────── */
+window._cdpReady = false;
+window._checkingCdp = false;
+window._jobRunning = false;
+
+async function checkCdp(showToast = false) {
+  if (window._checkingCdp) return window._cdpReady;
+  window._checkingCdp = true;
+  if (showToast) setCdpUI(null);
+  let ok = false;
+  try {
+    ok = !!(await B().check_cdp());
+  } catch (e) {
+    ok = false;
+  } finally {
+    window._checkingCdp = false;
+  }
+  window._cdpReady = ok;
+  setCdpUI(ok);
+  if (showToast) {
+    toast(ok ? '🟢 9222 端口正常，调试浏览器运行中' : '🔴 未检测到 9222 调试浏览器，请点击启动');
+  }
+  return ok;
+}
+
+/* 公共区域 9222 状态同步: 顶部导航 + 系统配置页 + 启动/检查按钮
+   ok = true 已就绪 / false 未启动 / null 检测中 */
+function setCdpUI(ok) {
+  ['gCdpBadge', 'gCdpBadge2'].forEach(id => {
+    const b = $(id);
+    if (!b) return;
+    if (ok === null) { b.className = 'badge chk'; b.innerText = '🔌 检测中...'; return; }
+    b.className = 'badge ' + (ok ? 'ok' : 'no');
+    b.innerText = ok ? '🔌 9222 已就绪' : '🔌 9222 未启动';
+    b.title = ok ? '9222 调试端口正常响应中（点击可重新检查）' : '未检测到 9222 调试端口（点击可重新检查）';
+  });
+  /* 已就绪时不再显示按钮 (检查改为点击状态徽标); 未就绪时才显示「启动调试浏览器」
+     非管理员不显示导航栏的「启动调试浏览器」按钮 */
+  const adm = !!(window._loginUser && window._loginUser.role === 'admin');
+  ['gBtnLaunch', 'gBtnLaunch2'].forEach(id => {
+    const lb = $(id);
+    if (!lb) return;
+    if (ok !== false || (!adm && id === 'gBtnLaunch')) { lb.style.display = 'none'; return; }
+    lb.style.display = 'inline-flex';
+    lb.disabled = false;
+    lb.className = 'btn btn-w btn-sm';
+    lb.innerText = '🚀 启动调试浏览器';
+    lb.title = '启动 9222 调试浏览器';
+    lb.style.background = '#fffbeb';
+  });
+}
+
+async function launchBrowserWithFeedback() {
+  setCdpUI(null);
+  const lb = $('gBtnLaunch');
+  if (lb) { lb.disabled = true; lb.innerText = '🚀 启动中...'; lb.style.display = 'inline-flex'; }
+  try {
+    await B().launch_browser();
+    toast('正在启动调试浏览器，等待 9222 端口就绪...');
+    const t0 = Date.now();
+    while (Date.now() - t0 < 10000) {
+      await new Promise(r => setTimeout(r, 1000));
+      const ok = await B().check_cdp();
+      if (ok) {
+        await checkCdp(true);
+        return;
+      }
+    }
+    await checkCdp(true);
+  } catch (e) {
+    toast('启动失败: ' + (e.message || e));
+    await checkCdp(false);
+  } finally {
+    if (lb) lb.disabled = false;
+  }
+}
+
+// 窗口切回时自动静默检测
+window.addEventListener('focus', () => {
+  if (!window._jobRunning) checkCdp(false);
+});
+
+// 后台定时心跳检测 (8秒一次)
+setInterval(() => {
+  if (!window._jobRunning) checkCdp(false);
+}, 8000);
+
+/* ───────── 店铺下拉 (点击总是展开全部) ───────── */
+function openShopDD() {
+  const dd = $('shopDD');
+  const names = window.SHOP_NAMES || [];
+  dd.innerHTML = names.length ? names.map(n =>
+    `<div onclick="document.getElementById('shop').value='${esc(n)}';document.getElementById('shopDD').style.display='none'">${esc(n)}</div>`).join('')
+    : '<div style="color:#94a3b8">暂无店铺, 请先维护</div>';
+  dd.style.display = 'block';
+}
+document.addEventListener('click', e => {
+  const dd = $('shopDD'); if (!dd) return;
+  if (e.target.id === 'shop') openShopDD();
+  else if (!dd.contains(e.target)) dd.style.display = 'none';
+});
+</script>
+</body>
+</html>

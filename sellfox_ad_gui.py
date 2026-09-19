@@ -99,18 +99,66 @@ class Bridge:
 
     def get_options(self):
         user_dir = self._get_dir()
-        shops = []
-        try:
-            from server.database import get_setting
-            stores = get_setting("store_accounts", []) or []
-            shops = [s.get("store_name", "").strip() for s in stores if isinstance(s, dict) and s.get("store_name")]
-        except Exception:
-            pass
+        shops = self._fetch_store_names()   # 店铺列表: 服务端优先, 本地库兜底
         return {
             "user_dir": user_dir,
             "shop_names": shops,
             "today": datetime.now().strftime("%Y-%m-%d"),
         }
+
+    def _fetch_store_names(self):
+        """店铺列表: 优先从配置的主机 (IP/域名) 端读取, 不可达回退本地库"""
+        try:
+            import ssl
+            import urllib.request
+            host, port, scheme = self._host_endpoint()
+            url = f"{scheme}://{host}:{port}/api/settings"
+            with urllib.request.urlopen(url, timeout=6,
+                                        context=ssl._create_unverified_context()) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            stores = ((data or {}).get("data") or {}).get("store_accounts") or []
+            names = [str(s.get("store_name", "")).strip() for s in stores
+                     if isinstance(s, dict) and s.get("store_name")]
+            if names:
+                return names
+        except Exception as e:
+            self._log(f"  ⚠ 读取主机店铺列表失败 ({type(e).__name__}), 尝试本地库...")
+        try:
+            from server.database import get_setting
+            stores = get_setting("store_accounts", []) or []
+            return [str(s.get("store_name", "")).strip() for s in stores
+                    if isinstance(s, dict) and s.get("store_name")]
+        except Exception:
+            return []
+
+    def desktop_login(self, username, password):
+        """桌面端登录: 从 ERP 服务端校验账号密码 (用户数据来自 ERP), 返回角色用于菜单权限控制"""
+        username = (username or "").strip()
+        if not username or not password:
+            return {"ok": False, "msg": "请输入用户名和密码"}
+        host, port, scheme = self._host_endpoint()
+        endpoint = f"{host}:{port}"
+        try:
+            import ssl
+            import urllib.request
+            url = f"{scheme}://{host}:{port}/api/auth/login"
+            body = json.dumps({"username": username, "password": password}).encode("utf-8")
+            req = urllib.request.Request(url, data=body, method="POST",
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=8,
+                                        context=ssl._create_unverified_context()) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            if isinstance(data, dict) and data.get("code") == 0:
+                u = data.get("data") or {}
+                user = {
+                    "username": u.get("username") or username,
+                    "role": u.get("role") or "user",
+                    "display_name": u.get("display_name") or "",
+                }
+                return {"ok": True, "user": user, "source": f"主机 {endpoint}"}
+            return {"ok": False, "msg": str((data or {}).get("msg") or "登录失败")}
+        except Exception as e:
+            return {"ok": False, "msg": f"无法连接 ERP 服务 ({endpoint}): {type(e).__name__}"}
 
     def trim_toggle(self, _disabled=None):
         return "ok"
@@ -140,6 +188,16 @@ class Bridge:
         d = getattr(self, "_dir_input", None)
         if d and str(d).strip():
             return str(d).strip()
+        # 桌面端统一配置: desktop_config.json 的 chrome_user_data_dir (上件/广告共用同一目录)
+        try:
+            cfg_path = os.path.join(BASE_DIR, "desktop_config.json")
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    d2 = str((json.load(f) or {}).get("chrome_user_data_dir") or "").strip()
+                if d2:
+                    return d2
+        except Exception:
+            pass
         try:
             from server.database import get_setting
             key = "chrome_user_data_dir_mac" if sys.platform == "darwin" else "chrome_user_data_dir_win"
@@ -155,6 +213,66 @@ class Bridge:
     def set_user_dir(self, d):
         self._dir_input = d
         return "ok"
+
+    # ── 主机端配置读取 (桌面端设置跟随所配置主机 IP/域名 上的 ERP 服务) ──
+    @staticmethod
+    def _host_endpoint():
+        """配置的主机(IP/域名)/端口/scheme: 读 desktop_config.json, 缺省 127.0.0.1:8000 (http)"""
+        host, port, scheme = "127.0.0.1", "8000", "http"
+        try:
+            cfg_path = os.path.join(BASE_DIR, "desktop_config.json")
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f) or {}
+                h = str(cfg.get("host") or "").strip()
+                p = str(cfg.get("port") or "").strip()
+                s = str(cfg.get("scheme") or "").strip().lower()
+                if h:
+                    host = h
+                if p:
+                    port = p
+                if s in ("http", "https"):
+                    scheme = s
+        except Exception:
+            pass
+        return host, port, scheme
+
+    def _fetch_submit_ad_enabled(self):
+        """「自动投放是否提交广告」从配置的主机(IP/域名)端读取;
+        不可达时回退本地库设置, 最终回退 False(不提交, 安全默认)"""
+        host, port, scheme = self._host_endpoint()
+        endpoint = f"{host}:{port}"
+        try:
+            import ssl
+            import urllib.request
+            url = f"{scheme}://{host}:{port}/api/settings"
+            with urllib.request.urlopen(url, timeout=6,
+                                        context=ssl._create_unverified_context()) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("data"), dict):
+                return bool(data["data"].get("submit_ad_enabled", False)), f"主机 {endpoint}"
+        except Exception as e:
+            self._log(f"  ⚠ 读取主机设置失败 ({endpoint}: {type(e).__name__})")
+        try:
+            from server.database import get_setting
+            return bool(get_setting("submit_ad_enabled", False)), "本地库"
+        except Exception:
+            return False, "默认(不提交)"
+
+    def get_submit_mode(self):
+        """供桌面端「开始投放」确认框使用: 主机端是否自动提交广告。
+
+        自动提交属危险操作 (每批自动点「确认」真实提交), 前端据此弹二次确认。
+        带 20s 缓存, 避免点击/执行阶段重复请求主机。
+        """
+        import time
+        now = time.time()
+        cached = getattr(self, "_submit_mode_cache", None)
+        if cached and now - cached[0] < 20:
+            return {"enabled": cached[1], "source": cached[2]}
+        enabled, src = self._fetch_submit_ad_enabled()
+        self._submit_mode_cache = (now, enabled, src)
+        return {"enabled": enabled, "source": src}
 
     def launch_browser(self):
         def work():
@@ -281,10 +399,12 @@ class Bridge:
                     if "ERR_CONNECTION_REFUSED" in msg or "TimeoutError" in type(e).__name__:
                         on_log("   提示: 请先「启动调试浏览器」并在打开的 Chrome 里登录赛狐。")
                     return
+                submit_ad, submit_src = self._fetch_submit_ad_enabled()
                 on_log(f"▶ 开始投放: 店铺={p['shop']} / ASIN {len(asins)} 个 / "
-                       f"裁剪={'开, 保留' + str(trim_keep) if p.get('trim_variants', True) else '关'}")
+                       f"裁剪={'开, 保留' + str(trim_keep) if p.get('trim_variants', True) else '关'} / "
+                       f"自动确认: {'开' if submit_ad else '关'} ({submit_src})")
                 result = await op.run_batch(
-                    asins=asins, batch_size=batch, submit=False,
+                    asins=asins, batch_size=batch, submit=submit_ad,
                     shop=p["shop"].strip(), budget=budget, bid=bid,
                     bid_strategy=p.get("bid_strategy") or BID_STRATEGIES[0],
                     create_mode=p.get("create_mode") or CREATE_MODES[0],
@@ -304,7 +424,10 @@ class Bridge:
                     on_log("跳过明细:")
                     for s_ in result.get("skips", []):
                         on_log(f"  · {s_['asin']} @ {s_['campaign']}: {s_['reason']} {s_['detail']}")
-                on_log("已全部停在提交前, 请在赛狐各标签页人工检查后手动提交。")
+                if submit_ad:
+                    on_log("已按主机配置自动确认提交, 请留意各标签页提交结果。")
+                else:
+                    on_log("已全部停在提交前, 请在赛狐各标签页人工检查后手动提交。")
             except Exception as e:
                 on_log(f"❌ 执行异常: {type(e).__name__}: {e}")
             finally:

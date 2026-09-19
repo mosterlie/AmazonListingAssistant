@@ -50,12 +50,12 @@ class AdTaskCreateSchema(BaseModel):
     end_date: Optional[str] = Field("", description="3. 结束时间 YYYY-MM-DD (可空)")
     daily_budget: float = Field(300, description="4. 每日预算 (默认 300)")
     bid_strategy: str = Field("动态竞价-只降低", description="5. 竞价策略 (默认动态竞价-只降低)")
-    default_bid: float = Field(15, description="6. 默认竞价 (默认 15)")
+    default_bid: float = Field(30, description="6. 默认竞价 (默认 30)")
     asins_text: str = Field(..., min_length=1, description="7. ASIN 列表 (逗号分隔)")
-    auto_dedup: bool = Field(False, description="是否自动去除重复 ASIN (默认否)")
+    auto_dedup: bool = Field(True, description="是否自动去除重复 ASIN (默认是)")
     trim_variants: bool = Field(True, description="是否裁剪 ASIN 变体 (默认是)")
     trim_keep: int = Field(5, description="裁剪保留的变体数量 (默认 5, 1~50)", ge=1, le=50)
-    batch_size: int = Field(20, description="8. 批次数量 (每批最多处理的 ASIN 数, 默认 20)")
+    batch_size: int = Field(10, description="8. 批次数量 (每批最多处理的 ASIN 数, 默认 10)")
 
     @field_validator("task_name", "shop_name")
     @classmethod

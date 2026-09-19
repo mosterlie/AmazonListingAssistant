@@ -163,9 +163,9 @@
 
         <div class="form-group">
           <label class="form-label" style="font-weight:700;">8. 批次数量</label>
-          <input type="number" class="form-input" id="adBatchSize" value="20" min="1" step="1" placeholder="默认 20" style="width:100%;">
+          <input type="number" class="form-input" id="adBatchSize" value="10" min="1" step="1" placeholder="默认 10" style="width:100%;">
           <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">
-            每批最多录入的 ASIN 数，默认 20（不足一批时全部一批完成）。
+            每批最多录入的 ASIN 数，默认 10（不足一批时全部一批完成）。
             当前阶段不执行提交：每批在新标签页执行并停留在提交前，全部批次结束后请逐个标签页人工检查提交。
           </div>
         </div>
@@ -193,7 +193,7 @@
           </div>
           <div class="form-group" style="flex:1;">
             <label class="form-label" style="font-weight:700;">6. 默认竞价 <span style="color:#ef4444;">*</span></label>
-            <input type="number" class="form-input" id="adDefaultBid" value="15" min="0.01" step="0.01" required style="width:100%;">
+            <input type="number" class="form-input" id="adDefaultBid" value="30" min="0.01" step="0.01" required style="width:100%;">
           </div>
         </div>
 
@@ -494,7 +494,7 @@ async function loadAdOptions() {
     '动态竞价-只降低', 'adBidStrategy');
   renderRadioGroup('adDedupGroup',
     [{ v: 'no', label: '不去重' }, { v: 'yes', label: '自动去重' }],
-    'no', 'adDedup', true);
+    'yes', 'adDedup', true);
   if (!document.getElementById('adStartDate').value) {
     document.getElementById('adStartDate').value = adState.options.today || '';
   }
@@ -740,8 +740,8 @@ function openAdTaskModal(taskId) {
   document.getElementById('adTaskId').value = '';
   document.getElementById('adTaskModalTitle').innerText = '新增广告投放任务';
   document.getElementById('adBudget').value = 300;
-  document.getElementById('adDefaultBid').value = 15;
-  document.getElementById('adBatchSize').value = 20;
+  document.getElementById('adDefaultBid').value = 30;
+  document.getElementById('adBatchSize').value = 10;
   document.getElementById('adTrimKeep').value = 5;
   document.getElementById('adTrimKeep').disabled = false;
   document.getElementById('adTrimKeepWrap').style.display = 'flex';
@@ -756,7 +756,7 @@ function openAdTaskModal(taskId) {
   renderRadioGroup('adBidStrategyGroup', adState.options.bid_strategies || [],
     '动态竞价-只降低', 'adBidStrategy');
   renderRadioGroup('adDedupGroup',
-    [{ v: 'no', label: '不去重' }, { v: 'yes', label: '自动去重' }], 'no', 'adDedup', true);
+    [{ v: 'no', label: '不去重' }, { v: 'yes', label: '自动去重' }], 'yes', 'adDedup', true);
 
   if (taskId) {
     // 编辑模式: 回填, 不自动改任务名
@@ -785,7 +785,7 @@ function openAdTaskModal(taskId) {
     tkEl.value = t.trim_keep || 5;
     document.getElementById('adTrimKeepWrap').style.display = t.trim_variants ? 'flex' : 'none';
     document.getElementById('adTrimNoWrap').style.display = t.trim_variants ? 'none' : 'block';
-    document.getElementById('adBatchSize').value = t.batch_size || 20;
+    document.getElementById('adBatchSize').value = t.batch_size || 10;
   } else {
     // 新增模式: 自动生成任务名 task+2位年份+4位日期-n (n=今日第n个任务, 后端计数)
     // 先用缓存值即填, 再实时拉取修正 (仅当用户尚未改动输入框时覆盖)
