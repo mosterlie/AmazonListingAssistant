@@ -459,10 +459,46 @@ function resetDefaults() {
 }
 
 // ============================================================================
+// Sub-menu Tab Navigation (左侧子菜单切换面板)
+// ============================================================================
+function toggleTokenVisibility(btn, inputId) {
+  const inp = document.getElementById(inputId);
+  if (!inp) return;
+  const show = inp.type === "password";
+  inp.type = show ? "text" : "password";
+  btn.textContent = show ? "🙈" : "👁";
+  btn.title = show ? "隐藏令牌" : "显示令牌";
+}
+
+function activateSettingsTab(tabName) {
+  document.querySelectorAll(".settings-nav-item").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.tab === tabName);
+  });
+  document.querySelectorAll(".settings-panel").forEach(panel => {
+    panel.classList.toggle("active", panel.dataset.panel === tabName);
+  });
+  if (history.replaceState) history.replaceState(null, "", `#${tabName}`);
+}
+
+function initSettingsTabs() {
+  const nav = document.getElementById("settingsNav");
+  if (!nav) return;
+  nav.addEventListener("click", (e) => {
+    const btn = e.target.closest(".settings-nav-item");
+    if (btn && btn.dataset.tab) activateSettingsTab(btn.dataset.tab);
+  });
+  // 支持 #hash 直达对应配置面板 (如 /settings#ai)
+  const hash = (location.hash || "").replace("#", "");
+  const valid = hash && nav.querySelector(`.settings-nav-item[data-tab="${hash}"]`);
+  if (valid) activateSettingsTab(hash);
+}
+
+// ============================================================================
 // Initialization
 // ============================================================================
 document.addEventListener("DOMContentLoaded", () => {
   loadSettings();
+  initSettingsTabs();
 
   const addBtn = document.getElementById("addStoreBtn");
   if (addBtn) addBtn.addEventListener("click", addStore);
