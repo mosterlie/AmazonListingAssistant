@@ -16,7 +16,7 @@ if not exist "%PROJ%\server\app.py" (
 ) else (
     powershell -NoProfile -Command "Start-Process cmd -ArgumentList '/k chcp 65001 >nul && title ERP服务 8000 && start /b python -m server.app' -WindowStyle Hidden -WorkingDirectory \"%PROJ%\""
     echo [OK] ERP 服务已后台启动, 访问地址: http://127.0.0.1:8000
-    echo [提示] 图片服务 (/ping /file /query /execute) 已合并进 ERP 服务, 无需再单独启动 db_agent.py
+    echo [提示] 图片服务 ^(/ping /file /query /execute^) 已合并进 ERP 服务, 无需再单独启动 db_agent.py
 )
 ping -n 3 127.0.0.1 >nul
 
