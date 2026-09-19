@@ -1361,11 +1361,26 @@ class FormOperator:
 
                 # 4. 若弹出确认框则自动确认并等待弹窗隐藏
                 self.page.wait_for_timeout(200)
+                # 仅允许点击【可见】弹窗内的按钮: 店小秘 antd 弹窗关闭后 DOM 仍保留 (display:none),
+                # 若不过滤可见性, 会误点历史遗留弹窗 (如「选择类目」残留的「选择」主按钮),
+                # 导致类目属性被重新初始化、已配置的变种矩阵被清空
                 confirm_js = """
                 () => {
-                    const confirmBtn = document.querySelector('.ant-modal-confirm-btns .ant-btn-primary') 
-                                    || document.querySelector('.ant-modal-footer .ant-btn-primary')
-                                    || Array.from(document.querySelectorAll('.ant-modal button')).find(b => b.innerText.includes('确') || b.innerText.includes('OK'));
+                    const isVisible = (el) => {
+                        if (!el) return false;
+                        if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
+                        const wrap = el.closest('.ant-modal-wrap, .ant-modal, [role="dialog"]');
+                        if (wrap && getComputedStyle(wrap).display === 'none') return false;
+                        return true;
+                    };
+                    const all = Array.from(document.querySelectorAll(
+                        '.ant-modal-confirm-btns .ant-btn-primary, .ant-modal-footer .ant-btn-primary, .ant-modal button'
+                    ));
+                    const confirmBtn = all.find(b => {
+                        if (!isVisible(b)) return false;
+                        const t = (b.innerText || '').trim();
+                        return b.classList.contains('ant-btn-primary') || t.includes('确') || t.includes('OK');
+                    });
                     if (confirmBtn) {
                         confirmBtn.click();
                         return true;
