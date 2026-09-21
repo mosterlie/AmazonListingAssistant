@@ -452,6 +452,37 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_prompt_sort ON prompt_templates(sort_order, id);")
 
+    # 11. 货代管理表 (货代基本信息 + 在线链接, 链接点击后新页签打开)
+    #     website=货代网址; reg_user/reg_password=货代系统注册凭据 (仅管理员可见)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS forwarders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        contact TEXT DEFAULT '',
+        phone TEXT DEFAULT '',
+        website TEXT DEFAULT '',
+        reg_user TEXT DEFAULT '',
+        reg_password TEXT DEFAULT '',
+        remark TEXT DEFAULT '',
+        links_json TEXT NOT NULL DEFAULT '[]',
+        sort_order INTEGER DEFAULT 0,
+        created_by TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_forwarders_sort ON forwarders(sort_order, id);")
+    # 旧库向下兼容: 补充货代网址与注册凭据字段
+    cursor.execute("PRAGMA table_info(forwarders);")
+    _fwd_cols = [col["name"] for col in cursor.fetchall()]
+    for _col_def, _col_name in [
+        ("website TEXT DEFAULT ''", "website"),
+        ("reg_user TEXT DEFAULT ''", "reg_user"),
+        ("reg_password TEXT DEFAULT ''", "reg_password"),
+    ]:
+        if _col_name not in _fwd_cols:
+            cursor.execute(f"ALTER TABLE forwarders ADD COLUMN {_col_def};")
+
     # 初始化默认管理员用户 (admin / admin)
     cursor.execute("SELECT id FROM users WHERE username = 'admin';")
     if not cursor.fetchone():

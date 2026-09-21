@@ -35,6 +35,7 @@ from server.routers import (
     asin_router,
     knowledge_router,
     prompt_router,
+    forwarder_router,
     db_agent_router
 )
 
@@ -94,6 +95,7 @@ app.include_router(pricing_router.router)
 app.include_router(settings_router.router)
 app.include_router(knowledge_router.router)
 app.include_router(prompt_router.router)
+app.include_router(forwarder_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
 app.include_router(db_agent_router.router)
 
@@ -225,15 +227,15 @@ async def render_users_page(request: Request):
     })
 
 
-@app.get("/sheet", response_class=HTMLResponse, summary="在线表格页面 (内嵌腾讯文档)")
-async def render_sheet_page(request: Request):
-    """渲染内嵌腾讯文档在线表格页面 (需登录)"""
+@app.get("/forwarder", response_class=HTMLResponse, summary="货代管理页面")
+async def render_forwarder_page(request: Request):
+    """渲染货代管理页面 (需登录; 管理员可维护, 普通用户仅查看)"""
     user, redirect_resp = get_page_auth_user(request, require_admin=False)
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse(request=request, name="sheet.html", context={
-        "active_page": "sheet",
+    return templates.TemplateResponse(request=request, name="forwarder.html", context={
+        "active_page": "forwarder",
         "current_user": user
     })
 

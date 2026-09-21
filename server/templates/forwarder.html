@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+
+{% block title %}货代管理{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* 链接胶囊 (货代网址 / 在线链接, 点击新页签打开) */
+  .fwd-link { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; font-size:0.78rem;
+    font-weight:600; color:#0369a1; background:#f0f9ff; border:1px solid #bae6fd;
+    border-radius:9999px; text-decoration:none; max-width:100%; margin:2px 4px 2px 0; transition:all .15s; }
+  .fwd-link:hover { background:#e0f2fe; border-color:#7dd3fc; color:#0c4a6e; }
+  .fwd-link.site { color:#15803d; background:#f0fdf4; border-color:#bbf7d0; }
+  .fwd-link.site:hover { background:#dcfce7; border-color:#86efac; color:#14532d; }
+  .fwd-link .lbl { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px; }
+  /* 注册凭据 (仅管理员可见): 密码密文展示 + 小眼睛切换 */
+  .pwd-wrap { display:inline-flex; align-items:center; gap:4px; }
+  .fwd-pwd-input { width:100px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc;
+    padding:2px 6px; font-size:0.78rem; color:#334155; letter-spacing:1px; }
+  .pwd-eye { background:none; border:none; cursor:pointer; font-size:0.85rem; padding:0 2px; line-height:1; }
+  .pwd-eye:hover { transform:scale(1.15); }
+  /* 弹窗内链接行 */
+  .link-row { display:grid; grid-template-columns:1fr 1.6fr auto; gap:8px; margin-bottom:8px; align-items:center; }
+  @media (max-width:560px){ .link-row { grid-template-columns:1fr auto; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="form-card">
+  <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <div class="card-title" style="margin:0;">
+      <div class="card-title-icon">🚢</div>
+      <span>货代管理</span>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; margin-left:auto;">
+      <span style="font-size:0.76rem; color:#94a3b8;">共 <b id="fwdCount">0</b> 家货代</span>
+      <button class="btn btn-outline btn-sm" onclick="loadForwarders()" style="display:inline-flex; align-items:center; gap:4px;">
+        <span>🔄</span> 刷新
+      </button>
+      {% if current_user.role == 'admin' %}
+      <button class="btn btn-primary btn-sm" onclick="openFwdModal()" style="display:inline-flex; align-items:center; gap:4px;">
+        <span>➕</span> 新增货代
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card-body" style="padding:0;">
+    <div class="table-wrapper" style="overflow-x:auto;">
+      <table class="matrix-table" style="min-width:1080px; width:100%;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="width:50px; text-align:center;">ID</th>
+            <th style="min-width:150px;">货代名称</th>
+            <th style="width:90px; text-align:center;">联系人</th>
+            <th style="width:120px; text-align:center;">联系电话</th>
+            <th style="min-width:220px;">在线链接</th>
+            <th style="min-width:150px;">货代网址</th>
+            {% if current_user.role == 'admin' %}
+            <th style="width:210px;">注册用户 / 密码</th>
+            {% endif %}
+            <th style="min-width:150px;">备注</th>
+            {% if current_user.role == 'admin' %}
+            <th style="width:120px; text-align:center;">操作</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody id="fwdTableBody">
+          <tr>
+            <td colspan="{{ 9 if current_user.role == 'admin' else 7 }}" style="text-align:center; padding:40px; color:var(--text-muted);">
+              ⏳ 正在加载货代数据...
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if current_user.role == 'admin' %}
+<!-- 新增/编辑货代弹窗 -->
+<div id="fwdModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeFwdModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:640px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">🚢</span>
+        <div>
+          <h3 id="fwdModalTitle" style="margin:0; font-size:1.1rem; color:#0f172a; font-weight:700;">新增货代</h3>
+          <div style="font-size:0.78rem; color:var(--text-muted); margin-top:2px;">在线链接点击后将在新页签打开</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeFwdModal()">✕</button>
+    </div>
+    <form id="fwdForm" onsubmit="handleFwdSubmit(event)">
+      <div class="custom-modal-body" style="padding:20px 24px;">
+        <input type="hidden" id="fwdEditId" value="">
+        <div style="display:grid; grid-template-columns:1.6fr 1fr 1fr; gap:12px;">
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label" style="font-weight:700;">货代名称 <span style="color:#ef4444;">*</span></label>
+            <input type="text" class="form-input" id="fwdNameInput" required maxlength="128" placeholder="如: 华贸国际物流" style="width:100%;">
+          </div>
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">联系人</label>
+            <input type="text" class="form-input" id="fwdContactInput" maxlength="64" placeholder="姓名" style="width:100%;">
+          </div>
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">联系电话</label>
+            <input type="text" class="form-input" id="fwdPhoneInput" maxlength="64" placeholder="手机 / 微信" style="width:100%;">
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">货代网址</label>
+            <input type="text" class="form-input" id="fwdWebsiteInput" maxlength="512" placeholder="https://www.example.com" style="width:100%;">
+          </div>
+          <div class="form-group" style="margin-bottom:14px;">
+            <label class="form-label">注册用户 <span style="font-size:0.7rem; color:#9333ea; font-weight:600;">仅管理员可见</span></label>
+            <input type="text" class="form-input" id="fwdRegUserInput" maxlength="128" placeholder="货代系统登录账号" style="width:100%;">
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label">密码 <span style="font-size:0.7rem; color:#9333ea; font-weight:600;">仅管理员可见</span></label>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <input type="password" class="form-input" id="fwdPwdInput" maxlength="128" placeholder="货代系统登录密码" style="width:100%;" autocomplete="new-password">
+            <button type="button" class="pwd-eye" onclick="togglePwdInput(this)" title="显示/隐藏密码" style="padding:6px 8px; border:1px solid #e2e8f0; border-radius:6px;">👁</button>
+          </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <label class="form-label" style="font-weight:700; margin:0;">在线链接 (点击新页签打开)</label>
+          <button type="button" class="btn btn-outline btn-sm" onclick="appendLinkRow()" style="padding:3px 10px; font-size:0.75rem;">➕ 添加链接</button>
+        </div>
+        <div id="fwdLinksContainer"></div>
+
+        <div class="form-group" style="margin:10px 0 0;">
+          <label class="form-label">备注</label>
+          <textarea class="form-input" id="fwdRemarkInput" rows="2" maxlength="512" placeholder="渠道说明、结算方式等" style="width:100%; resize:vertical;"></textarea>
+        </div>
+      </div>
+      <div class="custom-modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeFwdModal()">取消</button>
+        <button type="submit" class="btn btn-primary" id="fwdSubmitBtn">💾 保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const IS_ADMIN = {{ 'true' if current_user and current_user.role == 'admin' else 'false' }};
+  let fwdList = [];
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, m => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[m]));
+  }
+
+  async function api(url, options = {}) {
+    const resp = await fetch(url, {
+      headers: { "Content-Type": "application/json" },
+      ...options
+    });
+    if (resp.status === 401) { window.location.href = "/login"; throw new Error("未登录"); }
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok || body.code !== 0) throw new Error(body.detail || body.msg || "请求失败");
+    return body;
+  }
+
+  function togglePwdInput(btn) {
+    const input = btn.parentElement.querySelector("input");
+    if (!input) return;
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.innerText = show ? "🙈" : "👁";
+  }
+
+  function linkChip(url, label = "", extraClass = "", icon = "🔗") {
+    const text = label || (url || "").replace(/^https?:\/\//, "").split("/")[0];
+    return `<a class="fwd-link ${extraClass}" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"
+               title="${escapeHtml(url)}">${icon} <span class="lbl">${escapeHtml(text)}</span> ↗</a>`;
+  }
+
+  async function loadForwarders() {
+    const tbody = document.getElementById("fwdTableBody");
+    const colCount = IS_ADMIN ? 9 : 7;
+    try {
+      const body = await api("/api/forwarders");
+      fwdList = body.data || [];
+      document.getElementById("fwdCount").innerText = fwdList.length;
+      if (!fwdList.length) {
+        tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align:center; padding:40px; color:var(--text-muted);">
+          🚢 暂无货代${IS_ADMIN ? "，点击右上角「➕ 新增货代」添加" : ""}</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = fwdList.map(f => {
+        const links = (f.links || []).map(lk => linkChip(lk.url, lk.label, "site")).join("");
+        const secret = IS_ADMIN ? `
+          <td>
+            ${f.reg_user ? `<div style="font-size:0.8rem; color:#334155; margin-bottom:2px;">🔑 ${escapeHtml(f.reg_user)}</div>` : ""}
+            ${f.reg_password ? `<div class="pwd-wrap">🔒
+              <input class="fwd-pwd-input" type="password" value="${escapeHtml(f.reg_password)}" readonly>
+              <button type="button" class="pwd-eye" onclick="togglePwdInput(this)" title="显示/隐藏密码">👁</button>
+            </div>` : (f.reg_user ? "" : `<span style="font-size:0.75rem; color:#cbd5e1;">—</span>`)}
+          </td>` : "";
+        const ops = IS_ADMIN ? `
+          <td style="text-align:center; white-space:nowrap;">
+            <button class="btn btn-outline btn-sm" style="padding:2px 8px; font-size:0.72rem;" onclick="openFwdModal(${f.id})">✏️ 编辑</button>
+            <button class="btn btn-outline btn-sm" style="padding:2px 8px; font-size:0.72rem; color:#ef4444; border-color:#fecaca;" onclick="deleteForwarder(${f.id})">🗑️</button>
+          </td>` : "";
+        return `
+        <tr>
+          <td style="text-align:center; color:#94a3b8; font-size:0.8rem;">${f.id}</td>
+          <td><b style="color:#0f172a;">🚢 ${escapeHtml(f.name)}</b></td>
+          <td style="text-align:center; font-size:0.82rem;">${f.contact ? escapeHtml(f.contact) : "—"}</td>
+          <td style="text-align:center; font-size:0.82rem;">${f.phone ? escapeHtml(f.phone) : "—"}</td>
+          <td>${links || `<span style="font-size:0.75rem; color:#cbd5e1;">暂无</span>`}</td>
+          <td>${f.website ? linkChip(f.website, "", "", "🌐") : `<span style="font-size:0.75rem; color:#cbd5e1;">—</span>`}</td>
+          ${secret}
+          <td style="font-size:0.8rem; color:#64748b;">${f.remark ? escapeHtml(f.remark) : "—"}</td>
+          ${ops}
+        </tr>`;
+      }).join("");
+    } catch (e) {
+      if (e.message !== "未登录") {
+        tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align:center; padding:40px; color:var(--text-muted);">
+          ❌ 加载失败: ${escapeHtml(e.message)}</td></tr>`;
+        showToast("货代列表加载失败: " + e.message, "error");
+      }
+    }
+  }
+
+  /* ───────── 新增/编辑弹窗 ───────── */
+  function appendLinkRow(label = "", url = "") {
+    const box = document.getElementById("fwdLinksContainer");
+    if (!box) return;
+    if (box.children.length >= 20) { showToast("最多 20 条链接", "error"); return; }
+    const row = document.createElement("div");
+    row.className = "link-row";
+    row.innerHTML = `
+      <input type="text" class="form-input link-label" maxlength="64" placeholder="链接名称" value="${escapeHtml(label)}" style="padding:6px 10px; font-size:0.82rem;">
+      <input type="text" class="form-input link-url" maxlength="1024" placeholder="https://..." value="${escapeHtml(url)}" style="padding:6px 10px; font-size:0.82rem;">
+      <button type="button" class="btn btn-outline btn-sm" style="padding:4px 9px; color:#ef4444; border-color:#fecaca;" title="移除该链接" onclick="this.closest('.link-row').remove()">✕</button>`;
+    box.appendChild(row);
+  }
+
+  function openFwdModal(id = null) {
+    const modal = document.getElementById("fwdModal");
+    document.getElementById("fwdForm").reset();
+    document.getElementById("fwdLinksContainer").innerHTML = "";
+    document.getElementById("fwdEditId").value = id || "";
+    document.getElementById("fwdModalTitle").innerText = id ? "编辑货代" : "新增货代";
+    if (id) {
+      const f = fwdList.find(x => x.id === id);
+      if (!f) { showToast("货代数据不存在", "error"); return; }
+      document.getElementById("fwdNameInput").value = f.name || "";
+      document.getElementById("fwdContactInput").value = f.contact || "";
+      document.getElementById("fwdPhoneInput").value = f.phone || "";
+      document.getElementById("fwdWebsiteInput").value = f.website || "";
+      document.getElementById("fwdRegUserInput").value = f.reg_user || "";
+      document.getElementById("fwdPwdInput").value = f.reg_password || "";
+      document.getElementById("fwdRemarkInput").value = f.remark || "";
+      (f.links || []).forEach(lk => appendLinkRow(lk.label, lk.url));
+    } else {
+      appendLinkRow();
+    }
+    modal.style.display = "flex";
+  }
+
+  function closeFwdModal() {
+    const m = document.getElementById("fwdModal");
+    if (m) m.style.display = "none";
+  }
+
+  async function handleFwdSubmit(ev) {
+    ev.preventDefault();
+    const id = document.getElementById("fwdEditId").value;
+    const links = [...document.querySelectorAll("#fwdLinksContainer .link-row")].map(row => ({
+      label: row.querySelector(".link-label").value.trim(),
+      url: row.querySelector(".link-url").value.trim()
+    })).filter(lk => lk.url);
+    const payload = {
+      name: document.getElementById("fwdNameInput").value.trim(),
+      contact: document.getElementById("fwdContactInput").value.trim(),
+      phone: document.getElementById("fwdPhoneInput").value.trim(),
+      website: document.getElementById("fwdWebsiteInput").value.trim(),
+      reg_user: document.getElementById("fwdRegUserInput").value.trim(),
+      reg_password: document.getElementById("fwdPwdInput").value,
+      remark: document.getElementById("fwdRemarkInput").value.trim(),
+      sort_order: 0,
+      links
+    };
+    if (!payload.name) { showToast("请填写货代名称", "error"); return; }
+    const btn = document.getElementById("fwdSubmitBtn");
+    btn.disabled = true;
+    try {
+      const body = await api(id ? `/api/forwarders/${id}` : "/api/forwarders", {
+        method: id ? "PUT" : "POST",
+        body: JSON.stringify(payload)
+      });
+      showToast(id ? "货代已更新" : "货代已新增", "success");
+      closeFwdModal();
+      loadForwarders();
+    } catch (e) {
+      if (e.message !== "未登录") showToast("保存失败: " + e.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function deleteForwarder(id) {
+    const f = fwdList.find(x => x.id === id);
+    if (!confirm(`确定删除货代「${f ? f.name : id}」吗？\n删除后不可恢复！`)) return;
+    try {
+      await api(`/api/forwarders/${id}`, { method: "DELETE" });
+      showToast("货代已删除", "success");
+      loadForwarders();
+    } catch (e) {
+      if (e.message !== "未登录") showToast("删除失败: " + e.message, "error");
+    }
+  }
+
+  loadForwarders();
+</script>
+{% endblock %}
