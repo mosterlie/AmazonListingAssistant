@@ -225,6 +225,19 @@ async def render_users_page(request: Request):
     })
 
 
+@app.get("/sheet", response_class=HTMLResponse, summary="在线表格页面 (内嵌腾讯文档)")
+async def render_sheet_page(request: Request):
+    """渲染内嵌腾讯文档在线表格页面 (需登录)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
+    if redirect_resp:
+        return redirect_resp
+
+    return templates.TemplateResponse(request=request, name="sheet.html", context={
+        "active_page": "sheet",
+        "current_user": user
+    })
+
+
 @app.get("/tasks", response_class=HTMLResponse, summary="任务管理与成果登记看板页面")
 async def render_tasks_page(request: Request):
     """渲染任务管理页面 (需登录，管理员可见全量，普通用户仅见分配给自己的任务)"""
