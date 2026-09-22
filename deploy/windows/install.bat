@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 title ERP 中间件 - 环境安装
-cd /d "%~dp0"
+cd /d "%~dp0..\.."
 
 echo ============================================
 echo   ERP 中间件 Windows 环境安装

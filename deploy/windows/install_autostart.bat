@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 title ERP 中间件 - 注册开机自启
-cd /d "%~dp0"
+cd /d "%~dp0..\.."
 
 net session >nul 2>&1
 if %errorlevel% neq 0 (
@@ -10,7 +10,7 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-if not exist "%~dp0.venv\Scripts\python.exe" (
+if not exist ".venv\Scripts\python.exe" (
     echo [!] 未找到虚拟环境, 请先运行 install.bat
     pause
     exit /b 1

@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 title ERP 中间件 - 服务启动
-cd /d "%~dp0"
+cd /d "%~dp0..\.."
 
 if not exist ".venv\Scripts\python.exe" (
     echo [!] 未找到虚拟环境, 请先运行 install.bat
