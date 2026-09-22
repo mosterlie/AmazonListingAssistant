@@ -36,15 +36,33 @@ from server.routers import (
     knowledge_router,
     prompt_router,
     forwarder_router,
+    forwarder_doc_router,
     db_agent_router
 )
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # 货代在线登记文档定时采集: 后台心跳 (每60s检查是否到期, 到期自动触发采集批次)
+    import asyncio
+    from server.services import forwarder_doc_service
+
+    async def _fwd_doc_scheduler():
+        while True:
+            try:
+                triggered = await asyncio.to_thread(
+                    forwarder_doc_service.ForwarderDocService.maybe_trigger_scheduled)
+                if triggered:
+                    print("⏰ 货代文档定时采集批次已触发")
+            except Exception as e:
+                print(f"⚠️ 货代文档调度心跳异常: {e}")
+            await asyncio.sleep(60)
+
+    scheduler_task = asyncio.create_task(_fwd_doc_scheduler())
     display_host = "127.0.0.1" if SERVER_HOST in ("0.0.0.0", "") else SERVER_HOST
     print(f"🚀 服务已就绪！访问地址: http://{display_host}:{SERVER_PORT}")
     yield
+    scheduler_task.cancel()
 
 # 1. 实例化 FastAPI 应用
 app = FastAPI(
@@ -96,6 +114,7 @@ app.include_router(settings_router.router)
 app.include_router(knowledge_router.router)
 app.include_router(prompt_router.router)
 app.include_router(forwarder_router.router)
+app.include_router(forwarder_doc_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
 app.include_router(db_agent_router.router)
 

@@ -41,6 +41,26 @@ class AiConfigSchema(BaseModel):
     api_key: str = Field("sk-44d5b47efaa64e3a967efc0c8fc05ce2", description="公共大模型 API Key")
 
 
+class DocSyncConfigSchema(BaseModel):
+    """货代在线登记文档定时采集配置 (调度频率/告警阈值/SMTP邮件)"""
+    sync_mode: str = Field("daily", description="调度模式: daily=每天定时 / interval=间隔轮询")
+    sync_time: str = Field("08:00", description="daily 模式每日采集时间 HH:MM")
+    interval_hours: int = Field(24, description="interval 模式轮询间隔 (小时)")
+    alert_days: int = Field(7, description="未发货告警阈值 (天, 大于等于)")
+    date_column: str = Field("采购日期", description="采购日期列名")
+    ship_column: str = Field("仓库发货日期", description="发货日期列名 (为空视为未发货)")
+    sheet_name: str = Field("发货数据", description="参与告警分析的 sheet 名")
+    email_enabled: bool = Field(False, description="是否启用邮件推送")
+    smtp_host: str = Field("smtp.qq.com", description="SMTP 服务器")
+    smtp_port: int = Field(465, description="SMTP 端口")
+    smtp_ssl: bool = Field(True, description="是否 SSL")
+    smtp_user: str = Field("", description="SMTP 账号")
+    smtp_password: str = Field("", description="SMTP 授权码 (非登录密码)")
+    mail_from: str = Field("", description="发件人 (留空用 smtp_user)")
+    mail_to: str = Field("", description="收件人 (逗号分隔)")
+    subject_prefix: str = Field("[货代发货提醒]", description="邮件主题前缀")
+
+
 class StoreBrandItemSchema(BaseModel):
     store_name: str = Field(..., min_length=1, description="店铺账号名称")
     brand_name: str = Field(..., min_length=1, description="对应品牌名称 (1对1必填)")
@@ -56,6 +76,7 @@ class SystemSettingsSchema(BaseModel):
     submit_ad_enabled: bool = Field(False, description="自动投放是否提交广告 (True=每批录入后自动点击提交并确认; False=停在提交前待人工确认)")
     ai_config: AiConfigSchema = Field(default_factory=AiConfigSchema, description="AI 大模型配置 (自动生成五点描述)")
     db_agent_token: Optional[str] = Field("", description="桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token 校验, 留空使用默认 erp2024)")
+    doc_sync: DocSyncConfigSchema = Field(default_factory=DocSyncConfigSchema, description="货代在线登记文档定时采集配置 (调度/告警阈值/邮件)")
 
 
 def normalize_store_accounts(raw_stores: Any) -> List[Dict[str, Any]]:
@@ -155,6 +176,11 @@ async def get_system_settings():
         }
         # 桌面上件助手远程通道令牌 (原 db_agent 8765, 现已内嵌于本服务同一端口)
         db_agent_token = (get_setting("db_agent_token", "") or "").strip() or "erp2024"
+        # 货代在线登记文档定时采集配置 (mail_to 存储为列表, 表单展示为逗号分隔字符串)
+        from server.services.forwarder_doc_service import ForwarderDocService as _FDS
+        _ds = _FDS.get_config()
+        _ds["mail_to"] = ", ".join(_ds.get("mail_to") or [])
+        doc_sync = _ds
 
         return {
             "code": 0,
@@ -177,7 +203,8 @@ async def get_system_settings():
                 "chrome_user_data_dirs": chrome_dir,
                 "submit_ad_enabled": submit_ad_enabled,
                 "ai_config": ai_config,
-                "db_agent_token": db_agent_token
+                "db_agent_token": db_agent_token,
+                "doc_sync": doc_sync
             }
         }
     except Exception as e:
@@ -259,6 +286,15 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         db_agent_token = (payload.db_agent_token or "").strip() or "erp2024"
         set_setting("db_agent_token", db_agent_token)
 
+        # 9. 保存货代在线登记文档采集配置 (调度频率/告警阈值/SMTP邮件)
+        from server.services.forwarder_doc_service import ForwarderDocService as _FDS
+        _ds_payload = payload.doc_sync.model_dump()
+        _mt = _ds_payload.get("mail_to")
+        if isinstance(_mt, list):
+            _ds_payload["mail_to"] = ", ".join(str(x).strip() for x in _mt if str(x).strip())
+        doc_sync = _FDS.save_config(_ds_payload)
+        doc_sync["mail_to"] = ", ".join(doc_sync.get("mail_to") or [])
+
         # 同步刷新内存全局参数
         GLOBAL_PRICING_CONFIG.update(pricing_dict)
 
@@ -278,7 +314,8 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
                 "chrome_user_data_dirs": chrome_dir,
                 "submit_ad_enabled": submit_ad_enabled,
                 "ai_config": ai_config,
-                "db_agent_token": db_agent_token
+                "db_agent_token": db_agent_token,
+                "doc_sync": doc_sync
             }
         }
     except Exception as e:

@@ -18,7 +18,14 @@
     padding:2px 6px; font-size:0.78rem; color:#334155; letter-spacing:1px; }
   .pwd-eye { background:none; border:none; cursor:pointer; font-size:0.85rem; padding:0 2px; line-height:1; }
   .pwd-eye:hover { transform:scale(1.15); }
-  /* 弹窗内链接行 */
+/* 告警抽屉 */
+.alerts-drawer { position:fixed; top:0; right:-760px; width:760px; max-width:95vw; height:100vh;
+  background:#fff; box-shadow:-8px 0 32px rgba(0,0,0,.12); z-index:1200; transition:right .25s ease;
+  display:flex; flex-direction:column; }
+.alerts-drawer.open { right:0; }
+.alerts-drawer-mask { position:fixed; inset:0; background:rgba(15,23,42,.35); z-index:1100; display:none; }
+.alerts-drawer-mask.open { display:block; }
+/* 弹窗内链接行 */
   .link-row { display:grid; grid-template-columns:1fr 1.6fr auto; gap:8px; margin-bottom:8px; align-items:center; }
   @media (max-width:560px){ .link-row { grid-template-columns:1fr auto; } }
 </style>
@@ -45,6 +52,16 @@
   </div>
 
   <div class="card-body" style="padding:0;">
+    <!-- 采集状态栏: 定时监控在线登记文档 → 7天未发货告警 -->
+    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:10px 18px; background:#f8fafc; border-bottom:1px solid #e2e8f0; font-size:0.8rem;">
+      <span id="docSyncStatusText" style="color:#64748b;">📡 文档监控加载中...</span>
+      <span id="docSyncAlertBadge" style="display:none; padding:2px 10px; border-radius:9999px; background:#fef2f2; color:#dc2626; border:1px solid #fecaca; font-weight:700;"></span>
+      <span style="flex:1;"></span>
+      <button class="btn btn-outline btn-sm" onclick="toggleAlertsDrawer()" style="padding:3px 12px;">🚨 查看告警</button>
+      {% if current_user.role == 'admin' %}
+      <button class="btn btn-primary btn-sm" id="docSyncRunBtn" onclick="runDocSync()" style="padding:3px 12px;">📡 立即采集</button>
+      {% endif %}
+    </div>
     <div class="table-wrapper" style="overflow-x:auto;">
       <table class="matrix-table" style="min-width:1080px; width:100%;">
         <thead>
@@ -73,6 +90,40 @@
         </tbody>
       </table>
     </div>
+  </div>
+</div>
+
+<!-- 未发货告警抽屉 (全员可见) -->
+<div class="alerts-drawer-mask" id="alertsMask" onclick="toggleAlertsDrawer()"></div>
+<div class="alerts-drawer" id="alertsDrawer">
+  <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #e2e8f0;">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span style="font-size:1.2rem;">🚨</span>
+      <div>
+        <h3 style="margin:0; font-size:1.02rem; font-weight:700; color:#0f172a;">超期未发货告警</h3>
+        <div style="font-size:0.74rem; color:#94a3b8;">采购日期可解析 + 发货列为空 + 超期天数 ≥ 阈值 (系统管理可调)</div>
+      </div>
+    </div>
+    <button class="custom-modal-close" onclick="toggleAlertsDrawer()">✕</button>
+  </div>
+  <div style="padding:10px 20px; border-bottom:1px solid #f1f5f9; display:flex; gap:10px; align-items:center;">
+    <label style="font-size:0.78rem; color:#64748b;">采集日期</label>
+    <select class="form-input" id="alertsDateSelect" onchange="loadAlerts()" style="width:auto; padding:4px 10px; font-size:0.8rem;"></select>
+  </div>
+  <div style="flex:1; overflow:auto; padding:12px 20px;">
+    <table class="matrix-table" style="width:100%; font-size:0.8rem;">
+      <thead><tr style="background:#f8fafc;">
+        <th style="text-align:left; padding:6px 8px;">货代</th>
+        <th style="padding:6px 8px;">采购日期</th>
+        <th style="padding:6px 8px;">未发货</th>
+        <th style="text-align:left; padding:6px 8px;">产品名称及备注</th>
+        <th style="text-align:left; padding:6px 8px;">国际单号</th>
+        <th style="text-align:left; padding:6px 8px;">订单号</th>
+      </tr></thead>
+      <tbody id="alertsTableBody">
+        <tr><td colspan="6" style="text-align:center; padding:30px; color:#94a3b8;">⏳ 加载中...</td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
@@ -323,6 +374,108 @@
     }
   }
 
+  /* ───────── 文档监控: 状态 / 告警 / 手动采集 ───────── */
+  async function loadDocSyncStatus() {
+    try {
+      const body = await api("/api/forwarder-docs/status");
+      const st = body.data || {};
+      const el = document.getElementById("docSyncStatusText");
+      const badge = document.getElementById("docSyncAlertBadge");
+      if (st.running) {
+        el.innerHTML = "📡 文档采集中" + (st.running_trigger === "scheduled" ? " (定时触发)..." : "...");
+        el.style.color = "#2563eb";
+      } else if (st.last_log) {
+        const lg = st.last_log;
+        const ok = lg.status === "success" || lg.status === "partial";
+        el.innerHTML = `📡 最近采集: <b>${escapeHtml(lg.biz_date)} ${escapeHtml((lg.finished_at || "").slice(11, 16) || "")}</b>` +
+          ` <span style="color:${ok ? "#16a34a" : "#dc2626"};font-weight:600;">${lg.status === "success" ? "✅成功" : lg.status === "partial" ? "⚠️部分成功" : "❌失败"}</span>` +
+          ` · ${lg.rows_total} 行 · ${lg.duration_ms >= 1000 ? (lg.duration_ms / 1000).toFixed(1) + "s" : lg.duration_ms + "ms"}`;
+        el.style.color = "#334155";
+      } else {
+        el.innerText = "📡 尚未采集过 (等待定时或手动触发)";
+        el.style.color = "#94a3b8";
+      }
+      if (badge) {
+        if (st.today_alert_count > 0) {
+          badge.style.display = "inline-block";
+          badge.innerText = `🚨 今日未发货告警 ${st.today_alert_count} 行`;
+        } else {
+          badge.style.display = "none";
+        }
+      }
+    } catch (e) { /* 静默: 状态栏非关键 */ }
+  }
+
+  async function runDocSync() {
+    const btn = document.getElementById("docSyncRunBtn");
+    btn.disabled = true;
+    btn.innerText = "⏳ 采集启动中...";
+    try {
+      const body = await api("/api/forwarder-docs/run", { method: "POST" });
+      showToast(body.msg || "采集批次已启动", body.code === 0 ? "success" : "error");
+      for (let i = 0; i < 160; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const st = await api("/api/forwarder-docs/status");
+        if (!st.data.running) break;
+      }
+      showToast("📡 采集批次已结束", "success");
+    } catch (e) {
+      if (e.message !== "未登录") showToast("触发采集失败: " + e.message, "error");
+    } finally {
+      btn.disabled = false;
+      btn.innerText = "📡 立即采集";
+      loadDocSyncStatus();
+    }
+  }
+
+  async function toggleAlertsDrawer() {
+    const drawer = document.getElementById("alertsDrawer");
+    const mask = document.getElementById("alertsMask");
+    const opening = !drawer.classList.contains("open");
+    drawer.classList.toggle("open", opening);
+    mask.classList.toggle("open", opening);
+    if (opening) {
+      try {
+        const body = await api("/api/forwarder-docs/dates");
+        const dates = body.data || [];
+        const sel = document.getElementById("alertsDateSelect");
+        if (!dates.length) dates.push(new Date().toISOString().slice(0, 10));
+        sel.innerHTML = dates.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join("");
+      } catch (e) { /* 忽略 */ }
+      loadAlerts();
+    }
+  }
+
+  async function loadAlerts() {
+    const tbody = document.getElementById("alertsTableBody");
+    const bizDate = document.getElementById("alertsDateSelect")?.value;
+    try {
+      const body = await api("/api/forwarder-docs/alerts" + (bizDate ? `?biz_date=${encodeURIComponent(bizDate)}` : ""));
+      const alerts = body.data || [];
+      if (!alerts.length) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:#94a3b8;">
+          ✅ 该日期无超期未发货记录</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = alerts.map(a => {
+        const d = a.row_data || {};
+        return `<tr>
+          <td style="padding:6px 8px;"><b>🚢 ${escapeHtml(a.forwarder_name)}</b></td>
+          <td style="padding:6px 8px; text-align:center;">${escapeHtml(a.purchase_date)}</td>
+          <td style="padding:6px 8px; text-align:center; color:#dc2626; font-weight:700;">${a.days_elapsed} 天</td>
+          <td style="padding:6px 8px;">${escapeHtml(d["产品名称及备注"] || "—")}</td>
+          <td style="padding:6px 8px;">${escapeHtml(d["国际单号"] || "—")}</td>
+          <td style="padding:6px 8px;">${escapeHtml(d["订单号"] || "—")}</td>
+        </tr>`;
+      }).join("");
+    } catch (e) {
+      if (e.message !== "未登录") {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:#dc2626;">❌ 加载失败: ${escapeHtml(e.message)}</td></tr>`;
+      }
+    }
+  }
+
+  loadDocSyncStatus();
   loadForwarders();
 </script>
 {% endblock %}

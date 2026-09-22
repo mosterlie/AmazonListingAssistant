@@ -483,6 +483,68 @@ def init_db():
         if _col_name not in _fwd_cols:
             cursor.execute(f"ALTER TABLE forwarders ADD COLUMN {_col_def};")
 
+    # 12. 货代在线登记文档定时采集 (无头浏览器直读腾讯文档 → 每日快照 → 7天未发货告警)
+    #     快照: 每文档每 sheet 每日全量行, row_json 按列名存; sheet_name 字段区分 sheet
+    #     幂等: 同一 (link_url, sheet_name, biz_date) 重跑先删后插
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS forwarder_doc_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        forwarder_id INTEGER DEFAULT 0,
+        forwarder_name TEXT DEFAULT '',
+        link_label TEXT DEFAULT '',
+        link_url TEXT DEFAULT '',
+        doc_id TEXT DEFAULT '',
+        sheet_name TEXT DEFAULT '',
+        sheet_id TEXT DEFAULT '',
+        row_index INTEGER DEFAULT 0,
+        row_json TEXT DEFAULT '{}',
+        biz_date TEXT NOT NULL,
+        collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_fwd_snap_date ON forwarder_doc_snapshots(biz_date, link_url, sheet_name);
+    """)
+    # 7天未发货告警: 采购日期可解析 + 发货列为空 + 超期天数 >= 阈值 (阈值可配, 默认7, 大于等于)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS forwarder_ship_alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        forwarder_id INTEGER DEFAULT 0,
+        forwarder_name TEXT DEFAULT '',
+        link_label TEXT DEFAULT '',
+        link_url TEXT DEFAULT '',
+        sheet_name TEXT DEFAULT '',
+        row_index INTEGER DEFAULT 0,
+        purchase_date TEXT DEFAULT '',
+        days_elapsed INTEGER DEFAULT 0,
+        row_json TEXT DEFAULT '{}',
+        biz_date TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_fwd_alert_date ON forwarder_ship_alerts(biz_date, forwarder_id);
+    """)
+    # 采集批次日志
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS forwarder_doc_sync_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        biz_date TEXT NOT NULL,
+        trigger_type TEXT DEFAULT 'manual',
+        status TEXT DEFAULT 'running',
+        docs_total INTEGER DEFAULT 0,
+        docs_ok INTEGER DEFAULT 0,
+        docs_failed INTEGER DEFAULT 0,
+        rows_total INTEGER DEFAULT 0,
+        alert_rows INTEGER DEFAULT 0,
+        email_status TEXT DEFAULT '',
+        message TEXT DEFAULT '',
+        duration_ms INTEGER DEFAULT 0,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        finished_at TIMESTAMP
+    );
+    """)
+
     # 初始化默认管理员用户 (admin / admin)
     cursor.execute("SELECT id FROM users WHERE username = 'admin';")
     if not cursor.fetchone():

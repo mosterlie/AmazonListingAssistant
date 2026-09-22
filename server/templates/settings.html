@@ -345,10 +345,112 @@
           </div>
         </div>
       </div>
+
+      <!-- 7. 货代在线登记文档定时采集 -->
+      <div class="form-card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="card-title-icon">🚢</div>
+            <span>货代文档采集与发货提醒</span>
+          </div>
+          <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">监控货代「在线链接」登记文档</span>
+        </div>
+        <div class="card-body">
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;">
+            <div class="form-group">
+              <label class="form-label">调度模式</label>
+              <select class="form-input" id="docSyncModeSelect" style="width:100%;">
+                <option value="daily">每天定时</option>
+                <option value="interval">间隔轮询</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">每日采集时间 (daily)</label>
+              <input type="time" class="form-input" id="docSyncTimeInput" value="08:00" style="width:100%;">
+            </div>
+            <div class="form-group">
+              <label class="form-label">轮询间隔 (interval, 小时)</label>
+              <input type="number" class="form-input" id="docSyncIntervalInput" value="24" min="1" max="720" style="width:100%;">
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:14px;">
+            <div class="form-group">
+              <label class="form-label">告警阈值 (天, 大于等于)</label>
+              <input type="number" class="form-input" id="docAlertDaysInput" value="7" min="1" max="365" style="width:100%;">
+            </div>
+            <div class="form-group">
+              <label class="form-label">采购日期列名</label>
+              <input type="text" class="form-input" id="docDateColumnInput" value="采购日期" style="width:100%;">
+            </div>
+            <div class="form-group">
+              <label class="form-label">发货日期列名 (空=未发货)</label>
+              <input type="text" class="form-input" id="docShipColumnInput" value="仓库发货日期" style="width:100%;">
+            </div>
+            <div class="form-group">
+              <label class="form-label">告警 sheet 名</label>
+              <input type="text" class="form-input" id="docSheetNameInput" value="发货数据" style="width:100%;">
+            </div>
+          </div>
+          <small style="color:var(--text-muted); font-size:0.78rem; display:block; margin-bottom:12px;">
+            每日数据快照存入数据库 (重跑自动先删当天)；告警 = 采购日期可解析 + 发货列为空 + 超期天数 ≥ 阈值。采集入口为货代管理中各货代的「在线链接」。
+          </small>
+          <div style="border-top:1px dashed var(--border-color,#e5e7eb); padding-top:12px; margin-bottom:4px; font-weight:700; font-size:0.88rem;">📧 邮件推送 (SMTP)</div>
+          <div style="display:grid; grid-template-columns:auto 1fr 120px auto 1fr; gap:14px; align-items:end;">
+            <div class="form-group" style="margin-bottom:8px;">
+              <label class="form-label">启用</label>
+              <label style="display:flex; align-items:center; gap:6px; padding:8px 0;">
+                <input type="checkbox" id="docEmailEnabledCheckbox" style="width:16px; height:16px;"> 开启推送
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="form-label">SMTP 服务器</label>
+              <input type="text" class="form-input" id="docSmtpHostInput" value="smtp.qq.com" placeholder="smtp.qq.com" style="width:100%;">
+            </div>
+            <div class="form-group">
+              <label class="form-label">端口</label>
+              <input type="number" class="form-input" id="docSmtpPortInput" value="465" style="width:100%;">
+            </div>
+            <div class="form-group" style="margin-bottom:8px;">
+              <label class="form-label">SSL</label>
+              <label style="display:flex; align-items:center; gap:6px; padding:8px 0;">
+                <input type="checkbox" id="docSmtpSslCheckbox" checked style="width:16px; height:16px;"> SSL
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="form-label">SMTP 账号</label>
+              <input type="text" class="form-input" id="docSmtpUserInput" placeholder="you@qq.com" style="width:100%;">
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;">
+            <div class="form-group">
+              <label class="form-label">SMTP 授权码 (非登录密码)</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <input type="password" class="form-input" id="docSmtpPasswordInput" value="" autocomplete="new-password" style="flex:1;">
+                <button type="button" class="btn btn-outline btn-sm" onclick="toggleTokenVisibility(this, 'docSmtpPasswordInput')" title="显示/隐藏" style="padding:6px 10px;">👁</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">发件人 (留空用 SMTP 账号)</label>
+              <input type="text" class="form-input" id="docMailFromInput" style="width:100%;">
+            </div>
+            <div class="form-group">
+              <label class="form-label">主题前缀</label>
+              <input type="text" class="form-input" id="docSubjectPrefixInput" value="[货代发货提醒]" style="width:100%;">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">收件人 (多个用英文逗号分隔)</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="text" class="form-input" id="docMailToInput" placeholder="you@qq.com, boss@qq.com" style="flex:1;">
+              <button type="button" class="btn btn-outline btn-sm" onclick="sendDocSyncTestEmail()" style="padding:8px 14px; white-space:nowrap;">📨 测试邮件</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
   </div>
 </div>
 
-<script src="/static/js/settings.js?v=20260919_token_eye"></script>
+<script src="/static/js/settings.js?v=20260922_docsync"></script>
 {% endblock %}
