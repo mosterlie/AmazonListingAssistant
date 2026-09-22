@@ -39,6 +39,7 @@
   <nav class="settings-nav" id="settingsNav">
     <button class="settings-nav-item active" data-tab="stores" type="button">🏬 店铺与品牌</button>
     <button class="settings-nav-item" data-tab="pricing" type="button">💰 计价参数</button>
+    <button class="settings-nav-item" data-tab="channels" type="button">🚚 物流渠道</button>
     <button class="settings-nav-item" data-tab="storage" type="button">📁 归档目录</button>
     <button class="settings-nav-item" data-tab="session" type="button">⏱️ 会话安全</button>
     <button class="settings-nav-item" data-tab="automation" type="button">🚀 自动化上件</button>
@@ -154,6 +155,30 @@
               <div>• <strong style="color:var(--primary);">日元最终售价 (AE)</strong> = ROUND((总成本 + 计划利润) × <span id="formulaCoeffPreview" style="color:#b45309; font-weight:700;">26.0</span>)</div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2.5 物流渠道计费标准 (通用维度可配置) -->
+    <div class="settings-panel" data-panel="channels">
+      <div class="form-card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="card-title-icon">🚚</div>
+            <span>物流渠道计费标准 (通用维度可配置)</span>
+          </div>
+          <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">试算工具 + 录入页联动</span>
+        </div>
+        <div class="card-body">
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">
+            10 大物流渠道的限重限尺寸、计费重模式、阶梯费率、附加费与折扣均由此配置驱动，保存后<b>试算工具与商品录入页</b>同时生效。留空的限制项表示不限；「恢复默认」清除自定义配置并回退内置标准。
+          </p>
+          <div style="display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm" id="saveChannelRulesBtn" type="button">💾 保存渠道计费标准</button>
+            <button class="btn btn-outline btn-sm" id="resetChannelRulesBtn" type="button">↩️ 恢复默认</button>
+            <button class="btn btn-outline btn-sm" id="addChannelRuleBtn" type="button">➕ 新增渠道</button>
+          </div>
+          <div id="channelRulesList"></div>
         </div>
       </div>
     </div>
@@ -452,5 +477,5 @@
   </div>
 </div>
 
-<script src="/static/js/settings.js?v=20260922_docsync"></script>
+<script src="/static/js/settings.js?v=20260922_channels"></script>
 {% endblock %}

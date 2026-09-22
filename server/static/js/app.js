@@ -17,6 +17,7 @@ const state = {
     price_coefficient: 26.0,
     default_profit_coeff: 1.0
   },
+  channelRules: null, // 物流渠道计费规则 (来自 /api/settings; null=用 pricing_tool.js 内置默认)
   aiConfig: {
     generate_bullets_enabled: false,
     bullets_source: "public"
@@ -52,6 +53,10 @@ async function loadSystemSettings() {
         if (bulkProfitInp && !bulkProfitInp.value) {
           bulkProfitInp.value = state.pricingConfig.default_profit_coeff || 1.0;
         }
+      }
+      if (result.data.channel_rules !== undefined) {
+        state.channelRules = (Array.isArray(result.data.channel_rules) && result.data.channel_rules.length)
+          ? result.data.channel_rules : null;
       }
       if (result.data.ai_config) {
         state.aiConfig = { ...state.aiConfig, ...result.data.ai_config };
@@ -619,200 +624,13 @@ function generateSingleEAN13(country = "485") {
 // Calcfee 智能物流比价与日元售价推导引擎 (支持 10 大渠道比价、人工调换与实时联动)
 // ============================================================================
 function calculateSkuPricingClient(length, width, height, weight, purchasePrice, profitCoeff, chosenChannel = null) {
-  const L = parseFloat(length) || 0;
-  const W = parseFloat(width) || 0;
-  const H = parseFloat(height) || 0;
-  const actWt = parseFloat(weight) || 0;
-  const cost = parseFloat(purchasePrice) || 0;
-  const coeff = parseFloat(profitCoeff) || 1.0;
-  const pCoeff = (state.pricingConfig && state.pricingConfig.price_coefficient) ? parseFloat(state.pricingConfig.price_coefficient) : 26.0;
-
-  const sumSides = L + W + H;
-  const maxSide = sumSides > 0 ? Math.max(L, W, H) : 0;
-  const minSide = sumSides > 0 ? Math.min(L, W, H) : 0;
-  const midSide = sumSides - maxSide - minSide;
-
-  // 如果尺寸或重量未录入完整
-  if (L <= 0 || W <= 0 || H <= 0 || actWt <= 0) {
-    return {
-      hasValidPricing: false,
-      optimalChannel: "",
-      optimalFreight: 0,
-      selectedChannel: "",
-      selectedFreight: 0,
-      priceJpy: cost > 0 ? Math.round(cost * (1 + coeff) * pCoeff) : "",
-      freights: []
-    };
-  }
-
-  const vol6000 = Math.ceil((L * W * H / 6000) * 1000) / 1000;
-  const vol8000 = Math.ceil((L * W * H / 8000) * 1000) / 1000;
-
-  // 1. 各物流计费重计算
-  let cwRiChuan = null;
-  if (sumSides <= 960) {
-    let raw = sumSides < 100 ? actWt : (actWt > vol6000 ? actWt : (actWt + vol6000) / 2);
-    cwRiChuan = Math.ceil(raw / 0.5) * 0.5;
-  }
-
-  let cwChuDao = null;
-  if (sumSides <= 140) cwChuDao = actWt;
-  else if (sumSides <= 160) cwChuDao = (actWt + vol6000) / 2;
-  else cwChuDao = Math.max(actWt, vol6000);
-
-  let cwChuDao160 = sumSides <= 160 ? actWt : (actWt + vol6000) / 2;
-
-  let cwSfLarge = null;
-  if (!(maxSide > 200 || (midSide > 80 && minSide > 80) || (midSide > 70 && minSide > 70))) {
-    cwSfLarge = Math.ceil(Math.max(actWt, vol6000) * 1000) / 1000;
-  }
-
-  let cwHeimao = null;
-  if (sumSides <= 159) {
-    cwHeimao = (cwSfLarge !== null && cwSfLarge <= 120) ? actWt : (actWt + vol6000) / 2;
-  }
-
-  // 2. 测算 10 大物流渠道
-  const freights = [];
-
-  // 1. 顺丰小包
-  if (!(actWt > 30 || maxSide > 120 || sumSides > 160)) {
-    const cw = Math.max(actWt, vol8000);
-    const steps = Math.ceil(cw / 0.5);
-    let base = 42 + (steps - 1) * 12;
-    if (cw <= 2) base = 38 + (steps - 1) * 8;
-    else if (cw <= 5) base = 40 + (steps - 1) * 9;
-    else if (cw <= 10) base = 41 + (steps - 1) * 11;
-    freights.push({ channel: "顺丰小包", cost: Math.round(base * 0.8 * 100) / 100 });
-  }
-
-  // 2. 顺丰国际大件
-  if (cwSfLarge !== null) {
-    if (cwSfLarge < 100) freights.push({ channel: "顺丰国际大件", cost: Math.max(cwSfLarge, 20) * 15 });
-    else if (cwSfLarge <= 500) freights.push({ channel: "顺丰国际大件", cost: cwSfLarge * 14 });
-    else if (cwSfLarge <= 1000) freights.push({ channel: "顺丰国际大件", cost: cwSfLarge * 13 });
-  }
-
-  // 3. 日川普货
-  if (cwRiChuan !== null && actWt <= 20) {
-    const steps = Math.ceil(cwRiChuan / 0.5);
-    let base = 35 + (steps - 1) * 8;
-    if (cwRiChuan <= 2) base = 32 + (steps - 1) * 6.5;
-    else if (cwRiChuan <= 5) base = 33 + (steps - 1) * 7;
-    else if (cwRiChuan <= 10) base = 34 + (steps - 1) * 7.5;
-    let extraSize = sumSides > 239 ? 260 : (sumSides > 220 ? 200 : (sumSides > 200 ? 150 : (sumSides > 179 ? 100 : (sumSides > 159 ? 80 : 0))));
-    let extraWt = actWt > 9.9 ? 50 : 0;
-    freights.push({ channel: "日川普货", cost: base + extraSize + extraWt });
-  }
-
-  // 4. 日川带电
-  if (cwRiChuan !== null && actWt <= 20) {
-    const steps = Math.ceil(cwRiChuan / 0.5);
-    let base = 37 + (steps - 1) * 8.5;
-    if (cwRiChuan <= 2) base = 35 + (steps - 1) * 7;
-    else if (cwRiChuan <= 5) base = 36 + (steps - 1) * 7.5;
-    else if (cwRiChuan <= 10) base = 36 + (steps - 1) * 8;
-    let extraSize = sumSides > 239 ? 260 : (sumSides > 220 ? 200 : (sumSides > 200 ? 150 : (sumSides > 179 ? 100 : (sumSides > 159 ? 80 : 0))));
-    let extraWt = actWt > 9.9 ? 50 : 0;
-    freights.push({ channel: "日川带电", cost: base + extraSize + extraWt });
-  }
-
-  // 5. 川日大包
-  if (cwRiChuan !== null && cwRiChuan <= 900 && L <= 305 && W <= 175 && H <= 155) {
-    let base = cwRiChuan * 16.5;
-    if (cwRiChuan < 21) base = 60 + (mathCeilStep(cwRiChuan) - 1) * 18;
-    else if (cwRiChuan < 51) base = cwRiChuan * 19;
-    else if (cwRiChuan < 101) base = cwRiChuan * 18.5;
-    else if (cwRiChuan < 301) base = cwRiChuan * 17.5;
-    else if (cwRiChuan < 501) base = cwRiChuan * 17;
-    let extra = (maxSide > 159 && cwRiChuan < 300) ? 200 : 0;
-    freights.push({ channel: "川日大包", cost: Math.round((base + extra) * 100) / 100 });
-  }
-
-  // 6. 佐川大件
-  if (cwRiChuan !== null && cwRiChuan <= 30 && sumSides <= 250 && maxSide <= 150) {
-    const steps = Math.ceil(cwRiChuan / 0.5);
-    freights.push({ channel: "佐川大件", cost: 40 + (steps - 1) * 10 });
-  }
-
-  // 7. 义乌小包
-  if (cwChuDao !== null && actWt <= 20 && maxSide <= 9100 && sumSides <= 9160) {
-    const steps = Math.ceil(cwChuDao / 0.5);
-    let base = 36 + (steps - 1) * 8;
-    if (cwChuDao <= 2) base = 34 + (steps - 1) * 6;
-    else if (cwChuDao <= 5) base = 35 + (steps - 1) * 7;
-    let extra1 = maxSide > 99 ? 35 : 0;
-    let extra2 = sumSides > 200 ? 120 : (sumSides > 160 ? 80 : 0);
-    freights.push({ channel: "义乌小包", cost: Math.ceil(base + Math.max(extra1, extra2)) });
-  }
-
-  // 8. 初岛160免泡
-  if (cwChuDao160 !== null && actWt <= 20 && maxSide <= 9100 && sumSides <= 260) {
-    const steps = Math.ceil(cwChuDao160 / 0.5);
-    let base = 36 + (steps - 1) * 8;
-    if (cwChuDao160 <= 2) base = 34 + (steps - 1) * 6;
-    else if (cwChuDao160 <= 5) base = 35 + (steps - 1) * 7;
-    let extraMax = sumSides > 200 ? 100 : (sumSides > 160 ? 50 : 0);
-    let extraSum = sumSides > 200 ? 20 : (sumSides > 160 ? 30 : 0);
-    freights.push({ channel: "初岛160免泡", cost: Math.ceil(base + extraMax + extraSum + 20) });
-  }
-
-  // 9. 初岛黑猫
-  if (cwHeimao !== null && actWt <= 20 && maxSide <= 160 && sumSides <= 160) {
-    const steps = Math.ceil(cwHeimao / 0.5);
-    let base = 39 + (steps - 1) * 10;
-    if (cwHeimao <= 2) base = 36 + (steps - 1) * 6;
-    else if (cwHeimao <= 5) base = 37 + (steps - 1) * 7;
-    else if (cwHeimao <= 10) base = 38 + (steps - 1) * 8;
-    freights.push({ channel: "初岛黑猫", cost: Math.ceil(base) });
-  }
-
-  // 10. 航空邮政大包
-  if (actWt <= 30 && maxSide <= 150 && ((sumSides - maxSide) * 2 + maxSide <= 330)) {
-    const wtCeil = Math.ceil(actWt);
-    freights.push({ channel: "航空邮政大包", cost: Math.round((124.2 + (wtCeil - 1) * 29.6 + 8.0) * 100) / 100 });
-  }
-
-  // 3. 按照价格从小到大排序所有可用渠道
-  freights.sort((a, b) => a.cost - b.cost);
-
-  let optimalChannel = "";
-  let optimalFreight = 0;
-
-  if (freights.length > 0) {
-    optimalChannel = freights[0].channel;
-    optimalFreight = freights[0].cost;
-  }
-
-  // 默认使用最优快递；若用户手工选择了其他渠道且存在，则使用所选渠道
-  let selectedChannel = optimalChannel;
-  let selectedFreight = optimalFreight;
-
-  if (chosenChannel) {
-    const matched = freights.find(f => f.channel === chosenChannel);
-    if (matched) {
-      selectedChannel = matched.channel;
-      selectedFreight = matched.cost;
-    }
-  }
-
-  const totalCost = cost + selectedFreight;
-  const plannedProfit = totalCost * coeff;
-  const priceJpy = Math.round((totalCost + plannedProfit) * pCoeff);
-
-  return {
-    hasValidPricing: true,
-    optimalChannel,
-    optimalFreight,
-    selectedChannel,
-    selectedFreight,
-    priceJpy: priceJpy > 0 ? priceJpy : 0,
-    freights
-  };
-}
-
-function mathCeilStep(val) {
-  return Math.ceil(val / 0.5);
+  // 计费引擎已整理为独立工具模块 static/js/pricing_tool.js (window.PricingToolEngine),
+  // 录入页与商品管理页「运费/售价试算工具」弹框共用同一套渠道费率, 避免两处规则分叉;
+  // 渠道计费规则来自系统管理页配置 (state.channelRules), 未配置时用引擎内置默认
+  return window.PricingToolEngine.calculate(
+    length, width, height, weight, purchasePrice, profitCoeff,
+    chosenChannel, state.pricingConfig, state.channelRules
+  );
 }
 
 function recalcRowPricing(idx) {

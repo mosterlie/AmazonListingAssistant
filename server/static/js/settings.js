@@ -39,7 +39,9 @@ const settingsState = {
     alert_days: 7, date_column: "采购日期", ship_column: "仓库发货日期", sheet_name: "发货数据",
     email_enabled: false, smtp_host: "smtp.qq.com", smtp_port: 465, smtp_ssl: true,
     smtp_user: "", smtp_password: "", mail_from: "", mail_to: "", subject_prefix: "[货代发货提醒]"
-  }
+  },
+  // 物流渠道计费规则 (null=未自定义, 前端回退 pricing_tool.js 内置默认)
+  channelRules: null
 };
 
 function showToast(msg, type = "success") {
@@ -94,8 +96,13 @@ async function loadSettings() {
       if (result.data.doc_sync) {
         settingsState.doc_sync = { ...settingsState.doc_sync, ...result.data.doc_sync };
       }
+      if (result.data.channel_rules !== undefined) {
+        settingsState.channelRules = (Array.isArray(result.data.channel_rules) && result.data.channel_rules.length)
+          ? result.data.channel_rules : null;
+      }
 
       populateForm();
+      renderChannelRules();
     }
   } catch (err) {
     showToast(`加载系统配置失败: ${err.message}`, "error");
@@ -431,8 +438,11 @@ async function saveSettings() {
       mail_from: (document.getElementById("docMailFromInput")?.value || "").trim(),
       mail_to: (document.getElementById("docMailToInput")?.value || "").trim(),
       subject_prefix: (document.getElementById("docSubjectPrefixInput")?.value || "[货代发货提醒]").trim()
-    }
+    },
+    // 物流渠道计费规则 (恢复默认时提交 null 清除自定义配置)
+    channel_rules: crResetPending ? null : collectChannelRules()
   };
+  crResetPending = false;
 
   try {
     const res = await fetch("/api/settings", {
@@ -463,6 +473,11 @@ async function saveSettings() {
       }
       if (result.data.doc_sync !== undefined) {
         settingsState.doc_sync = { ...settingsState.doc_sync, ...result.data.doc_sync };
+      }
+      if (result.data.channel_rules !== undefined) {
+        settingsState.channelRules = (Array.isArray(result.data.channel_rules) && result.data.channel_rules.length)
+          ? result.data.channel_rules : null;
+        renderChannelRules();
       }
       // 状态全部更新后再刷新表单, 避免用旧值覆盖刚保存的选项 (如五点描述生成来源单选框)
       populateForm();
@@ -496,6 +511,7 @@ function resetDefaults() {
     };
     settingsState.session_expire_hours = 1.0;
     settingsState.chrome_user_data_dirs = { mac: "~/ChromeDebugUser", win: "C:\\ChromeDebugUser" };
+    settingsState.channelRules = null;
     settingsState.ai_config = {
       generate_bullets_enabled: false,
       bullets_source: "public",
@@ -505,6 +521,7 @@ function resetDefaults() {
       api_key: ""
     };
     populateForm();
+    renderChannelRules();
     showToast("已重置为默认值，请点击保存生效！");
   }
 }
@@ -639,6 +656,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const resetBtn = document.getElementById("resetDefaultsBtn");
   if (resetBtn) resetBtn.addEventListener("click", resetDefaults);
+
+  // 物流渠道计费标准面板
+  const crSaveBtn = document.getElementById("saveChannelRulesBtn");
+  if (crSaveBtn) crSaveBtn.addEventListener("click", saveSettings);
+  const crResetBtn = document.getElementById("resetChannelRulesBtn");
+  if (crResetBtn) crResetBtn.addEventListener("click", resetChannelRules);
+  const crAddBtn = document.getElementById("addChannelRuleBtn");
+  if (crAddBtn) crAddBtn.addEventListener("click", addChannelRule);
+  initChannelRulesEditor();
 });
 
 // ============================================================================
@@ -684,4 +710,403 @@ async function sendDocSyncTestEmail() {
   } catch (err) {
     showToast(`发送异常: ${err.message}`, "error");
   }
+}
+
+// ============================================================================
+// 物流渠道计费标准编辑器 (通用维度模型: limits / charge_weight / pricing / surcharges)
+// 工作副本 crWorking 随渲染重建; 结构性增删先从 DOM 收集再改再渲染, 不丢已编辑内容
+// ============================================================================
+let crWorking = null;       // 当前编辑中的规则数组
+let crResetPending = false; // 「恢复默认」标记: 下次保存提交 channel_rules=null
+const crOpen = {};          // 卡片展开状态 (按索引)
+
+function crDefaults() {
+  const eng = window.PricingToolEngine;
+  return JSON.parse(JSON.stringify(eng && eng.DEFAULT_CHANNEL_RULES ? eng.DEFAULT_CHANNEL_RULES : []));
+}
+
+function crEsc(s) {
+  return String(s === null || s === undefined ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function crNumField(f, label, val, ph) {
+  return `<div style="flex:1;min-width:90px;"><label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:2px;" title="${crEsc(label)}">${crEsc(label)}</label>` +
+    `<input type="number" step="any" data-f="${f}" value="${val === null || val === undefined ? "" : crEsc(val)}" placeholder="${crEsc(ph || "")}" ` +
+    `style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:.82rem;"></div>`;
+}
+
+function crSelField(f, label, val, opts, w) {
+  const o = opts.map(([v, t]) => `<option value="${crEsc(v)}" ${String(val === null || val === undefined ? "" : val) === String(v) ? "selected" : ""}>${crEsc(t)}</option>`).join("");
+  return `<div style="flex:0 0 auto;"><label style="font-size:.72rem;color:#64748b;display:block;margin-bottom:2px;" title="${crEsc(label)}">${crEsc(label)}</label>` +
+    `<select data-f="${f}" style="width:${w || "130px"};box-sizing:border-box;padding:6px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:.82rem;background:#fff;">${o}</select></div>`;
+}
+
+const CR_CMP = [["lte", "≤ 上限"], ["lt", "< 上限"]];
+const CR_MODE = [
+  ["actual", "实重"], ["max_actual_vol", "实重/体积重取大"],
+  ["avg_actual_vol", "实重与体积重均值"], ["max_actual_avg", "实重与均值取大"],
+  ["cond_vol_cap", "条件封顶(黑猫)"]
+];
+const CR_ACT = [["actual", "实重"], ["avg", "均值"]];
+const CR_BASIS = [["sum_sides", "三边和"], ["max_side", "最长边"], ["weight", "实重"]];
+const CR_PICK = [["add", "组内相加"], ["max", "组内取大"]];
+const CR_PTYPE = [["tiered_step", "阶梯首续型"], ["first_continue", "首重续重型"]];
+const CR_RT = [["", "不取整"], ["round2", "四舍五入2位"], ["ceil", "向上取整"]];
+const CR_RTO = [["", "不进位"], ["0.5", "0.5kg进位"], ["1", "1kg进位"], ["0.001", "保留3位小数"]];
+
+function crRow(inner) {
+  return `<div style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap;">${inner}</div>`;
+}
+
+function crSecTitle(txt) {
+  return `<div style="font-size:.8rem;font-weight:700;color:#334155;margin:12px 0 6px;padding-left:8px;border-left:3px solid #8b5cf6;">${crEsc(txt)}</div>`;
+}
+
+function renderChannelCard(rule, ci) {
+  const lim = rule.limits || {};
+  const cw = rule.charge_weight || {};
+  const p = rule.pricing || {};
+  const open = !!crOpen[ci];
+
+  const rboRows = (lim.reject_both_over || []).map((g, ri) => crRow(
+    crNumField("rbo.mid", "中边>", g.mid, "80") +
+    crNumField("rbo.min", "最小边>", g.min, "80") +
+    `<button type="button" class="btn btn-outline btn-sm" data-act="del-rbo" data-ci="${ci}" data-ri="${ri}" style="margin-bottom:2px;">🗑</button>`
+  )).join("");
+
+  const bandRows = (cw.bands || []).map((b, bi) => {
+    const isCond = b.mode === "cond_vol_cap";
+    return `<div style="border:1px dashed #cbd5e1;border-radius:8px;padding:8px;margin-bottom:6px;" data-row="band">` +
+      crRow(
+        crNumField("band.max_sum", "三边和上限(空=兜底)", b.max_sum, "160") +
+        crSelField("band.cmp", "比较", b.cmp || "lte", CR_CMP, "82px") +
+        crSelField("band.mode", "模式", b.mode, CR_MODE, "150px") +
+        `<div data-cond="${isCond ? 1 : 0}" style="display:${isCond ? "flex" : "none"};gap:6px;align-items:flex-end;flex-wrap:wrap;">` +
+        crNumField("band.ref_vol_ratio", "条件体积÷", b.ref_vol_ratio, "6000") +
+        crNumField("band.cap", "封顶cap(kg)", b.cap, "120") +
+        crSelField("band.if_true", "满足→", b.if_true || "actual", CR_ACT, "82px") +
+        crSelField("band.if_false", "否则→", b.if_false || "avg", CR_ACT, "82px") +
+        `</div>` +
+        `<button type="button" class="btn btn-outline btn-sm" data-act="del-band" data-ci="${ci}" data-bi="${bi}" style="margin-bottom:2px;">🗑</button>`
+      ) + `</div>`;
+  }).join("");
+
+  const isFC = p.type === "first_continue";
+  const tierRows = (p.tiers || []).map((t, ti) => `<div style="border:1px dashed #cbd5e1;border-radius:8px;padding:8px;margin-bottom:6px;" data-row="tier">` +
+    crRow(
+      crNumField("tier.max_cw", "计费重上限(空=兜底)", t.max_cw, "2") +
+      crSelField("tier.cmp", "比较", t.cmp || "lte", CR_CMP, "82px") +
+      crNumField("tier.base", "首费base", t.base, "38") +
+      crNumField("tier.step", "步长step", t.step, "8") +
+      crNumField("tier.rate", "单价rate", t.rate, "15") +
+      crNumField("tier.min_charge", "最低计费重", t.min_charge, "20") +
+      `<button type="button" class="btn btn-outline btn-sm" data-act="del-tier" data-ci="${ci}" data-ti="${ti}" style="margin-bottom:2px;">🗑</button>`
+    ) + `</div>`).join("");
+
+  const sgRows = (rule.surcharges || []).length ? (rule.surcharges || []).map((g, gi) => {
+    const items = (g.items || []).map((item, ii) => {
+      const sgt = (item.tiers || []).map((t, k) => crRow(
+        crNumField("sgt.min", "值>", t.min, "159") +
+        crNumField("sgt.fee", "加价", t.fee, "80") +
+        `<button type="button" class="btn btn-outline btn-sm" data-act="del-sgtier" data-ci="${ci}" data-gi="${gi}" data-ii="${ii}" data-k="${k}" style="margin-bottom:2px;">🗑</button>`
+      )).join("");
+      return `<div style="border:1px dashed #cbd5e1;border-radius:8px;padding:8px;margin-bottom:6px;background:#fff;" data-row="sgitem">` +
+        crRow(
+          crSelField("sgi.basis", "依据", item.basis || "sum_sides", CR_BASIS, "100px") +
+          crNumField("sgi.cw_below", "仅计费重<(空=不限)", item.cw_below, "300") +
+          `<button type="button" class="btn btn-outline btn-sm" data-act="add-sgtier" data-ci="${ci}" data-gi="${gi}" data-ii="${ii}" style="margin-bottom:2px;">➕ 阶梯</button>` +
+          `<button type="button" class="btn btn-outline btn-sm" data-act="del-item" data-ci="${ci}" data-gi="${gi}" data-ii="${ii}" style="margin-bottom:2px;">🗑</button>`
+        ) + sgt + `</div>`;
+    }).join("");
+    return `<div style="border:1px solid #e2e8f0;border-radius:8px;padding:8px;margin-bottom:6px;background:#f8fafc;" data-row="sg">` +
+      crRow(
+        crSelField("sg.pick", "组内多条件", g.pick || "add", CR_PICK, "110px") +
+        `<button type="button" class="btn btn-outline btn-sm" data-act="add-item" data-ci="${ci}" data-gi="${gi}" style="margin-bottom:2px;">➕ 条件</button>` +
+        `<button type="button" class="btn btn-outline btn-sm" data-act="del-sg" data-ci="${ci}" data-gi="${gi}" style="margin-bottom:2px;">🗑 删组</button>`
+      ) + items + `</div>`;
+  }).join("") : `<div style="font-size:.78rem;color:#94a3b8;margin-bottom:6px;">无附加费</div>`;
+
+  return `<div class="cr-card" data-ci="${ci}" style="border:1px solid #e2e8f0;border-radius:10px;margin-bottom:12px;background:#fff;overflow:hidden;">
+    <div style="display:flex;gap:10px;align-items:center;padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;flex-wrap:wrap;">
+      <b style="font-size:.86rem;color:#64748b;">#${ci + 1}</b>
+      <input data-f="name" value="${crEsc(rule.name)}" placeholder="渠道名称" style="width:150px;padding:6px 9px;border:1px solid #cbd5e1;border-radius:6px;font-weight:700;font-size:.86rem;">
+      <input type="hidden" data-f="key" value="${crEsc(rule.key || ("ch_" + (ci + 1)))}">
+      <label style="font-size:.8rem;display:flex;align-items:center;gap:4px;cursor:pointer;">
+        <input type="checkbox" data-f="enabled" ${rule.enabled === false ? "" : "checked"}> 启用
+      </label>
+      <span style="flex:1;"></span>
+      <button type="button" class="btn btn-outline btn-sm" data-act="del-ch" data-ci="${ci}">🗑 删除</button>
+      <button type="button" class="btn btn-outline btn-sm" data-act="toggle" data-ci="${ci}">${open ? "▴ 收起" : "▾ 展开"}</button>
+    </div>
+    <div data-cb="${ci}" style="display:${open ? "block" : "none"};padding:6px 14px 14px;">
+      ${crSecTitle("可收货限制 (留空=不限)")}
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+        ${crNumField("limits.max_weight", "实重≤ (kg)", lim.max_weight, "30")}
+        ${crNumField("limits.max_single_side", "最长边≤ (cm)", lim.max_single_side, "120")}
+        ${crNumField("limits.max_sum_sides", "三边和≤ (cm)", lim.max_sum_sides, "160")}
+        ${crNumField("limits.max_cw", "计费重≤ (kg)", lim.max_cw, "900")}
+        ${crNumField("limits.max_length", "长≤ (cm)", lim.max_length, "305")}
+        ${crNumField("limits.max_width", "宽≤ (cm)", lim.max_width, "175")}
+        ${crNumField("limits.max_height", "高≤ (cm)", lim.max_height, "155")}
+        ${crNumField("limits.max_combined_girth", "长+2×(宽+高)≤", lim.max_combined_girth, "330")}
+      </div>
+      <div style="margin-top:6px;">
+        <div style="font-size:.74rem;color:#64748b;margin-bottom:4px;">拒收规则: 中边与最小边同时超限则拒收 (顺丰大件)</div>
+        ${rboRows}
+        <button type="button" class="btn btn-outline btn-sm" data-act="add-rbo" data-ci="${ci}">➕ 拒收规则</button>
+      </div>
+      ${crSecTitle("计费重")}
+      ${crRow(
+        crNumField("cw.vol_ratio", "体积重÷ (空=不计)", cw.vol_ratio, "6000") +
+        crSelField("cw.round_to", "进位", cw.round_to === null || cw.round_to === undefined ? "" : cw.round_to, CR_RTO, "110px") +
+        crNumField("cw.min_cw", "最低计费重(kg)", cw.min_cw, "20")
+      )}
+      <div style="margin-top:6px;">${bandRows}
+        <button type="button" class="btn btn-outline btn-sm" data-act="add-band" data-ci="${ci}">➕ 分段</button>
+      </div>
+      ${crSecTitle("运费价格")}
+      ${crRow(
+        crSelField("p.type", "价格类型", p.type || "tiered_step", CR_PTYPE, "130px") +
+        `<div data-ptier="${isFC ? 0 : 1}" style="display:${isFC ? "none" : "block"};flex:1;min-width:90px;">${crNumField("p.step_unit", "递增单位kg", p.step_unit, "0.5")}</div>` +
+        crNumField("p.op_fee", "固定操作费", p.op_fee, "20") +
+        crNumField("p.discount", "折扣乘数(0.8=8折)", p.discount, "0.8") +
+        crSelField("p.round_total", "总价取整", p.round_total === null || p.round_total === undefined ? "" : p.round_total, CR_RT, "120px")
+      )}
+      <div data-showif="tiered" style="display:${isFC ? "none" : "block"};margin-top:6px;">
+        ${tierRows}
+        <button type="button" class="btn btn-outline btn-sm" data-act="add-tier" data-ci="${ci}">➕ 费率档</button>
+      </div>
+      <div data-showif="fc" style="display:${isFC ? "flex" : "none"};gap:6px;align-items:flex-end;flex-wrap:wrap;margin-top:6px;">
+        ${crNumField("p.first_weight_fee", "首重费(1kg起)", p.first_weight_fee, "124.2") +
+          crNumField("p.continue_per_kg", "续重/公斤", p.continue_per_kg, "29.6") +
+          crNumField("p.extra_fee", "操作费", p.extra_fee, "8")}
+      </div>
+      ${crSecTitle("附加费 (各组相加; 组内按 pick 合并; 阶梯取 值>min 的最大档)")}
+      ${sgRows}
+      <button type="button" class="btn btn-outline btn-sm" data-act="add-sg" data-ci="${ci}">➕ 附加费组</button>
+    </div>
+  </div>`;
+}
+
+function renderChannelRules(fromWorking) {
+  const list = document.getElementById("channelRulesList");
+  if (!list) return;
+  if (!fromWorking) {
+    crWorking = (Array.isArray(settingsState.channelRules) && settingsState.channelRules.length)
+      ? JSON.parse(JSON.stringify(settingsState.channelRules))
+      : crDefaults();
+  }
+  if (!Array.isArray(crWorking) || !crWorking.length) crWorking = crDefaults();
+  list.innerHTML = crWorking.map(renderChannelCard).join("");
+}
+
+function crRowVal(scope, f) {
+  const el = scope.querySelector(`[data-f="${f}"]`);
+  return el ? el.value : "";
+}
+
+function crRowNum(scope, f) {
+  const v = crRowVal(scope, f).trim();
+  if (v === "") return null;
+  const n = parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+
+/** 从 DOM 收集全部渠道规则 (数字空串→null); 保存与结构性操作共用 */
+function collectChannelRules() {
+  const list = document.getElementById("channelRulesList");
+  if (!list) return null;
+  const rules = [];
+  list.querySelectorAll(".cr-card").forEach((card, ci) => {
+    const qv = (f) => crRowVal(card, f);
+    const qn = (f) => crRowNum(card, f);
+    const qchk = (f) => { const el = card.querySelector(`[data-f="${f}"]`); return el ? !!el.checked : true; };
+    const ptype = qv("p.type") || "tiered_step";
+    const rule = {
+      key: (qv("key") || ("ch_" + (ci + 1))).trim(),
+      name: (qv("name") || ("渠道" + (ci + 1))).trim(),
+      enabled: qchk("enabled"),
+      limits: {
+        max_weight: qn("limits.max_weight"),
+        max_single_side: qn("limits.max_single_side"),
+        max_sum_sides: qn("limits.max_sum_sides"),
+        max_length: qn("limits.max_length"),
+        max_width: qn("limits.max_width"),
+        max_height: qn("limits.max_height"),
+        max_combined_girth: qn("limits.max_combined_girth"),
+        max_cw: qn("limits.max_cw"),
+        reject_both_over: []
+      },
+      charge_weight: {
+        vol_ratio: qn("cw.vol_ratio"),
+        round_to: qn("cw.round_to"),
+        min_cw: qn("cw.min_cw"),
+        bands: []
+      },
+      pricing: {
+        type: ptype, step_unit: null, tiers: [],
+        first_weight_fee: null, continue_per_kg: null, extra_fee: null,
+        op_fee: qn("p.op_fee"), discount: qn("p.discount")
+      },
+      surcharges: [],
+      round_total: qv("p.round_total") || null
+    };
+    card.querySelectorAll('[data-row="rbo"]').forEach((row) => {
+      const g = { mid: crRowNum(row, "rbo.mid"), min: crRowNum(row, "rbo.min") };
+      if (g.mid !== null || g.min !== null) rule.limits.reject_both_over.push(g);
+    });
+    card.querySelectorAll('[data-row="band"]').forEach((row) => {
+      const b = {
+        max_sum: crRowNum(row, "band.max_sum"),
+        cmp: crRowVal(row, "band.cmp") || "lte",
+        mode: crRowVal(row, "band.mode") || "actual"
+      };
+      if (b.mode === "cond_vol_cap") {
+        b.ref_vol_ratio = crRowNum(row, "band.ref_vol_ratio");
+        b.cap = crRowNum(row, "band.cap");
+        b.if_true = crRowVal(row, "band.if_true") || "actual";
+        b.if_false = crRowVal(row, "band.if_false") || "avg";
+      }
+      rule.charge_weight.bands.push(b);
+    });
+    if (ptype === "first_continue") {
+      rule.pricing.first_weight_fee = qn("p.first_weight_fee");
+      rule.pricing.continue_per_kg = qn("p.continue_per_kg");
+      rule.pricing.extra_fee = qn("p.extra_fee");
+    } else {
+      rule.pricing.step_unit = qn("p.step_unit");
+      card.querySelectorAll('[data-row="tier"]').forEach((row) => {
+        rule.pricing.tiers.push({
+          max_cw: crRowNum(row, "tier.max_cw"),
+          cmp: crRowVal(row, "tier.cmp") || "lte",
+          base: crRowNum(row, "tier.base"),
+          step: crRowNum(row, "tier.step"),
+          rate: crRowNum(row, "tier.rate"),
+          min_charge: crRowNum(row, "tier.min_charge")
+        });
+      });
+    }
+    card.querySelectorAll('[data-row="sg"]').forEach((gEl) => {
+      const grp = { pick: crRowVal(gEl, "sg.pick") || "add", items: [] };
+      gEl.querySelectorAll('[data-row="sgitem"]').forEach((iEl) => {
+        const item = {
+          basis: crRowVal(iEl, "sgi.basis") || "sum_sides",
+          cw_below: crRowNum(iEl, "sgi.cw_below"),
+          tiers: []
+        };
+        iEl.querySelectorAll('[data-row="sgtier"]').forEach((tEl) => {
+          item.tiers.push({ min: crRowNum(tEl, "sgt.min"), fee: crRowNum(tEl, "sgt.fee") });
+        });
+        grp.items.push(item);
+      });
+      rule.surcharges.push(grp);
+    });
+    rules.push(rule);
+  });
+  return rules;
+}
+
+function addChannelRule() {
+  const rules = collectChannelRules() || [];
+  rules.push({
+    key: "ch_new_" + Date.now(), name: "新渠道", enabled: true,
+    limits: { max_weight: null, max_single_side: null, max_sum_sides: null, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
+    charge_weight: { vol_ratio: null, round_to: null, min_cw: null, bands: [{ max_sum: null, cmp: "lte", mode: "actual" }] },
+    pricing: { type: "tiered_step", step_unit: 0.5, tiers: [{ max_cw: null, cmp: "lte", base: null, step: null, rate: null, min_charge: null }], first_weight_fee: null, continue_per_kg: null, extra_fee: null, op_fee: 0, discount: null },
+    surcharges: [], round_total: null
+  });
+  crWorking = rules;
+  crOpen[rules.length - 1] = true;
+  renderChannelRules(true);
+  const listEl = document.getElementById("channelRulesList");
+  if (listEl) listEl.lastElementChild && listEl.lastElementChild.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function resetChannelRules() {
+  if (!confirm("确定恢复默认渠道计费标准吗？\n当前自定义配置将被清除 (需保存后生效)。")) return;
+  crResetPending = true;
+  settingsState.channelRules = null;
+  saveSettings();
+}
+
+function initChannelRulesEditor() {
+  const list = document.getElementById("channelRulesList");
+  if (!list || list.dataset.crInit === "1") return;
+  list.dataset.crInit = "1";
+
+  list.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const act = btn.dataset.act;
+    const ci = parseInt(btn.dataset.ci);
+
+    if (act === "toggle") {
+      crOpen[ci] = !crOpen[ci];
+      const body = list.querySelector(`[data-cb="${ci}"]`);
+      if (body) body.style.display = crOpen[ci] ? "block" : "none";
+      btn.textContent = crOpen[ci] ? "▴ 收起" : "▾ 展开";
+      return;
+    }
+
+    // 结构性操作: 先收集 DOM → 修改 → 重渲染 (保证未保存编辑不丢失)
+    const rules = collectChannelRules() || [];
+    const rule = rules[ci];
+    if (!rule) return;
+
+    if (act === "del-ch") {
+      if (!confirm(`确定删除渠道「${rule.name}」吗？`)) return;
+      rules.splice(ci, 1);
+    } else if (act === "add-rbo") {
+      rule.limits.reject_both_over.push({ mid: null, min: null });
+    } else if (act === "del-rbo") {
+      rule.limits.reject_both_over.splice(parseInt(btn.dataset.ri), 1);
+    } else if (act === "add-band") {
+      rule.charge_weight.bands.push({ max_sum: null, cmp: "lte", mode: "actual" });
+    } else if (act === "del-band") {
+      rule.charge_weight.bands.splice(parseInt(btn.dataset.bi), 1);
+    } else if (act === "add-tier") {
+      rule.pricing.tiers.push({ max_cw: null, cmp: "lte", base: null, step: null, rate: null, min_charge: null });
+    } else if (act === "del-tier") {
+      rule.pricing.tiers.splice(parseInt(btn.dataset.ti), 1);
+    } else if (act === "add-sg") {
+      rule.surcharges.push({ pick: "add", items: [{ basis: "sum_sides", cw_below: null, tiers: [] }] });
+    } else if (act === "del-sg") {
+      rule.surcharges.splice(parseInt(btn.dataset.gi), 1);
+    } else if (act === "add-item") {
+      rule.surcharges[parseInt(btn.dataset.gi)].items.push({ basis: "sum_sides", cw_below: null, tiers: [] });
+    } else if (act === "del-item") {
+      rule.surcharges[parseInt(btn.dataset.gi)].items.splice(parseInt(btn.dataset.ii), 1);
+    } else if (act === "add-sgtier") {
+      rule.surcharges[parseInt(btn.dataset.gi)].items[parseInt(btn.dataset.ii)].tiers.push({ min: null, fee: null });
+    } else if (act === "del-sgtier") {
+      rule.surcharges[parseInt(btn.dataset.gi)].items[parseInt(btn.dataset.ii)].tiers.splice(parseInt(btn.dataset.k), 1);
+    } else {
+      return;
+    }
+
+    crWorking = rules;
+    crOpen[ci] = true;
+    renderChannelRules(true);
+  });
+
+  list.addEventListener("change", (e) => {
+    const f = e.target.getAttribute && e.target.getAttribute("data-f");
+    if (!f) return;
+    if (f === "band.mode") {
+      const row = e.target.closest('[data-row="band"]');
+      const cond = row && row.querySelector("[data-cond]");
+      if (cond) cond.style.display = e.target.value === "cond_vol_cap" ? "flex" : "none";
+    } else if (f === "p.type") {
+      const card = e.target.closest(".cr-card");
+      if (!card) return;
+      const isFC = e.target.value === "first_continue";
+      const t = card.querySelector('[data-showif="tiered"]');
+      if (t) t.style.display = isFC ? "none" : "block";
+      const f2 = card.querySelector('[data-showif="fc"]');
+      if (f2) f2.style.display = isFC ? "flex" : "none";
+      const pt = card.querySelector("[data-ptier]");
+      if (pt) pt.style.display = isFC ? "none" : "block";
+    }
+  });
 }

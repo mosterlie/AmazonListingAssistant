@@ -77,6 +77,7 @@ class SystemSettingsSchema(BaseModel):
     ai_config: AiConfigSchema = Field(default_factory=AiConfigSchema, description="AI 大模型配置 (自动生成五点描述)")
     db_agent_token: Optional[str] = Field("", description="桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token 校验, 留空使用默认 erp2024)")
     doc_sync: DocSyncConfigSchema = Field(default_factory=DocSyncConfigSchema, description="货代在线登记文档定时采集配置 (调度/告警阈值/邮件)")
+    channel_rules: Optional[Any] = Field(None, description="物流渠道计费规则列表 (通用维度模型; null=清除配置回退前端内置默认)")
 
 
 def normalize_store_accounts(raw_stores: Any) -> List[Dict[str, Any]]:
@@ -193,6 +194,7 @@ async def get_system_settings():
                     "price_coefficient": pricing.get("price_coefficient", 26.0),
                     "default_profit_coeff": pricing.get("default_profit_coeff", 1.0)
                 },
+                "channel_rules": get_setting("channel_rules", None),
                 "storage_paths": {
                     "mac": storage_mac,
                     "win": storage_win,
@@ -295,6 +297,10 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         doc_sync = _FDS.save_config(_ds_payload)
         doc_sync["mail_to"] = ", ".join(doc_sync.get("mail_to") or [])
 
+        # 10. 保存物流渠道计费规则 (settings.js 始终携带该键: 列表=自定义配置 / null=清除回退内置默认)
+        channel_rules = payload.channel_rules if isinstance(payload.channel_rules, (list, dict)) else None
+        set_setting("channel_rules", channel_rules)
+
         # 同步刷新内存全局参数
         GLOBAL_PRICING_CONFIG.update(pricing_dict)
 
@@ -304,6 +310,7 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
             "data": {
                 "store_accounts": stores,
                 "pricing_config": pricing_dict,
+                "channel_rules": channel_rules,
                 "storage_paths": {
                     "mac": mac_path,
                     "win": win_path,
