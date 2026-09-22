@@ -22,6 +22,9 @@
   .settings-nav-item.active { background: #6366f1; color: #fff; box-shadow: 0 2px 6px rgba(99,102,241,0.35); }
   .settings-panel { display: none; flex: 1; min-width: 0; }
   .settings-panel.active { display: block; }
+  /* 物流渠道编辑器: 空值输入框(仅显示示例占位)与已填值明确区分 - 占位为浅色斜体, 空框灰底虚线边 */
+  #channelRulesList input::placeholder { color: #cbd5e1; font-style: italic; font-weight: 400; opacity: 1; }
+  #channelRulesList input:placeholder-shown { background: #f8fafc !important; border: 1px dashed #94a3b8 !important; }
 </style>
 
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; position:sticky; top:64px; z-index:90; background:var(--bg-main); padding:10px 12px; margin-left:-12px; margin-right:-12px; border-radius:0 0 var(--radius-sm) var(--radius-sm); box-shadow:0 2px 8px rgba(15,23,42,0.06);">
