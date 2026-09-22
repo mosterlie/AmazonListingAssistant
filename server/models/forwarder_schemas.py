@@ -28,6 +28,8 @@ class ForwarderUpsertSchema(BaseModel):
     website: str = Field("", max_length=512, description="货代网址")
     reg_user: str = Field("", max_length=128, description="货代系统注册用户 (仅管理员可见)")
     reg_password: str = Field("", max_length=128, description="货代系统密码 (仅管理员可见)")
+    shipping_address: str = Field("", max_length=512, description="收货地址")
+    settlement_method: str = Field("", max_length=128, description="结算方式")
     remark: str = Field("", max_length=512, description="备注")
     sort_order: int = Field(0, ge=0, le=9999, description="排序 (越小越靠前)")
     links: List[ForwarderLinkSchema] = Field(default_factory=list, description="在线链接列表")

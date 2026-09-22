@@ -463,6 +463,8 @@ def init_db():
         website TEXT DEFAULT '',
         reg_user TEXT DEFAULT '',
         reg_password TEXT DEFAULT '',
+        shipping_address TEXT DEFAULT '',
+        settlement_method TEXT DEFAULT '',
         remark TEXT DEFAULT '',
         links_json TEXT NOT NULL DEFAULT '[]',
         sort_order INTEGER DEFAULT 0,
@@ -479,6 +481,8 @@ def init_db():
         ("website TEXT DEFAULT ''", "website"),
         ("reg_user TEXT DEFAULT ''", "reg_user"),
         ("reg_password TEXT DEFAULT ''", "reg_password"),
+        ("shipping_address TEXT DEFAULT ''", "shipping_address"),
+        ("settlement_method TEXT DEFAULT ''", "settlement_method"),
     ]:
         if _col_name not in _fwd_cols:
             cursor.execute(f"ALTER TABLE forwarders ADD COLUMN {_col_def};")
@@ -524,6 +528,25 @@ def init_db():
     """)
     cursor.execute("""
     CREATE INDEX IF NOT EXISTS idx_fwd_alert_date ON forwarder_ship_alerts(biz_date, forwarder_id);
+    """)
+    # 12b. 货代采集 Sheet 登记表 (每个 sheet 每次采集登记一行, 含空数据 sheet)
+    #      用于采集结果页展示「这个货代有哪些 sheet」(即使当日无数据)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS forwarder_doc_sheets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        forwarder_id INTEGER DEFAULT 0,
+        forwarder_name TEXT DEFAULT '',
+        link_url TEXT DEFAULT '',
+        doc_id TEXT DEFAULT '',
+        sheet_name TEXT DEFAULT '',
+        sheet_id TEXT DEFAULT '',
+        row_count INTEGER DEFAULT 0,
+        biz_date TEXT NOT NULL,
+        collected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_fwd_sheets ON forwarder_doc_sheets(biz_date, forwarder_id);
     """)
     # 采集批次日志
     cursor.execute("""

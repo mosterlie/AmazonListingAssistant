@@ -207,6 +207,15 @@ class ForwarderDocService:
                 try:
                     doc = extractor.extract_doc(job["link_url"])
                     rows_total = 0
+                    # 登记表按 (link_url, biz_date) 先清后插: 只保留本次实际采集到的 sheet
+                    conn = get_db_connection()
+                    try:
+                        conn.execute(
+                            "DELETE FROM forwarder_doc_sheets WHERE link_url = ? AND biz_date = ?",
+                            (job["link_url"], biz_date))
+                        conn.commit()
+                    finally:
+                        conn.close()
                     for sheet in doc.get("sheets", []):
                         rows = sheet.get("rows") or []
                         ForwarderDocService._store_sheet(biz_date, job, sheet["sheet_name"],
@@ -244,13 +253,26 @@ class ForwarderDocService:
                 "DELETE FROM forwarder_doc_snapshots "
                 "WHERE link_url = ? AND biz_date = ? AND sheet_name = ?",
                 (job["link_url"], biz_date, sheet_name))
+            # sheet 登记: 无论有无数据行都登记, 供采集结果页展示 sheet 存在性
+            conn.execute(
+                "DELETE FROM forwarder_doc_sheets "
+                "WHERE link_url = ? AND biz_date = ? AND sheet_name = ?",
+                (job["link_url"], biz_date, sheet_name))
+            conn.execute(
+                "INSERT INTO forwarder_doc_sheets "
+                "(forwarder_id, forwarder_name, link_url, doc_id, sheet_name, sheet_id, "
+                " row_count, biz_date) VALUES (?,?,?,?,?,?,?,?)",
+                (job["forwarder_id"], job["forwarder_name"], job["link_url"], job["doc_id"],
+                 sheet_name, sheet_id, max(0, len(rows) - 1), biz_date))
             if not rows:
                 conn.commit()
                 return
-            headers = [_norm_header(h) or f"列{i + 1}" for i, h in enumerate(rows[0])]
+            # 标题行为空的列不采集; 标题行本身不作为数据行入库 (row_index 从 1 起)
+            headers = [_norm_header(h) or "" for h in rows[0]]
+            valid_idx = [i for i, h in enumerate(headers) if h]
             batch = []
-            for idx, row in enumerate(rows):
-                row_json = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
+            for idx, row in enumerate(rows[1:], start=1):
+                row_json = {headers[i]: row[i] for i in valid_idx if i < len(row)}
                 batch.append((job["forwarder_id"], job["forwarder_name"], job["link_label"],
                               job["link_url"], job["doc_id"], sheet_name, sheet_id,
                               idx, json.dumps(row_json, ensure_ascii=False, default=str), biz_date))
@@ -268,7 +290,9 @@ class ForwarderDocService:
         rows = sheet.get("rows") or []
         if len(rows) < 2:
             return []
-        headers = [_norm_header(h) or f"列{i + 1}" for i, h in enumerate(rows[0])]
+        # 空标题列不参与
+        headers = [_norm_header(h) or "" for h in rows[0]]
+        valid_idx = [i for i, h in enumerate(headers) if h]
         date_col, ship_col = cfg["date_column"], cfg["ship_column"]
         if date_col not in headers:
             return []
@@ -284,7 +308,7 @@ class ForwarderDocService:
                 continue
             days = (today - purchase).days
             if days >= cfg["alert_days"]:
-                row_json = {headers[i]: row[i] for i in range(min(len(headers), len(row)))}
+                row_json = {headers[i]: row[i] for i in valid_idx if i < len(row)}
                 alerts.append({"forwarder_id": job["forwarder_id"], "forwarder_name": job["forwarder_name"],
                                "link_label": job["link_label"], "link_url": job["link_url"],
                                "sheet_name": sheet.get("sheet_name", ""), "row_index": idx,
@@ -499,7 +523,7 @@ class ForwarderDocService:
     @staticmethod
     def list_records(biz_date: Optional[str] = None, link_url: Optional[str] = None,
                      sheet_name: Optional[str] = None, page: int = 1,
-                     page_size: int = 50) -> Dict[str, Any]:
+                     page_size: int = 50, forwarder_id: Optional[int] = None) -> Dict[str, Any]:
         where, params = ["1=1"], []
         if biz_date:
             where.append("biz_date = ?"); params.append(biz_date)
@@ -507,7 +531,18 @@ class ForwarderDocService:
             where.append("link_url = ?"); params.append(link_url)
         if sheet_name:
             where.append("sheet_name = ?"); params.append(sheet_name)
+        if forwarder_id:
+            where.append("forwarder_id = ?"); params.append(forwarder_id)
         wsql = " AND ".join(where)
+        # sheet 列表过滤条件 (含无数据行的空 sheet, 来自登记表)
+        sheet_where, sheet_params = [], []
+        if biz_date:
+            sheet_where.append("biz_date = ?"); sheet_params.append(biz_date)
+        if forwarder_id:
+            sheet_where.append("forwarder_id = ?"); sheet_params.append(forwarder_id)
+        if link_url:
+            sheet_where.append("link_url = ?"); sheet_params.append(link_url)
+        swsql = " AND ".join(sheet_where) or "1=1"
         conn = get_db_connection()
         try:
             total = conn.execute(
@@ -516,6 +551,9 @@ class ForwarderDocService:
                 f"SELECT * FROM forwarder_doc_snapshots WHERE {wsql} "
                 f"ORDER BY link_url, sheet_name, row_index LIMIT ? OFFSET ?",
                 params + [page_size, max(0, (page - 1) * page_size)]).fetchall()
+            sheets = [r["sheet_name"] for r in conn.execute(
+                f"SELECT DISTINCT sheet_name FROM forwarder_doc_sheets WHERE {swsql} "
+                f"ORDER BY sheet_name", sheet_params).fetchall()]
         finally:
             conn.close()
         out = []
@@ -526,7 +564,8 @@ class ForwarderDocService:
             except Exception:
                 d["row_data"] = {}
             out.append(d)
-        return {"total": total, "page": page, "page_size": page_size, "items": out}
+        return {"total": total, "page": page, "page_size": page_size,
+                "items": out, "sheets": sheets}
 
     @staticmethod
     def list_biz_dates() -> List[str]:

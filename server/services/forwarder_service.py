@@ -82,10 +82,12 @@ class ForwarderService:
             cur = conn.execute(
                 "INSERT INTO forwarders "
                 "(name, contact, phone, website, reg_user, reg_password, "
+                " shipping_address, settlement_method, "
                 " remark, links_json, sort_order, created_by, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (data.name.strip(), data.contact.strip(), data.phone.strip(),
                  _normalize_url(data.website), data.reg_user.strip(), data.reg_password.strip(),
+                 data.shipping_address.strip(), data.settlement_method.strip(),
                  data.remark.strip(), _dump_links(data.links),
                  data.sort_order, operator, _now_str()),
             )
@@ -104,9 +106,11 @@ class ForwarderService:
             conn.execute(
                 "UPDATE forwarders SET name = ?, contact = ?, phone = ?, "
                 "website = ?, reg_user = ?, reg_password = ?, "
+                "shipping_address = ?, settlement_method = ?, "
                 "remark = ?, links_json = ?, sort_order = ?, updated_at = ? WHERE id = ?",
                 (data.name.strip(), data.contact.strip(), data.phone.strip(),
                  _normalize_url(data.website), data.reg_user.strip(), data.reg_password.strip(),
+                 data.shipping_address.strip(), data.settlement_method.strip(),
                  data.remark.strip(), _dump_links(data.links),
                  data.sort_order, _now_str(), fid),
             )

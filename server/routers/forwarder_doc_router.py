@@ -32,10 +32,12 @@ async def list_alerts(biz_date: Optional[str] = None):
 
 @router.get("/records")
 async def list_records(biz_date: Optional[str] = None, link_url: Optional[str] = None,
-                       sheet_name: Optional[str] = None, page: int = 1, page_size: int = 50):
-    """每日快照查询 (biz_date/link_url/sheet_name 过滤, 分页)"""
+                       sheet_name: Optional[str] = None, page: int = 1, page_size: int = 50,
+                       forwarder_id: Optional[int] = None):
+    """每日快照查询 (biz_date/link_url/sheet_name/forwarder_id 过滤, 分页)"""
     data = forwarder_doc_service.ForwarderDocService.list_records(
-        biz_date, link_url, sheet_name, max(1, page), min(200, max(1, page_size)))
+        biz_date, link_url, sheet_name, max(1, page), min(500, max(1, page_size)),
+        forwarder_id=forwarder_id)
     return {"code": 0, "msg": "success", "data": data}
 
 
