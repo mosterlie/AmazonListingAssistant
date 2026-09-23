@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}订单预警{% endblock %}
+
+{% block extra_head %}
+<style>
+  .dxm-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 10px; border-radius:9999px;
+    font-size:0.74rem; font-weight:700; border:1px solid; }
+  .dxm-badge.red    { background:#fef2f2; color:#dc2626; border-color:#fecaca; }
+  .dxm-badge.yellow { background:#fffbeb; color:#d97706; border-color:#fde68a; }
+  .dxm-badge.grey   { background:#f1f5f9; color:#475569; border-color:#e2e8f0; }
+  .dxm-badge.ok     { background:#f0fdf4; color:#16a34a; border-color:#bbf7d0; }
+  .dxm-row-red    { background:#fff7f7; }
+  .dxm-row-yellow { background:#fffdf3; }
+  .dxm-row-expired { background:#f8fafc; color:#94a3b8; }
+  .dxm-remaining { font-weight:800; font-variant-numeric:tabular-nums; }
+  .dxm-filter { padding:3px 12px; border-radius:9999px; border:1px solid #e2e8f0; background:#fff;
+    font-size:0.76rem; cursor:pointer; color:#475569; }
+  .dxm-filter.active { background:#1e293b; color:#fff; border-color:#1e293b; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="form-card">
+  <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <div class="card-title" style="margin:0;">
+      <div class="card-title-icon">📦</div>
+      <span>店小秘订单发货截止预警</span>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; margin-left:auto;">
+      <span style="font-size:0.76rem; color:#94a3b8;">共 <b id="dxmTotal">0</b> 单待发货</span>
+      <button class="btn btn-outline btn-sm" onclick="loadDxmAll()" style="display:inline-flex; align-items:center; gap:4px;">
+        <span>🔄</span> 刷新
+      </button>
+      {% if current_user.role == 'admin' %}
+      <button class="btn btn-primary btn-sm" id="dxmRunBtn" onclick="runDxmSync()" style="display:inline-flex; align-items:center; gap:4px;">
+        <span>📡</span> 立即采集
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card-body" style="padding:0;">
+    <!-- 状态栏: 最近采集 / 登录状态 / 下轮倒计时 / 预警统计 -->
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:10px 18px; background:#f8fafc; border-bottom:1px solid #e2e8f0; font-size:0.8rem;">
+      <span id="dxmStatusText" style="color:#64748b;">📡 状态加载中...</span>
+      <span id="dxmLoginBadge" class="dxm-badge grey" style="display:none;">登录态</span>
+      <span style="flex:1;"></span>
+      <span id="dxmCountRed" class="dxm-badge red" style="display:none;"></span>
+      <span id="dxmCountYellow" class="dxm-badge yellow" style="display:none;"></span>
+      <span id="dxmCountExpired" class="dxm-badge grey" style="display:none;"></span>
+    </div>
+    <!-- 需人工登录横幅 -->
+    <div id="dxmLoginBanner" style="display:none; padding:10px 18px; background:#fef2f2; border-bottom:1px solid #fecaca; color:#b91c1c; font-size:0.82rem;">
+      ⚠️ <b id="dxmLoginBannerText"></b> 采集暂不可用：请在 9222 浏览器中人工登录店小秘一次 (session 会长期保持)，或在「系统管理 → 店小秘订单预警」点「测试登录」重试。
+    </div>
+    <!-- 筛选行 -->
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 18px; border-bottom:1px solid #e2e8f0;">
+      <span class="dxm-filter active" data-f="all" onclick="setDxmFilter('all', this)">全部待发货</span>
+      <span class="dxm-filter" data-f="alert" onclick="setDxmFilter('alert', this)">🚨 仅预警</span>
+      <span class="dxm-filter" data-f="yellow" onclick="setDxmFilter('yellow', this)">🟡 黄色</span>
+      <span class="dxm-filter" data-f="red" onclick="setDxmFilter('red', this)">🔴 红色</span>
+      <span class="dxm-filter" data-f="expired" onclick="setDxmFilter('expired', this)">⚫ 已超时</span>
+      <span style="flex:1;"></span>
+      <input type="text" id="dxmKeyword" class="form-input" placeholder="搜索订单号/店铺/站点" style="width:220px; padding:5px 10px; font-size:0.8rem;" onkeydown="if(event.key==='Enter')loadDxmOrders()">
+      <button class="btn btn-outline btn-sm" onclick="loadDxmOrders()" style="padding:5px 12px;">搜索</button>
+    </div>
+    <div class="table-wrapper" style="overflow-x:auto;">
+      <table class="matrix-table" style="min-width:980px; width:100%;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="min-width:150px;">订单号</th>
+            <th style="min-width:170px;">店铺</th>
+            <th style="width:70px; text-align:center;">站点</th>
+            <th style="width:110px;">状态</th>
+            <th style="width:150px;">剩余发货时间</th>
+            <th style="width:150px;">发货截止</th>
+            <th style="width:90px; text-align:center;">预警级别</th>
+            <th style="width:140px;">最近快照</th>
+          </tr>
+        </thead>
+        <tbody id="dxmOrdersBody">
+          <tr><td colspan="8" style="text-align:center; color:#94a3b8; padding:24px;">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/dxm_orders.js?v=20260923_initial"></script>
+{% endblock %}

@@ -568,6 +568,43 @@ def init_db():
     );
     """)
 
+    # 13. 店小秘订单剩余发货时间采集 (临期预警: 黄=剩余<warn_hours / 红=剩余<danger_hours / 超时=剩余<=0)
+    #     快照幂等: 每轮 UPSERT (按 order_no); 消失/已发货订单保留最近快照 (last_seen_at 判定)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS dxm_order_deadlines (
+        order_no TEXT PRIMARY KEY,
+        shop_name TEXT DEFAULT '',
+        site TEXT DEFAULT '',
+        order_status TEXT DEFAULT '',
+        deadline_at TEXT DEFAULT '',
+        remaining_minutes INTEGER DEFAULT -1,
+        alert_level INTEGER DEFAULT 0,
+        alerted_levels TEXT DEFAULT '',
+        first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_dxm_order_remain ON dxm_order_deadlines(remaining_minutes);")
+    # 采集批次日志 (含登录状态, 供状态页展示最近采集时间/登录状态)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS dxm_order_sync_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trigger_type TEXT DEFAULT 'manual',
+        status TEXT DEFAULT 'running',
+        login_status TEXT DEFAULT '',
+        orders_total INTEGER DEFAULT 0,
+        alert_yellow INTEGER DEFAULT 0,
+        alert_red INTEGER DEFAULT 0,
+        alert_expired INTEGER DEFAULT 0,
+        email_status TEXT DEFAULT '',
+        message TEXT DEFAULT '',
+        duration_ms INTEGER DEFAULT 0,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        finished_at TIMESTAMP
+    );
+    """)
+
     # 初始化默认管理员用户 (admin / admin)
     cursor.execute("SELECT id FROM users WHERE username = 'admin';")
     if not cursor.fetchone():

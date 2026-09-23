@@ -61,6 +61,20 @@ class DocSyncConfigSchema(BaseModel):
     subject_prefix: str = Field("[货代发货提醒]", description="邮件主题前缀")
 
 
+class DxmOrderConfigSchema(BaseModel):
+    """店小秘订单剩余发货时间采集与预警配置 (模拟登录账密/调度/阈值/邮件)"""
+    dxm_account: str = Field("", description="店小秘登录账号 (未登录时模拟登录用)")
+    dxm_password: str = Field("", description="店小秘登录密码 (存储方式与 smtp_password 一致)")
+    scan_enabled: bool = Field(True, description="是否启用定时采集")
+    scan_interval_minutes: int = Field(60, description="采集轮询间隔 (分钟, 最小5)")
+    warn_hours: float = Field(24, description="黄色预警阈值 (剩余小时数, 默认24h)")
+    danger_hours: float = Field(6, description="红色预警阈值 (剩余小时数, 默认6h)")
+    repeat_red_alert: bool = Field(True, description="红色级是否每轮重复邮件提醒")
+    alert_email_enabled: bool = Field(False, description="是否启用预警邮件 (SMTP 复用货代采集配置)")
+    alert_mail_to: str = Field("", description="预警收件人 (逗号分隔)")
+    subject_prefix: str = Field("[店小秘发货预警]", description="预警邮件主题前缀")
+
+
 class StoreBrandItemSchema(BaseModel):
     store_name: str = Field(..., min_length=1, description="店铺账号名称")
     brand_name: str = Field(..., min_length=1, description="对应品牌名称 (1对1必填)")
@@ -77,6 +91,7 @@ class SystemSettingsSchema(BaseModel):
     ai_config: AiConfigSchema = Field(default_factory=AiConfigSchema, description="AI 大模型配置 (自动生成五点描述)")
     db_agent_token: Optional[str] = Field("", description="桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token 校验, 留空使用默认 erp2024)")
     doc_sync: DocSyncConfigSchema = Field(default_factory=DocSyncConfigSchema, description="货代在线登记文档定时采集配置 (调度/告警阈值/邮件)")
+    dxm_order: DxmOrderConfigSchema = Field(default_factory=DxmOrderConfigSchema, description="店小秘订单剩余发货时间采集与预警配置")
     channel_rules: Optional[Any] = Field(None, description="物流渠道计费规则列表 (通用维度模型; null=清除配置回退前端内置默认)")
 
 
@@ -182,6 +197,9 @@ async def get_system_settings():
         _ds = _FDS.get_config()
         _ds["mail_to"] = ", ".join(_ds.get("mail_to") or [])
         doc_sync = _ds
+        # 店小秘订单剩余发货时间采集与预警配置
+        from server.services.dxm_order_service import DxmOrderService as _DOS
+        dxm_order = _DOS.get_config()
 
         return {
             "code": 0,
@@ -206,7 +224,8 @@ async def get_system_settings():
                 "submit_ad_enabled": submit_ad_enabled,
                 "ai_config": ai_config,
                 "db_agent_token": db_agent_token,
-                "doc_sync": doc_sync
+                "doc_sync": doc_sync,
+                "dxm_order": dxm_order
             }
         }
     except Exception as e:
@@ -297,6 +316,10 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         doc_sync = _FDS.save_config(_ds_payload)
         doc_sync["mail_to"] = ", ".join(doc_sync.get("mail_to") or [])
 
+        # 9.5 保存店小秘订单剩余发货时间采集与预警配置
+        from server.services.dxm_order_service import DxmOrderService as _DOS
+        dxm_order = _DOS.save_config(payload.dxm_order.model_dump())
+
         # 10. 保存物流渠道计费规则 (settings.js 始终携带该键: 列表=自定义配置 / null=清除回退内置默认)
         channel_rules = payload.channel_rules if isinstance(payload.channel_rules, (list, dict)) else None
         set_setting("channel_rules", channel_rules)
@@ -322,7 +345,8 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
                 "submit_ad_enabled": submit_ad_enabled,
                 "ai_config": ai_config,
                 "db_agent_token": db_agent_token,
-                "doc_sync": doc_sync
+                "doc_sync": doc_sync,
+                "dxm_order": dxm_order
             }
         }
     except Exception as e:

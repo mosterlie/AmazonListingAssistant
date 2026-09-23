@@ -37,32 +37,26 @@ from server.routers import (
     prompt_router,
     forwarder_router,
     forwarder_doc_router,
+    dxm_order_router,
     db_agent_router
 )
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    # 货代在线登记文档定时采集: 后台心跳 (每60s检查是否到期, 到期自动触发采集批次)
-    import asyncio
-    from server.services import forwarder_doc_service
+    # 货代在线登记文档定时采集: 调度器独立文件 services/forwarder_doc_scheduler.py (每60s心跳检查到期)
+    from server.services.forwarder_doc_scheduler import start_forwarder_doc_scheduler
 
-    async def _fwd_doc_scheduler():
-        while True:
-            try:
-                triggered = await asyncio.to_thread(
-                    forwarder_doc_service.ForwarderDocService.maybe_trigger_scheduled)
-                if triggered:
-                    print("⏰ 货代文档定时采集批次已触发")
-            except Exception as e:
-                print(f"⚠️ 货代文档调度心跳异常: {e}")
-            await asyncio.sleep(60)
+    scheduler_task = start_forwarder_doc_scheduler()
+    # 店小秘订单剩余发货时间采集: 调度器独立文件 services/dxm_order_scheduler.py (每60s心跳检查到期)
+    from server.services.dxm_order_scheduler import start_dxm_order_scheduler
 
-    scheduler_task = asyncio.create_task(_fwd_doc_scheduler())
+    dxm_scheduler_task = start_dxm_order_scheduler()
     display_host = "127.0.0.1" if SERVER_HOST in ("0.0.0.0", "") else SERVER_HOST
     print(f"🚀 服务已就绪！访问地址: http://{display_host}:{SERVER_PORT}")
     yield
     scheduler_task.cancel()
+    dxm_scheduler_task.cancel()
 
 # 1. 实例化 FastAPI 应用
 app = FastAPI(
@@ -115,6 +109,7 @@ app.include_router(knowledge_router.router)
 app.include_router(prompt_router.router)
 app.include_router(forwarder_router.router)
 app.include_router(forwarder_doc_router.router)
+app.include_router(dxm_order_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
 app.include_router(db_agent_router.router)
 
@@ -255,6 +250,19 @@ async def render_forwarder_page(request: Request):
 
     return templates.TemplateResponse(request=request, name="forwarder.html", context={
         "active_page": "forwarder",
+        "current_user": user
+    })
+
+
+@app.get("/dxm-orders", response_class=HTMLResponse, summary="店小秘订单发货截止预警页面")
+async def render_dxm_orders_page(request: Request):
+    """渲染店小秘订单预警页面 (需登录)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
+    if redirect_resp:
+        return redirect_resp
+
+    return templates.TemplateResponse(request=request, name="dxm_orders.html", context={
+        "active_page": "dxm_orders",
         "current_user": user
     })
 
