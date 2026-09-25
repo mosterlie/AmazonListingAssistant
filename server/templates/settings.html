@@ -43,12 +43,12 @@
     <button class="settings-nav-item active" data-tab="stores" type="button">🏬 店铺与品牌</button>
     <button class="settings-nav-item" data-tab="pricing" type="button">💰 计价参数</button>
     <button class="settings-nav-item" data-tab="channels" type="button">🚚 物流渠道</button>
-    <button class="settings-nav-item" data-tab="storage" type="button">📁 归档目录</button>
-    <button class="settings-nav-item" data-tab="session" type="button">⏱️ 会话安全</button>
     <button class="settings-nav-item" data-tab="automation" type="button">🚀 自动化上件</button>
     <button class="settings-nav-item" data-tab="ai" type="button">🤖 AI 大模型</button>
-    <button class="settings-nav-item" data-tab="token" type="button">🔑 远程通道令牌</button>
+    <button class="settings-nav-item" data-tab="general" type="button">🗂️ 归档·会话·令牌</button>
     <button class="settings-nav-item" data-tab="email" type="button">📧 邮件通知</button>
+    <button class="settings-nav-item" data-tab="alert_tasks" type="button">🔔 告警任务</button>
+    <button class="settings-nav-item" data-tab="reminders" type="button">📨 提醒任务</button>
   </nav>
 
   <!-- 右侧配置面板 -->
@@ -187,80 +187,6 @@
       </div>
     </div>
 
-    <!-- 3. 归档目录 -->
-    <div class="settings-panel" data-panel="storage">
-      <div class="form-card">
-        <div class="card-header">
-          <div class="card-title">
-            <div class="card-title-icon">3</div>
-            <span>本地图片与产品归档目录配置</span>
-          </div>
-          <span class="tag-badge" style="background:#fef3c7; color:#b45309; border-color:#fde68a;">保存后自动多层级归档</span>
-        </div>
-        <div class="card-body">
-          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;">
-            保存商品后按 <b>主目录 / 产品名称 / (main | sku)</b> 自动归档图片与数据备份。
-          </p>
-          <div class="grid-2" style="margin-bottom:16px;">
-            <div class="form-group">
-              <label class="form-label required">🍎 macOS 归档主地址 <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(绝对路径)</span></label>
-              <input type="text" class="form-input" id="storagePathMacInput" value="/Users/gx/Desktop/products" placeholder="如: /Users/gx/Desktop/products">
-            </div>
-            <div class="form-group">
-              <label class="form-label required">🪟 Windows 归档主地址 <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(绝对路径)</span></label>
-              <input type="text" class="form-input" id="storagePathWinInput" value="D:\products" placeholder="如: D:\products">
-            </div>
-            <div class="form-group">
-              <label class="form-label required">📁 主图与附图相对文件夹 (main)</label>
-              <input type="text" class="form-input" id="storageRelMainInput" value="main" placeholder="默认 main">
-              <small style="color:var(--text-muted); font-size:0.78rem;">主图 main.*，附图 pt01.*、pt02.*...</small>
-            </div>
-            <div class="form-group">
-              <label class="form-label required">📁 变体 SKU 图片相对文件夹 (sku)</label>
-              <input type="text" class="form-input" id="storageRelSkuInput" value="sku" placeholder="默认 sku">
-              <small style="color:var(--text-muted); font-size:0.78rem;">按属性命名，如 颜色-红色.*、尺寸-L.*</small>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 4. 会话安全 -->
-    <div class="settings-panel" data-panel="session">
-      <div class="form-card">
-        <div class="card-header">
-          <div class="card-title">
-            <div class="card-title-icon">4</div>
-            <span>用户登录与会话安全配置 (Session)</span>
-          </div>
-          <span class="tag-badge" id="sessionBadge" style="background:#f1f5f9; color:#475569; border-color:#cbd5e1;">默认 1h 过期自动防护</span>
-        </div>
-        <div class="card-body">
-          <div class="grid-2" style="align-items:flex-start;">
-            <div class="form-group">
-              <label class="form-label required">⏱️ 登录 Session 有效期 (小时) <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(0 = 永久)</span></label>
-              <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                <input type="number" step="0.5" min="0" max="720" class="form-input" id="sessionExpireHoursInput" value="1.0" placeholder="0 表示永久有效" style="width:140px;">
-                <label class="radio-label" style="font-size:0.84rem; font-weight:700; cursor:pointer; color:#0f172a; margin:0; padding:7px 12px; background:#f8fafc; border:1px solid #cbd5e1; border-radius:var(--radius-sm);">
-                  <input type="checkbox" id="sessionNeverExpireCheckbox" style="accent-color:var(--primary); cursor:pointer; width:16px; height:16px;">
-                  <span style="margin-left:4px;">♾️ 永久有效</span>
-                </label>
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="form-label" style="color:var(--text-muted);">⚡ 快捷预设</label>
-              <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(1)">1 小时</button>
-                <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(24)">24 小时</button>
-                <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(168)">7 天</button>
-                <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(0)" style="color:#16a34a; border-color:#86efac; font-weight:700;">♾️ 永久</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- 5. 自动化上件 -->
     <div class="settings-panel" data-panel="automation">
       <div class="form-card">
@@ -351,12 +277,80 @@
       </div>
     </div>
 
-    <!-- 7. 远程通道令牌 -->
-    <div class="settings-panel" data-panel="token">
+    <!-- 6. 归档 / 会话 / 令牌 (合并面板) -->
+    <div class="settings-panel" data-panel="general">
       <div class="form-card">
         <div class="card-header">
           <div class="card-title">
-            <div class="card-title-icon">6</div>
+            <div class="card-title-icon">📁</div>
+            <span>本地图片与产品归档目录配置</span>
+          </div>
+          <span class="tag-badge" style="background:#fef3c7; color:#b45309; border-color:#fde68a;">保存后自动多层级归档</span>
+        </div>
+        <div class="card-body">
+          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:16px;">
+            保存商品后按 <b>主目录 / 产品名称 / (main | sku)</b> 自动归档图片与数据备份。
+          </p>
+          <div class="grid-2" style="margin-bottom:16px;">
+            <div class="form-group">
+              <label class="form-label required">🍎 macOS 归档主地址 <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(绝对路径)</span></label>
+              <input type="text" class="form-input" id="storagePathMacInput" value="/Users/gx/Desktop/products" placeholder="如: /Users/gx/Desktop/products">
+            </div>
+            <div class="form-group">
+              <label class="form-label required">🪟 Windows 归档主地址 <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(绝对路径)</span></label>
+              <input type="text" class="form-input" id="storagePathWinInput" value="D:\products" placeholder="如: D:\products">
+            </div>
+            <div class="form-group">
+              <label class="form-label required">📁 主图与附图相对文件夹 (main)</label>
+              <input type="text" class="form-input" id="storageRelMainInput" value="main" placeholder="默认 main">
+              <small style="color:var(--text-muted); font-size:0.78rem;">主图 main.*，附图 pt01.*、pt02.*...</small>
+            </div>
+            <div class="form-group">
+              <label class="form-label required">📁 变体 SKU 图片相对文件夹 (sku)</label>
+              <input type="text" class="form-input" id="storageRelSkuInput" value="sku" placeholder="默认 sku">
+              <small style="color:var(--text-muted); font-size:0.78rem;">按属性命名，如 颜色-红色.*、尺寸-L.*</small>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="card-title-icon">⏱️</div>
+            <span>用户登录与会话安全配置 (Session)</span>
+          </div>
+          <span class="tag-badge" id="sessionBadge" style="background:#f1f5f9; color:#475569; border-color:#cbd5e1;">默认 1h 过期自动防护</span>
+        </div>
+        <div class="card-body">
+          <div class="grid-2" style="align-items:flex-start;">
+            <div class="form-group">
+              <label class="form-label required">⏱️ 登录 Session 有效期 (小时) <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(0 = 永久)</span></label>
+              <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <input type="number" step="0.5" min="0" max="720" class="form-input" id="sessionExpireHoursInput" value="1.0" placeholder="0 表示永久有效" style="width:140px;">
+                <label class="radio-label" style="font-size:0.84rem; font-weight:700; cursor:pointer; color:#0f172a; margin:0; padding:7px 12px; background:#f8fafc; border:1px solid #cbd5e1; border-radius:var(--radius-sm);">
+                  <input type="checkbox" id="sessionNeverExpireCheckbox" style="accent-color:var(--primary); cursor:pointer; width:16px; height:16px;">
+                  <span style="margin-left:4px;">♾️ 永久有效</span>
+                </label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" style="color:var(--text-muted);">⚡ 快捷预设</label>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(1)">1 小时</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(24)">24 小时</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(168)">7 天</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(0)" style="color:#16a34a; border-color:#86efac; font-weight:700;">♾️ 永久</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="card-title-icon">🔑</div>
             <span>桌面上件助手远程通道令牌 (内嵌图片服务)</span>
           </div>
           <span class="tag-badge" style="background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">与 ERP 共用同一端口</span>
@@ -389,9 +383,8 @@
         </div>
         <div class="card-body">
           <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:14px;">
-            本页仅配置 SMTP 发信通道与默认收件人。各邮件的提醒规则请在独立页面配置：① <b>每日定时提醒</b> 与 ② <b>店小秘红/超时实时提醒</b> 在
-            <a href="/reminders" style="color:var(--primary); font-weight:700;">📧 提醒任务</a> 页配置; 轮询采集与告警阈值在
-            <a href="/alert-tasks" style="color:var(--primary); font-weight:700;">🔔 告警任务</a> 页配置。
+            本页仅配置 SMTP 发信通道与默认收件人。各邮件的提醒规则请切换到本页上方标签配置：① <b>每日定时提醒</b> 与 ② <b>店小秘红/超时实时提醒</b> 在
+            <b>📨 提醒任务</b> 标签; 轮询采集与告警阈值在 <b>🔔 告警任务</b> 标签配置。
           </p>
           <div style="font-weight:700; font-size:0.9rem; margin-bottom:8px;">📨 SMTP 发信通道 (所有邮件共用)</div>
           <div style="display:grid; grid-template-columns:1fr 120px auto 1fr; gap:14px; align-items:end;">
@@ -435,14 +428,35 @@
             </div>
           </div>
           <small style="color:var(--text-muted); font-size:0.78rem; display:block;">
-            提醒开关 / 发送时间 / 各提醒独立收件人 / 主题前缀在 📧 提醒任务 页配置 (本页收件人作为默认兜底)。
+            提醒开关 / 发送时间 / 各提醒独立收件人 / 主题前缀在 📨 提醒任务 标签配置 (本页收件人作为默认兜底)。
           </small>
         </div>
       </div>
     </div>
 
+    <!-- 9. 告警任务 (轮询采集 + 告警阈值, 由后端 TASK_FORMS 驱动通用渲染) -->
+    <div class="settings-panel" data-panel="alert_tasks">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <div style="font-weight:700; color:var(--text-main); font-size:1.05rem;">🔔 告警任务 <span style="font-weight:400; font-size:0.82rem; color:var(--text-muted);">轮询采集配置与告警规则 (与邮件提醒解耦)</span></div>
+        <button class="btn btn-outline btn-sm" id="refreshTasksBtn" type="button">🔄 刷新状态</button>
+      </div>
+      <div id="alertTasksWrap"></div>
+    </div>
+
+    <!-- 10. 提醒任务 (邮件提醒规则, 由后端 REMINDER_FORMS 驱动通用渲染) -->
+    <div class="settings-panel" data-panel="reminders">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <div style="font-weight:700; color:var(--text-main); font-size:1.05rem;">📨 提醒任务 <span style="font-weight:400; font-size:0.82rem; color:var(--text-muted);">邮件提醒规则 (每日定时 / 实时预警)</span></div>
+        <button class="btn btn-outline btn-sm" id="refreshRemindersBtn" type="button">🔄 刷新状态</button>
+      </div>
+      <div id="remindersWrap"></div>
+    </div>
+
   </div>
 </div>
 
-<script src="/static/js/settings.js?v=20260925_rem1"></script>
+<script src="/static/js/task_cards.js?v=20260925_merge1"></script>
+<script src="/static/js/alert_tasks.js?v=20260925_merge1"></script>
+<script src="/static/js/reminders.js?v=20260925_merge1"></script>
+<script src="/static/js/settings.js?v=20260925_cr2"></script>
 {% endblock %}

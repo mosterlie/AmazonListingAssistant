@@ -37,7 +37,6 @@ from server.routers import (
     prompt_router,
     forwarder_router,
     forwarder_doc_router,
-    dxm_order_router,
     alert_router,
     db_agent_router
 )
@@ -115,7 +114,6 @@ app.include_router(knowledge_router.router)
 app.include_router(prompt_router.router)
 app.include_router(forwarder_router.router)
 app.include_router(forwarder_doc_router.router)
-app.include_router(dxm_order_router.router)
 app.include_router(alert_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
 app.include_router(db_agent_router.router)
@@ -261,43 +259,16 @@ async def render_forwarder_page(request: Request):
     })
 
 
-@app.get("/dxm-orders", response_class=HTMLResponse, summary="店小秘订单发货截止预警页面")
-async def render_dxm_orders_page(request: Request):
-    """渲染店小秘订单预警页面 (需登录)"""
-    user, redirect_resp = get_page_auth_user(request, require_admin=False)
-    if redirect_resp:
-        return redirect_resp
-
-    return templates.TemplateResponse(request=request, name="dxm_orders.html", context={
-        "active_page": "dxm_orders",
-        "current_user": user
-    })
+@app.get("/alert-tasks", summary="告警任务配置 (已并入系统管理)")
+async def redirect_alert_tasks():
+    """旧入口重定向: 告警任务已并入系统管理页 #alert_tasks 标签"""
+    return RedirectResponse(url="/settings#alert_tasks", status_code=status.HTTP_302_FOUND)
 
 
-@app.get("/alert-tasks", response_class=HTMLResponse, summary="告警任务配置页面")
-async def render_alert_tasks_page(request: Request):
-    """渲染告警任务配置页面 (仅限管理员访问)"""
-    user, redirect_resp = get_page_auth_user(request, require_admin=True)
-    if redirect_resp:
-        return redirect_resp
-
-    return templates.TemplateResponse(request=request, name="alert_tasks.html", context={
-        "active_page": "alert_tasks",
-        "current_user": user
-    })
-
-
-@app.get("/reminders", response_class=HTMLResponse, summary="提醒任务配置页面")
-async def render_reminders_page(request: Request):
-    """渲染提醒任务配置页面 (邮件提醒, 仅限管理员访问)"""
-    user, redirect_resp = get_page_auth_user(request, require_admin=True)
-    if redirect_resp:
-        return redirect_resp
-
-    return templates.TemplateResponse(request=request, name="reminders.html", context={
-        "active_page": "reminders",
-        "current_user": user
-    })
+@app.get("/reminders", summary="提醒任务配置 (已并入系统管理)")
+async def redirect_reminders():
+    """旧入口重定向: 提醒任务已并入系统管理页 #reminders 标签"""
+    return RedirectResponse(url="/settings#reminders", status_code=status.HTTP_302_FOUND)
 
 
 @app.get("/alerts", response_class=HTMLResponse, summary="告警中心页面")
