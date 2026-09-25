@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}商品录入与维护中台{% endblock %} - ERP 自动化上件系统</title>
-  <link rel="stylesheet" href="/static/css/app.css?v=20260925_bulk4">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260925_cal5">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -38,6 +38,11 @@
           <span class="alert-bell-icon">🔔</span>
           <span class="alert-bell-num" id="alertBellNum">0</span>
         </a>
+        <!-- 📅 日本日历快捷弹窗 -->
+        <div class="cal-pop-wrap" id="calPopWrap">
+          <button type="button" class="cal-pop-btn" id="calPopBtn" title="日本日历">📅</button>
+          <div class="cal-popup" id="calPopup" style="display:none;"></div>
+        </div>
         <!-- 用户徽章与悬浮卡片包装容器 -->
         <div class="user-badge-wrapper" id="userBadgeWrapper">
           <div class="user-profile-badge" id="userProfilePill" style="display:flex; align-items:center; gap:6px; background:#f1f5f9; padding:5px 12px; border-radius:9999px; font-size:0.82rem; cursor:pointer; border:1px solid #e2e8f0; transition:all 0.2s;">
@@ -155,6 +160,114 @@
       }
       refreshAlertBell();
       setInterval(refreshAlertBell, 5 * 60 * 1000);
+    })();
+
+    // 📅 日本日历快捷弹窗: 当月日本月历 (节假日标记+连休连片, 可前后翻月), 点击跳转完整日历
+    (function () {
+      const btn = document.getElementById("calPopBtn");
+      const pop = document.getElementById("calPopup");
+      if (!btn || !pop) return;
+      const WD = ["日", "月", "火", "水", "木", "金", "土"];
+      const esc = s => String(s === null || s === undefined ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      function jpDate(d) {
+        const eraNum = d.getFullYear() - 2018;
+        const era = d.getFullYear() >= 2019 ? `令和${eraNum === 1 ? "元" : eraNum}年` : `${d.getFullYear()}年`;
+        return `${era}${d.getMonth() + 1}月${d.getDate()}日 (${WD[d.getDay()]})`;
+      }
+      // 弹窗当前查看的月份 (打开时定位到今天所在月份)
+      const view = { y: null, m: null };
+      function shiftView(delta) {
+        let t = view.y * 12 + (view.m - 1) + delta;
+        view.y = Math.floor(t / 12); view.m = ((t % 12) + 12) % 12 + 1;
+        renderPopup();
+      }
+      async function renderPopup() {
+        pop.innerHTML = `<div class="cal-pop-loading">読み込み中...</div>`;
+        try {
+          const now = new Date();
+          if (!view.y) { view.y = now.getFullYear(); view.m = now.getMonth() + 1; }
+          const y = view.y, m = view.m;
+          const [calRes] = await Promise.all([
+            fetch(`/api/jp-holidays/calendar?year=${y}&month=${m}`)
+          ]);
+          const cj = await calRes.json();
+          const d = (cj && cj.code === 0 && cj.data) ? cj.data : {};
+          const tKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+          const days = d.days || [];
+          const holDays = days.filter(x => x.holiday_name);
+          // 连休标记: 祝日或周末相邻连续 ≥3 天 (含3日) 且组内至少 1 个祝日 → 整组连片标记 (如 5/3-5/6 四连休)
+          const brkSet = new Set();
+          const brkStart = new Map();
+          (() => {
+            let run = [];
+            const flush = () => {
+              if (run.length >= 3 && run.some(x => x.holiday_name)) {
+                run.forEach(x => brkSet.add(x.date));
+                brkStart.set(run[0].date, run.length);
+              }
+              run = [];
+            };
+            for (const day of days) {
+              if (day.holiday_name || day.is_weekend) run.push(day);
+              else flush();
+            }
+            flush();
+          })();
+          const todayHol = holDays.find(x => x.date === tKey);
+          const isWeekend = now.getDay() === 0 || now.getDay() === 6;
+          let grid = "";
+          for (let i = 0; i < (d.first_weekday || 0); i++) grid += `<div class="cmp-day cmp-blank"></div>`;
+          grid += days.map(day => {
+            const cls = ["cmp-day"];
+            if (day.is_weekend) cls.push("wk");
+            if (day.holiday_name) cls.push("hol");
+            if (brkSet.has(day.date)) cls.push("brk");
+            if (day.date === tKey) cls.push("tdy");
+            const num = parseInt(day.date.slice(8), 10);
+            const tip = brkStart.has(day.date) ? ` (連休${brkStart.get(day.date)}天)` : "";
+            return `<div class="${cls.join(" ")}" title="${esc(day.holiday_name || "")}${tip}">
+              <span class="cmp-num">${num}</span>
+              ${day.holiday_name ? `<span class="cmp-hol">${esc(day.holiday_name)}</span>` : ""}
+            </div>`;
+          }).join("");
+          const holBadge = holDays.length
+            ? `<span class="cmp-count">${holDays.length} 个节假日</span>`
+            : `<span class="cmp-count none">本月无节假日</span>`;
+          pop.innerHTML = `
+            <div class="cal-pop-head">
+              <div class="cal-pop-era">${esc(jpDate(now))}</div>
+              <div class="cal-pop-sub">${todayHol ? `🎉 今日は祝日 · ${esc(todayHol.holiday_name)}` : (isWeekend ? "週末" : "平日")}</div>
+              ${holBadge}
+            </div>
+            <div class="cal-pop-sec cal-pop-sec-nav">
+              <button type="button" class="cal-nav" id="calPrevM" title="上个月">‹</button>
+              <span>🗓 ${y} 年 ${m} 月 · 日本カレンダー</span>
+              <button type="button" class="cal-nav" id="calNextM" title="下个月">›</button>
+            </div>
+            <div class="cmp-grid-wrap">
+              <div class="cmp-wd">一</div><div class="cmp-wd">二</div><div class="cmp-wd">三</div>
+              <div class="cmp-wd">四</div><div class="cmp-wd">五</div>
+              <div class="cmp-wd sat">六</div><div class="cmp-wd sun">日</div>
+              ${grid}
+            </div>
+            <div class="cmp-legend"><i class="lg-hol"></i>法定节假日 <i class="lg-brk"></i>连休≥3天 <i class="lg-tdy"></i>今天</div>
+            <a href="/japan-calendar" class="cal-pop-link">查看完整日历 (6 个月) →</a>`;
+          pop.querySelector("#calPrevM").addEventListener("click", (ev) => { ev.stopPropagation(); shiftView(-1); });
+          pop.querySelector("#calNextM").addEventListener("click", (ev) => { ev.stopPropagation(); shiftView(1); });
+        } catch (e) {
+          pop.innerHTML = `<div class="cal-pop-loading">加载失败, 请稍后再试</div>`;
+        }
+      }
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const show = pop.style.display === "none";
+        pop.style.display = show ? "block" : "none";
+        if (show) renderPopup();
+      });
+      document.addEventListener("click", (ev) => {
+        if (pop.style.display !== "none" && !pop.contains(ev.target)) pop.style.display = "none";
+      });
     })();
   </script>
   <script src="/static/js/pricing_tool.js?v=20260925_pt7"></script>

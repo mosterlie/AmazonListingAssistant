@@ -89,7 +89,7 @@ REMINDER_FORMS = {
             {"title": "🕐 发送时间与收件人", "cols": 2, "fields": [
                 {"key": "digest_time", "type": "time", "label": "每日发送时间", "def": "08:15"},
                 {"key": "digest_mail_to", "type": "text",
-                 "label": "提醒收件人 (多个用英文逗号分隔; 留空=用系统管理 → 邮件通知的默认收件人)",
+                 "label": "提醒收件人 (多个用英文逗号分隔; 留空=用系统管理 → 邮件配置的默认收件人)",
                  "placeholder": "you@qq.com, boss@qq.com", "actions": ["test_email"], "role": "mail_to"},
             ]},
             {"title": "✉️ 邮件主题", "cols": 1, "fields": [
@@ -110,6 +110,20 @@ REMINDER_FORMS = {
                 {"key": "alert_mail_to", "type": "text", "label": "提醒收件人 (多个用英文逗号分隔)",
                  "placeholder": "you@qq.com, boss@qq.com", "actions": ["test_email"], "role": "mail_to"},
                 {"key": "subject_prefix", "type": "text", "label": "主题前缀", "def": "[店小秘发货预警]"},
+            ]},
+        ],
+    },
+    "jp_holiday": {
+        "sections": [
+            {"title": "🇯🇵 提醒规则", "cols": 2, "fields": [
+                {"key": "email_enabled", "type": "switch", "label": "大节日邮件提醒", "def": True, "role": "enable",
+                 "title": "临近日本大节日 (连休≥3天) 提前发邮件",
+                 "hint": "每天检查一次, 提前 N 天内发送, 当天不重复; 节假日数据自动同步 (date.nager.at)"},
+                {"key": "advance_days", "type": "number", "label": "提前提醒天数", "def": 7},
+            ]},
+            {"title": "📧 收件人", "cols": 1, "fields": [
+                {"key": "mail_to", "type": "text", "label": "提醒收件人 (多个用英文逗号分隔; 留空=用邮件配置的默认收件人)",
+                 "placeholder": "you@qq.com, boss@qq.com", "actions": ["test_email"], "role": "mail_to"},
             ]},
         ],
     },
@@ -225,6 +239,9 @@ class AlertService:
         dxm_status = DxmOrderService.get_status()
         dxm_cfg = DxmOrderService.get_config()
         dxm_last_email = (dxm_status.get("last_log") or {}).get("email_status")
+        from server.services.jp_holiday_service import JpHolidayService
+        jp_cfg = JpHolidayService.get_config()
+        jp_status = JpHolidayService.get_status()
         return [
             {
                 "key": "daily_digest",
@@ -241,7 +258,7 @@ class AlertService:
                 },
                 "status": {"last": digest_last if isinstance(digest_last, dict) else None,
                            "next_check": DailyDigestService.next_run_time()},
-                "email_note": "发送通道 (SMTP 账号) 复用系统管理 → 邮件通知; 收件人留空时发送给默认收件人",
+                "email_note": "发送通道 (SMTP 账号) 复用系统管理 → 邮件配置; 收件人留空时发送给默认收件人",
             },
             {
                 "key": "dxm_realtime",
@@ -252,7 +269,23 @@ class AlertService:
                 "form": REMINDER_FORMS["dxm_realtime"],
                 "config": {k: dxm_cfg.get(k) for k in AlertService._DXM_REALTIME_KEYS},
                 "status": {"counts": dxm_status.get("counts", {}), "last_email_status": dxm_last_email},
-                "email_note": "发送通道 (SMTP 账号) 复用系统管理 → 邮件通知",
+                "email_note": "发送通道 (SMTP 账号) 复用系统管理 → 邮件配置",
+            },
+            {
+                "key": "jp_holiday",
+                "name": "日本大节日提醒",
+                "icon": "🇯🇵",
+                "desc": "临近日本大节日 (连休≥3天) 自动发送提醒邮件; 提前 N 天内每天检查, 当天不重复",
+                "enabled": bool(jp_cfg.get("email_enabled")),
+                "form": REMINDER_FORMS["jp_holiday"],
+                "config": {
+                    "email_enabled": bool(jp_cfg.get("email_enabled")),
+                    "advance_days": jp_cfg.get("advance_days", 7),
+                    "mail_to": str(get_setting("jp_holiday_mail_to", "") or ""),
+                },
+                "status": {"last_reminder": jp_status.get("last_reminder"),
+                           "upcoming_count": len(JpHolidayService.upcoming(days=90) or [])},
+                "email_note": "发送通道 (SMTP 账号) 复用系统管理 → 邮件配置; 收件人留空时发送给默认收件人",
             },
         ]
 
@@ -267,6 +300,9 @@ class AlertService:
             digest_mail_to = str(filtered.pop("digest_mail_to", "") or "").strip()
             set_setting("fwd_doc_digest_mail_to", digest_mail_to)
             ForwarderDocService.save_config(filtered)
+        elif key == "jp_holiday":
+            from server.services.jp_holiday_service import JpHolidayService
+            JpHolidayService.save_config(filtered)
         else:
             DxmOrderService.save_config(filtered)
         for r in AlertService.get_reminders():
@@ -291,6 +327,14 @@ class AlertService:
             return DailyDigestService.send_test_email(override)
         if key == "dxm_realtime":
             return DxmOrderService.send_test_email(patch)
+        if key == "jp_holiday":
+            from server.services.jp_holiday_service import JpHolidayService
+            override = {}
+            if str(patch.get("mail_to") or "").strip():
+                override["mail_to"] = str(patch["mail_to"]).strip()
+            if patch.get("advance_days"):
+                override["advance_days"] = patch["advance_days"]
+            return JpHolidayService.send_test_email(override or None)
         raise ValueError(f"未知提醒任务: {key}")
 
     # ───────────────── 告警中心 ─────────────────

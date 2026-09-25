@@ -33,7 +33,7 @@ const settingsState = {
   },
   // 桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token, 原 db_agent 8765)
   db_agent_token: "",
-  // 邮件通知配置 (SMTP 发信通道 + 默认收件人; 存 fwd_doc_* 扁平键, 提醒规则在「提醒任务」页)
+  // 邮件配置 (仅 SMTP 发信通道基础参数 + 默认收件人; 存 fwd_doc_* 扁平键)
   email_notify: {
     smtp_host: "smtp.qq.com", smtp_port: 465, smtp_ssl: true,
     smtp_user: "", smtp_password: "", mail_from: "", mail_to: ""
@@ -150,7 +150,7 @@ function populateForm() {
   const dbAgentTokenInp = document.getElementById("dbAgentTokenInput");
   if (dbAgentTokenInp) dbAgentTokenInp.value = settingsState.db_agent_token || "";
 
-  // 邮件通知配置回填 (SMTP 通道 + 默认收件人; 提醒规则已迁往「提醒任务」页)
+  // 邮件配置回填 (SMTP 通道 + 默认收件人)
   const en = settingsState.email_notify;
   const enMap = {
     docSmtpHostInput: en.smtp_host,
@@ -164,6 +164,7 @@ function populateForm() {
   }
   const enSsl = document.getElementById("docSmtpSslCheckbox");
   if (enSsl) enSsl.checked = !!en.smtp_ssl;
+
 
   const submitYes = document.getElementById("submitAdYes");
   const submitNo = document.getElementById("submitAdNo");
@@ -414,7 +415,7 @@ async function saveSettings() {
       api_key: (document.getElementById("aiApiKeyInput")?.value || "").trim()
     },
     db_agent_token: (document.getElementById("dbAgentTokenInput")?.value || "").trim(),
-    // 邮件通知配置 (SMTP 发信通道 + 默认收件人; 提醒规则在「提醒任务」页)
+    // 邮件配置 (SMTP 发信通道 + 默认收件人)
     email_notify: {
       smtp_host: (document.getElementById("docSmtpHostInput")?.value || "smtp.qq.com").trim(),
       smtp_port: parseInt(document.getElementById("docSmtpPortInput")?.value) || 465,
@@ -652,7 +653,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ============================================================================
-// 邮件通知: 测试汇总邮件 (用表单当前值直接发送, 不落库)
+// 邮件配置: 测试邮件 (用表单当前值直接发送, 不落库)
 // ============================================================================
 async function sendEmailTestEmail() {
   const to = (document.getElementById("docMailToInput")?.value || "").trim();

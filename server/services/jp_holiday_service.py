@@ -11,6 +11,7 @@ SMTP 通道复用货代采集配置 (fwd_doc_* 扁平键), 提醒配置用 jp_ho
 import json
 import smtplib
 import threading
+import time
 import urllib.request
 from datetime import date, datetime, timedelta
 from email.header import Header
@@ -52,7 +53,7 @@ class JpHolidayService:
         smtp = ForwarderDocService.get_config(override)
         ov = override or {}
         cfg = {
-            "email_enabled": bool(get_setting("jp_holiday_email_enabled", False)),
+            "email_enabled": bool(get_setting("jp_holiday_email_enabled", True)),
             "advance_days": 7,
             "mail_to": [],
             "smtp_host": smtp.get("smtp_host", ""),
@@ -95,12 +96,24 @@ class JpHolidayService:
 
     # ───────────────── 同步 ─────────────────
     @staticmethod
+    def _fetch_json(url: str, attempts: int = 3, delay: float = 2.0):
+        """带重试的 JSON 拉取: date.nager.at 偶发响应截断(IncompleteRead), 重试即可恢复"""
+        last_err: Exception = RuntimeError("no attempt")
+        for i in range(attempts):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "ERP-Middleware/1.0"})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except Exception as e:
+                last_err = e
+                if i < attempts - 1:
+                    time.sleep(delay)
+        raise last_err
+
+    @staticmethod
     def sync_year(year: int) -> int:
         """从 date.nager.at 拉取指定年份日本法定节假日并入库, 返回条数"""
-        url = _API_URL.format(year=year)
-        req = urllib.request.Request(url, headers={"User-Agent": "ERP-Middleware/1.0"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            items = json.loads(resp.read().decode("utf-8"))
+        items = JpHolidayService._fetch_json(_API_URL.format(year=year))
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         conn = get_db_connection()
         try:
@@ -169,6 +182,26 @@ class JpHolidayService:
                             "types": r["types"]} for r in rows}
 
     @staticmethod
+    def _with_citizen_days(hol: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """补齐「国民の休日」: 两个法定祝日夹住的单一平日依日本祝日法第3条第3款自动成为休息日。
+        数据源 date.nager.at 不收录该衍生节日 (如 2026-09-22 被敬老日 9/21 与秋分日 9/23 夹住),
+        此处按原始法定祝日集推导 (不级联, 法定节假日之间仅允许隔 1 天)。"""
+        if not hol:
+            return hol
+        keys = sorted(hol.keys())
+        d = date.fromisoformat(keys[0])
+        end = date.fromisoformat(keys[-1])
+        out = dict(hol)
+        while d <= end:
+            key = _fmt(d)
+            # 仅平日需要推导 (周末本身即休息); 邻日必须是原始法定祝日, 避免级联误推
+            if d.weekday() < 5 and key not in hol \
+                    and _fmt(d - timedelta(days=1)) in hol and _fmt(d + timedelta(days=1)) in hol:
+                out[key] = {"name": "Citizen's Holiday", "local_name": "国民の休日", "types": "derived"}
+            d += timedelta(days=1)
+        return out
+
+    @staticmethod
     def break_window(d: date, hol_set: Set[str]) -> Tuple[date, date]:
         """包含 d 的连休区间 (节假日 + 相邻周六日连续扩展)"""
         start = end = d
@@ -192,7 +225,8 @@ class JpHolidayService:
         cfg = JpHolidayService.get_config()
         n = days if days is not None else cfg["advance_days"]
         today = _today()
-        hol = JpHolidayService._load_holidays([today.year - 1, today.year, today.year + 1])
+        hol = JpHolidayService._with_citizen_days(
+            JpHolidayService._load_holidays([today.year - 1, today.year, today.year + 1]))
         hol_set = set(hol.keys())
         seen_windows: Set[str] = set()
         out: List[Dict[str, Any]] = []
@@ -228,6 +262,7 @@ class JpHolidayService:
         hol_next = JpHolidayService._load_holidays(
             [year - 1, year, year + 1])
         hol.update(hol_next)
+        hol = JpHolidayService._with_citizen_days(hol)  # 补齐国民の休日 (如 2026-09-22)
         first = date(year, month, 1)
         nxt_month = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
         days: List[Dict[str, Any]] = []

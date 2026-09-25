@@ -1037,6 +1037,112 @@ input[type="text"],
   50% { transform: scale(1.18); }
 }
 
+/* 📅 日本日历快捷弹窗 (樱粉×藤紫和风配色) */
+.cal-pop-wrap { position: relative; display: inline-flex; }
+.cal-pop-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 8px;
+  background: transparent; border: none; cursor: pointer; font-size: 1.05rem; line-height: 1;
+  transition: all 0.15s;
+}
+.cal-pop-btn:hover { background: #f1f5f9; }
+.cal-popup {
+  position: absolute; top: 46px; right: 0; z-index: 300;
+  width: 330px; background: #fff;
+  border: 1px solid #fbcfe8; border-radius: 14px;
+  box-shadow: 0 14px 44px rgba(190, 24, 93, 0.18);
+  overflow: hidden; animation: calPopIn 0.16s ease-out;
+}
+@keyframes calPopIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+.cal-pop-head {
+  background: linear-gradient(135deg, #f472b6 0%, #c084fc 55%, #a78bfa 100%);
+  color: #fff; padding: 14px 16px 12px;
+}
+.cal-pop-era { font-weight: 800; font-size: 1.08rem; letter-spacing: 0.5px; }
+.cal-pop-sub { font-size: 0.76rem; margin-top: 3px; opacity: 0.95; }
+.cal-pop-sec {
+  padding: 11px 15px 4px; font-size: 0.72rem; font-weight: 800;
+  color: #9d174d; letter-spacing: 1px;
+}
+/* 弹窗月份切换行: ‹ 上个月 · 月份标题 · 下个月 › */
+.cal-pop-sec-nav { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.cal-nav {
+  width: 24px; height: 24px; padding: 0; flex-shrink: 0;
+  border: 1px solid #fbcfe8; border-radius: 7px; background: #fff;
+  color: #be185d; font-size: 0.95rem; font-weight: 800; line-height: 1;
+  cursor: pointer; transition: all 0.12s;
+}
+.cal-nav:hover { background: #fdf2f8; border-color: #f472b6; }
+.cal-nav:active { transform: scale(0.92); }
+.cal-pop-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 15px; transition: background 0.12s;
+}
+.cal-pop-item:hover { background: #fdf2f8; }
+.cal-pop-item.major { background: #fff1f2; }
+.cal-pop-item.major:hover { background: #ffe4e6; }
+.cal-pop-dot { width: 8px; height: 8px; border-radius: 9999px; background: #fb7185; flex-shrink: 0; }
+.cal-pop-item.major .cal-pop-dot { background: #e11d48; box-shadow: 0 0 0 3px #fecdd3; }
+.cal-pop-name { font-weight: 700; font-size: 0.85rem; color: #1f2937; }
+.cal-pop-range { font-size: 0.71rem; color: #9ca3af; margin-top: 1px; }
+.cal-pop-chip {
+  background: #e11d48; color: #fff; font-size: 0.64rem; font-weight: 700;
+  padding: 2px 8px; border-radius: 9999px; white-space: nowrap;
+}
+.cal-pop-link {
+  display: block; text-align: center; padding: 10px;
+  font-size: 0.78rem; font-weight: 700; color: #be185d;
+  border-top: 1px dashed #fbcfe8; text-decoration: none;
+  transition: background 0.12s;
+}
+.cal-pop-link:hover { background: #fdf2f8; }
+.cal-pop-loading, .cal-pop-empty { padding: 20px; text-align: center; font-size: 0.8rem; color: #9ca3af; }
+
+/* 📅 弹窗当月日历视图 (cmp-*) */
+.cmp-count {
+  display: inline-block; margin-top: 6px; padding: 2px 10px; border-radius: 9999px;
+  background: rgba(255,255,255,0.22); font-size: 0.7rem; font-weight: 700;
+}
+.cmp-count.none { background: rgba(255,255,255,0.12); opacity: 0.85; }
+.cmp-grid-wrap {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px;
+  padding: 4px 12px 8px;
+}
+.cmp-wd {
+  text-align: center; font-size: 0.68rem; font-weight: 700; color: #94a3b8; padding: 2px 0;
+}
+.cmp-wd.sat { color: #64748b; } .cmp-wd.sun { color: #dc2626; }
+.cmp-day {
+  min-height: 42px; border-radius: 6px; background: #f8fafc;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 2px; position: relative; overflow: hidden;
+}
+.cmp-day.cmp-blank { background: transparent; }
+.cmp-day.wk { background: #f1f5f9; }
+.cmp-day .cmp-num { font-size: 0.76rem; font-weight: 700; color: #334155; line-height: 1.1; }
+.cmp-day .cmp-hol {
+  font-size: 0.58rem; color: #be123c; font-weight: 600; line-height: 1.15;
+  text-align: center; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cmp-day.hol { background: #ffe4e6; }
+.cmp-day.hol .cmp-num { color: #e11d48; }
+/* 连休连片: 玫红左侧竖条 + 渐变底 */
+.cmp-day.brk::before {
+  content: ""; position: absolute; left: 0; top: 3px; bottom: 3px; width: 3px;
+  background: #f43f5e; border-radius: 0 3px 3px 0;
+}
+.cmp-day.brk { background: linear-gradient(180deg, #ffe4e6, #fff1f2); }
+/* 今天: 蓝底白字高亮 */
+.cmp-day.tdy { background: #2563eb; box-shadow: 0 2px 8px rgba(37,99,235,0.45); }
+.cmp-day.tdy .cmp-num { color: #fff; font-weight: 800; }
+.cmp-day.tdy .cmp-hol { color: #bfdbfe; }
+.cmp-legend {
+  padding: 6px 14px 10px; font-size: 0.68rem; color: #9ca3af;
+  display: flex; align-items: center; gap: 10px;
+}
+.cmp-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 3px; vertical-align: -1px; }
+.lg-hol { background: #ffe4e6; } .lg-brk { background: linear-gradient(180deg, #ffe4e6, #fff1f2); border-left: 3px solid #f43f5e; } .lg-tdy { background: #2563eb; }
+
 /* User Badge Hover Popover (用户徽章即时悬浮浮窗) */
 .user-badge-wrapper {
   position: relative;

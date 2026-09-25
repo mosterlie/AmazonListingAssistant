@@ -1,7 +1,7 @@
 /**
  * 提醒任务页前端逻辑 (admin) — 邮件提醒配置 (与告警任务轮询配置解耦)
  * 卡片渲染复用 task_cards.js 通用工厂 (统一配置模板, 由后端 REMINDER_FORMS 驱动)。
- * 两类提醒: daily_digest=每日定时提醒 (店小秘订单+货代超期汇总) / dxm_realtime=红色/超时实时提醒
+ * 三类提醒: daily_digest=每日定时提醒 / dxm_realtime=红色/超时实时提醒 / jp_holiday=日本大节日提醒
  */
 
 const REMINDER_PRESENTATION = {
@@ -33,6 +33,21 @@ const REMINDER_PRESENTATION = {
       if (!st) return "";
       return `<b>最近预警邮件</b> 发送状态 ` +
         `<b style="color:${st === "sent" ? "#16a34a" : "#dc2626"};">${atEsc(st)}</b>`;
+    }
+  },
+  jp_holiday: {
+    badges(t) {
+      const st = t.status || {};
+      const badges = [{ text: t.enabled ? "🟢 已开启" : "⚪ 已关闭", tone: t.enabled ? "run" : "idle" }];
+      if (st.upcoming_count != null) badges.push({ text: `🇯🇵 未来90天 ${st.upcoming_count} 个节日`, tone: "warn" });
+      return badges;
+    },
+    logHtml(t) {
+      const last = (t.status || {}).last_reminder;
+      if (!last) return "";
+      const ok = String(last.status || "").startsWith("sent");
+      return `<b>上次提醒</b> ${atEsc(fmtLogTime(last.time))} · ` +
+        `<b style="color:${ok ? "#16a34a" : "#dc2626"};">${atEsc(String(last.status || "—").slice(0, 120))}</b>`;
     }
   }
 };

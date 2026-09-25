@@ -68,7 +68,7 @@ class SystemSettingsSchema(BaseModel):
     submit_ad_enabled: bool = Field(False, description="自动投放是否提交广告 (True=每批录入后自动点击提交并确认; False=停在提交前待人工确认)")
     ai_config: AiConfigSchema = Field(default_factory=AiConfigSchema, description="AI 大模型配置 (自动生成五点描述)")
     db_agent_token: Optional[str] = Field("", description="桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token 校验, 留空使用默认 erp2024)")
-    email_notify: EmailNotifySchema = Field(default_factory=EmailNotifySchema, description="邮件通知配置 (汇总邮件+各预警邮件共用 SMTP 发信通道)")
+    email_notify: EmailNotifySchema = Field(default_factory=EmailNotifySchema, description="邮件配置 (SMTP 发信通道基础参数 + 默认收件人)")
 
 
 def normalize_store_accounts(raw_stores: Any) -> List[Dict[str, Any]]:

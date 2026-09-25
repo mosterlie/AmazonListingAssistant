@@ -46,7 +46,7 @@
     <button class="settings-nav-item" data-tab="automation" type="button">🚀 自动化上件</button>
     <button class="settings-nav-item" data-tab="ai" type="button">🤖 AI 大模型</button>
     <button class="settings-nav-item" data-tab="general" type="button">🗂️ 归档·会话·令牌</button>
-    <button class="settings-nav-item" data-tab="email" type="button">📧 邮件通知</button>
+    <button class="settings-nav-item" data-tab="email" type="button">📧 邮件配置</button>
     <button class="settings-nav-item" data-tab="alert_tasks" type="button">🔔 告警任务</button>
     <button class="settings-nav-item" data-tab="reminders" type="button">📨 提醒任务</button>
   </nav>
@@ -371,13 +371,13 @@
 
     </div>
 
-    <!-- 8. 邮件通知 (汇总邮件 + 各预警邮件共用发信通道) -->
+    <!-- 8. 邮件配置 (仅 SMTP 发信通道基础参数, 非通知页面) -->
     <div class="settings-panel" data-panel="email">
       <div class="form-card">
         <div class="card-header">
           <div class="card-title">
             <div class="card-title-icon">📧</div>
-            <span>邮件通知 (SMTP 发信配置)</span>
+            <span>邮件配置 (SMTP 发信通道基础参数)</span>
           </div>
           <span class="tag-badge" style="background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">全部邮件共用此发信通道</span>
         </div>
@@ -428,7 +428,7 @@
             </div>
           </div>
           <small style="color:var(--text-muted); font-size:0.78rem; display:block;">
-            提醒开关 / 发送时间 / 各提醒独立收件人 / 主题前缀在 📨 提醒任务 标签配置 (本页收件人作为默认兜底)。
+            本页仅配置发信通道基础参数 (SMTP 账号/授权码/默认收件人); 各类提醒的开关/时间/收件人在 📨 提醒任务 标签配置 (日本大节日提醒也在此页)。
           </small>
         </div>
       </div>
@@ -457,6 +457,6 @@
 
 <script src="/static/js/task_cards.js?v=20260925_merge1"></script>
 <script src="/static/js/alert_tasks.js?v=20260925_merge1"></script>
-<script src="/static/js/reminders.js?v=20260925_merge1"></script>
-<script src="/static/js/settings.js?v=20260925_cr4"></script>
+<script src="/static/js/reminders.js?v=20260925_jpr2"></script>
+<script src="/static/js/settings.js?v=20260925_jpr2"></script>
 {% endblock %}

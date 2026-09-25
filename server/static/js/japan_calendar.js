@@ -5,11 +5,11 @@
 (function () {
   "use strict";
 
-  const isAdmin = document.getElementById("jcSaveBtn") !== null;
+  const isAdmin = document.getElementById("jcSyncBtn") !== null;
   const state = { year: 0, month: 0 };
 
   function esc(s) {
-    return String(s === null || s === undefined ? "")
+    return String(s === null || s === undefined ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
@@ -53,11 +53,6 @@
       document.getElementById("jcUpCount").innerText = (d.upcoming || []).length;
 
       renderUpcoming(d.upcoming || []);
-      if (isAdmin && d.config) {
-        document.getElementById("jcEmailEnabled").checked = !!d.config.email_enabled;
-        document.getElementById("jcAdvanceDays").value = d.config.advance_days ?? 7;
-        document.getElementById("jcMailTo").value = (d.config.mail_to || []).join(", ");
-      }
     } catch (e) {
       toast(`加载状态失败: ${e.message}`, "error");
     }
@@ -88,83 +83,91 @@
     }).join("");
   }
 
-  // ═══════════════════ 月历 ═══════════════════
-  async function loadCalendar() {
-    const grid = document.getElementById("jcDaysGrid");
-    try {
-      const result = await api(`/api/jp-holidays/calendar?year=${state.year}&month=${state.month}`);
-      const d = result.data || {};
-      document.getElementById("jcMonthTitle").innerText = `${d.year} 年 ${d.month} 月`;
-      const tKey = todayKey();
-      const blanks = d.first_weekday; // 周一为第 0 列
-      let html = "";
-      for (let i = 0; i < blanks; i++) html += `<div class="jc-day" style="border:none; background:transparent;"></div>`;
-      grid.innerHTML = html + (d.days || []).map(day => {
-        const cls = ["jc-day"];
-        if (day.is_weekend) cls.push("jc-weekend");
-        if (day.holiday_name) cls.push("jc-holiday");
-        if (day.date === tKey) cls.push("jc-today");
-        const holEn = day.holiday_name && !/^[\u0000-\u00ff\u3000-\u9fff\uf900-\ufaff]+$/.test(day.holiday_name)
-          ? `<div class="jc-hol-en">${esc(day.holiday_name)}</div>` : "";
-        return `<div class="${cls.join(" ")}">
-          <div class="jc-num">${parseInt(day.date.slice(8), 10)}</div>
-          ${day.holiday_name ? `<div class="jc-hol-name">${esc(day.holiday_name)}</div>${holEn}` : ""}
-        </div>`;
-      }).join("");
-    } catch (e) {
-      grid.innerHTML = `<div style="grid-column:1/-1; color:#dc2626; font-size:0.85rem;">日历加载失败: ${esc(e.message)}</div>`;
+  // ═══════════════════ 月历 (6个月并排, 2行×3列) ═══════════════════
+  const MONTH_COUNT = 6;
+  function addMonths(y, m, delta) {
+    let t = y * 12 + (m - 1) + delta;
+    return { year: Math.floor(t / 12), month: (t % 12 + 12) % 12 + 1 };
+  }
+  // 连休分组: 法定祝日或周末相邻连续, 总天数 ≥3 (含3日) 且组内至少含 1 个法定祝日 → 连休
+  // (纯周末2天不算连休; 周末+祝日连成 3 天以上即为一目了然的连续休假)
+  function calcBreaks(days) {
+    const brkSet = new Set();       // 属于连休组的全部日期
+    const brkStart = new Map();     // 组首日期 -> 连休总天数
+    let run = [];
+    const flush = () => {
+      if (run.length >= 3 && run.some(x => x.holiday_name)) {
+        run.forEach(x => brkSet.add(x.date));
+        brkStart.set(run[0].date, run.length);
+      }
+      run = [];
+    };
+    for (const day of (days || [])) {
+      if (day.holiday_name || day.is_weekend) run.push(day);
+      else flush();
     }
+    flush();
+    return { brkSet, brkStart };
+  }
+  function renderMonth(index, year, month) {
+    const grid = document.getElementById(`jcDaysGrid_${index}`);
+    const title = document.getElementById(`jcMonthTitle_${index}`);
+    if (!grid) return;
+    return api(`/api/jp-holidays/calendar?year=${year}&month=${month}`)
+      .then(result => {
+        const d = result.data || {};
+        title.innerText = `${d.year} 年 ${d.month} 月`;
+        const tKey = todayKey();
+        const { brkSet, brkStart } = calcBreaks(d.days);
+        let html = "";
+        for (let i = 0; i < (d.first_weekday || 0); i++) html += `<div class="jc-day" style="border:none; background:transparent;"></div>`;
+        html += (d.days || []).map(day => {
+          const cls = ["jc-day"];
+          if (day.is_weekend) cls.push("jc-weekend");
+          if (day.holiday_name) cls.push("jc-holiday");
+          if (brkSet.has(day.date)) cls.push("jc-brk");
+          const isToday = day.date === tKey;
+          if (isToday) cls.push("jc-big-day");
+          const isBrkStart = brkStart.has(day.date);
+          if (isBrkStart) cls.push("jc-brk-start");
+          const holEn = day.holiday_name && !/^[\u0000-\u00ff\u3000-\u9fff\uf900-\ufaff]+$/.test(day.holiday_name)
+            ? `<div class="jc-hol-en">${esc(day.holiday_name)}</div>` : "";
+          const brkBadge = (isBrkStart && !isToday)
+            ? `<div class="jc-break-badge">連休${brkStart.get(day.date)}天</div>` : "";
+          return `<div class="${cls.join(" ")}">
+            <div class="jc-num">${parseInt(day.date.slice(8), 10)}</div>
+            ${isToday ? `<div class="jc-today-badge">今</div>` : ""}
+            ${brkBadge}
+            ${day.holiday_name ? `<div class="jc-hol-name">${esc(day.holiday_name)}</div>${holEn}` : ""}
+          </div>`;
+        }).join("");
+        grid.innerHTML = html;
+      })
+      .catch(e => {
+        grid.innerHTML = `<div style="grid-column:1/-1; color:#dc2626; font-size:0.8rem;">加载失败: ${esc(e.message)}</div>`;
+      });
+  }
+  async function loadCalendar() {
+    const jobs = [];
+    let { year, month } = state;
+    for (let i = 0; i < MONTH_COUNT; i++) {
+      jobs.push(renderMonth(i, year, month));
+      const next = addMonths(year, month, 1);
+      year = next.year; month = next.month;
+    }
+    await Promise.all(jobs);
   }
 
   function shiftMonth(delta) {
-    let m = state.month + delta, y = state.year;
-    if (m < 1) { m = 12; y--; }
-    if (m > 12) { m = 1; y++; }
-    state.year = y; state.month = m;
+    const next = addMonths(state.year, state.month, delta);
+    state.year = next.year; state.month = next.month;
     loadCalendar();
   }
 
-  // ═══════════════════ 配置操作 (管理员) ═══════════════════
-  async function saveConfig() {
-    const payload = {
-      email_enabled: document.getElementById("jcEmailEnabled").checked,
-      advance_days: parseInt(document.getElementById("jcAdvanceDays").value, 10) || 7,
-      mail_to: document.getElementById("jcMailTo").value.trim(),
-    };
-    try {
-      await api("/api/jp-holidays/config", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      toast("提醒配置已保存");
-    } catch (e) {
-      toast(`保存失败: ${e.message}`, "error");
-    }
-  }
+  // 整页翻页: 前移/后移一次翻 6 个月 (一整个页面)
+  function shiftPage(delta) { shiftMonth(delta * MONTH_COUNT); }
 
-  async function testEmail() {
-    const btn = document.getElementById("jcTestBtn");
-    btn.disabled = true; btn.innerText = "发送中...";
-    try {
-      const payload = {
-        config: {
-          email_enabled: true,
-          advance_days: parseInt(document.getElementById("jcAdvanceDays").value, 10) || 7,
-          mail_to: document.getElementById("jcMailTo").value.trim(),
-        }
-      };
-      const result = await api("/api/jp-holidays/test-email", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      toast(result.msg || "测试邮件已发送");
-    } catch (e) {
-      toast(`测试邮件失败: ${e.message}`, "error");
-    } finally {
-      btn.disabled = false; btn.innerText = "📧 测试邮件";
-    }
-  }
-
+  // ═══════════════════ 同步 (管理员) ═══════════════════
   async function syncNow() {
     const btn = document.getElementById("jcSyncBtn");
     btn.disabled = true; btn.innerText = "同步中...";
@@ -183,15 +186,13 @@
   const now = new Date();
   state.year = now.getFullYear();
   state.month = now.getMonth() + 1;
-  document.getElementById("jcPrevMonth").addEventListener("click", () => shiftMonth(-1));
-  document.getElementById("jcNextMonth").addEventListener("click", () => shiftMonth(1));
+  document.getElementById("jcPrevMonth").addEventListener("click", () => shiftPage(-1));
+  document.getElementById("jcNextMonth").addEventListener("click", () => shiftPage(1));
   document.getElementById("jcThisMonth").addEventListener("click", () => {
     state.year = now.getFullYear(); state.month = now.getMonth() + 1; loadCalendar();
   });
   document.getElementById("jcRefreshBtn").addEventListener("click", () => { loadStatus(); loadCalendar(); });
   if (isAdmin) {
-    document.getElementById("jcSaveBtn").addEventListener("click", saveConfig);
-    document.getElementById("jcTestBtn").addEventListener("click", testEmail);
     document.getElementById("jcSyncBtn").addEventListener("click", syncNow);
   }
   loadStatus();
