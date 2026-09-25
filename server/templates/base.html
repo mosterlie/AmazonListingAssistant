@@ -32,6 +32,11 @@
 
       {% if current_user %}
       <div style="display:flex; align-items:center; gap:8px; margin-left:auto;">
+        <!-- 🔴 全局红色告警角标: 货代今日超期 + 店小秘红/超时未发货, 有告警才显示 -->
+        <a href="/alerts" class="alert-bell" id="alertBell" style="display:none;">
+          <span class="alert-bell-icon">🔔</span>
+          <span class="alert-bell-num" id="alertBellNum">0</span>
+        </a>
         <!-- 用户徽章与悬浮卡片包装容器 -->
         <div class="user-badge-wrapper" id="userBadgeWrapper">
           <div class="user-profile-badge" id="userProfilePill" style="display:flex; align-items:center; gap:6px; background:#f1f5f9; padding:5px 12px; border-radius:9999px; font-size:0.82rem; cursor:pointer; border:1px solid #e2e8f0; transition:all 0.2s;">
@@ -128,6 +133,28 @@
       const modal = document.getElementById("imageLightboxModal");
       if (modal) modal.style.display = "none";
     }
+
+    // 🔴 全局告警角标: 每5分钟轮询一次 (货代今日超期 + 店小秘红/超时未发货)
+    (function () {
+      const bell = document.getElementById("alertBell");
+      if (!bell) return;
+      async function refreshAlertBell() {
+        try {
+          const res = await fetch("/api/alerts/badge");
+          const j = await res.json();
+          if (j && j.code === 0 && j.data && j.data.total > 0) {
+            const numEl = document.getElementById("alertBellNum");
+            if (numEl) numEl.innerText = j.data.total > 99 ? "99+" : j.data.total;
+            bell.style.display = "inline-flex";
+            bell.title = `🔴 待处理告警 ${j.data.total} 条\n· 货代今日超期: ${j.data.fwd} 条\n· 店小秘红/超时未发货: ${j.data.dxm} 条\n点击进入告警中心`;
+          } else {
+            bell.style.display = "none";
+          }
+        } catch (e) { /* 网络异常静默 */ }
+      }
+      refreshAlertBell();
+      setInterval(refreshAlertBell, 5 * 60 * 1000);
+    })();
   </script>
   <script src="/static/js/pricing_tool.js?v=20260925_pt7"></script>
   <script src="/static/js/app.js?v=20260925_bulk5"></script>

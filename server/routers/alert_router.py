@@ -26,6 +26,12 @@ async def get_tasks(user: Dict[str, Any] = Depends(get_current_user)):
     return {"code": 0, "msg": "success", "data": alert_service.AlertService.get_tasks()}
 
 
+@router.get("/alerts/badge")
+async def get_alert_badge(user: Dict[str, Any] = Depends(get_current_user)):
+    """顶栏红色告警角标: 货代今日超期 + 店小秘红/超时未发货 (所有登录用户)"""
+    return {"code": 0, "msg": "success", "data": alert_service.AlertService.get_badge()}
+
+
 @router.post("/alert-tasks/{key}/config")
 async def save_task_config(key: str, payload: Dict[str, Any] = Body(default={}),
                            admin: Dict[str, Any] = Depends(require_admin_user)):

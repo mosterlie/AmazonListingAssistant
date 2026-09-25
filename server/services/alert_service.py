@@ -336,6 +336,24 @@ class AlertService:
         }
 
     @staticmethod
+    def get_badge() -> Dict[str, Any]:
+        """顶栏红色告警角标: 货代今日超期告警 + 店小秘红/超时未发货 (登录用户可见)"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        conn = get_db_connection()
+        try:
+            fwd = conn.execute(
+                "SELECT COUNT(*) c FROM forwarder_ship_alerts WHERE biz_date = ?",
+                (today,)).fetchone()["c"]
+            dxm = conn.execute(
+                """SELECT COUNT(*) c FROM dxm_order_deadlines
+                   WHERE alert_level = 2
+                     AND order_status NOT LIKE 'Shipped%' AND order_status != 'shipped'""",
+                ).fetchone()["c"]
+        finally:
+            conn.close()
+        return {"fwd": fwd, "dxm": dxm, "total": fwd + dxm}
+
+    @staticmethod
     def _forwarder_title(row_json: str, sheet_name: str) -> str:
         try:
             data = json.loads(row_json or "{}")
