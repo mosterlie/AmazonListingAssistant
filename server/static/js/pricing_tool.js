@@ -631,7 +631,7 @@
       style.textContent = [
         "#pricingToolModal{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;}",
         "#pricingToolModal .pt-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.6);backdrop-filter:blur(4px);}",
-        "#pricingToolModal .pt-dialog{position:relative;background:#fff;width:92%;max-width:760px;max-height:90vh;border-radius:12px;box-shadow:0 25px 50px -12px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;animation:ptSlideIn .2s cubic-bezier(.16,1,.3,1);}",
+        "#pricingToolModal .pt-dialog{position:relative;background:#fff;width:94%;max-width:1040px;max-height:90vh;border-radius:12px;box-shadow:0 25px 50px -12px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;animation:ptSlideIn .2s cubic-bezier(.16,1,.3,1);}",
         "@keyframes ptSlideIn{from{opacity:0;transform:translateY(20px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}",
         "#pricingToolModal .pt-header{padding:16px 24px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;background:#f8fafc;}",
         "#pricingToolModal .pt-close{background:none;border:none;font-size:1.3rem;color:#64748b;cursor:pointer;padding:4px 8px;border-radius:6px;}",
@@ -652,9 +652,20 @@
         "#pricingToolModal .pt-card.pt-price .pt-v{color:#7c3aed;font-size:1.3rem;}",
         "#pricingToolModal .pt-formula{margin-top:8px;font-size:.76rem;color:#94a3b8;text-align:center;}",
         "#pricingToolModal .pt-table{width:100%;border-collapse:collapse;margin-top:14px;font-size:.84rem;}",
-        "#pricingToolModal .pt-table th{background:#f1f5f9;color:#475569;padding:7px 10px;text-align:left;font-weight:600;border-bottom:1px solid #e2e8f0;}",
-        "#pricingToolModal .pt-table td{padding:7px 10px;border-bottom:1px solid #f1f5f9;color:#334155;}",
+        "#pricingToolModal .pt-table th{background:#f1f5f9;color:#475569;padding:7px 10px;text-align:left;font-weight:600;border-bottom:1px solid #e2e8f0;white-space:nowrap;}",
+        "#pricingToolModal .pt-table td{padding:7px 10px;border-bottom:1px solid #f1f5f9;color:#334155;white-space:nowrap;}",
+        "#pricingToolModal .pt-table td.pt-num{text-align:right;font-variant-numeric:tabular-nums;}",
+        "#pricingToolModal .pt-table th.pt-num{text-align:right;}",
+        "#pricingToolModal .pt-table tr.pt-row{cursor:pointer;}",
+        "#pricingToolModal .pt-table tr.pt-row:hover td{background:#faf5ff;}",
         "#pricingToolModal .pt-table tr.pt-best td{background:#f5f3ff;font-weight:700;color:#6d28d9;}",
+        "#pricingToolModal .pt-rate-pos{color:#16a34a;font-weight:700;}",
+        "#pricingToolModal .pt-rate-neg{color:#dc2626;font-weight:700;}",
+        "#pricingToolModal .pt-common{margin-top:14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;}",
+        "#pricingToolModal .pt-common-title{font-size:.8rem;font-weight:700;color:#475569;margin-bottom:8px;display:flex;align-items:center;gap:6px;}",
+        "#pricingToolModal .pt-common-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;}",
+        "#pricingToolModal .pt-common-grid .pt-k{font-size:.68rem;color:#94a3b8;margin-bottom:2px;}",
+        "#pricingToolModal .pt-common-grid .pt-v{font-size:.86rem;font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums;}",
         "#pricingToolModal .pt-badge{display:inline-block;padding:1px 7px;border-radius:999px;background:#ede9fe;color:#6d28d9;font-size:.7rem;font-weight:600;}",
         "#pricingToolModal .pt-hint{margin-top:12px;padding:10px 12px;border-radius:8px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:.84rem;}",
         "#pricingToolModal .pt-std{margin-top:18px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;}",
@@ -714,6 +725,14 @@
           PricingTool._chosenChannel = e.target.value || null;
           PricingTool.calc();
         }
+      });
+
+      // 点击表格渠道行 → 选中该渠道重算
+      document.getElementById("ptResultArea").addEventListener("click", function (e) {
+        var tr = e.target && e.target.closest ? e.target.closest("tr[data-channel]") : null;
+        if (!tr) return;
+        PricingTool._chosenChannel = tr.getAttribute("data-channel") || null;
+        PricingTool.calc();
       });
 
       // ESC 关闭
@@ -782,7 +801,10 @@
     },
 
     _render: function (area, res) {
-      var pCoeff = (this._cfg && this._cfg.price_coefficient) ? this._cfg.price_coefficient : 26.0;
+      var cfg = this._cfg || {};
+      var pCoeff = cfg.price_coefficient ? parseFloat(cfg.price_coefficient) : 26.0;
+      var taxRate = (cfg.tax_rate !== undefined && cfg.tax_rate !== "" && cfg.tax_rate !== null) ? parseFloat(cfg.tax_rate) : 0.17;
+      var exRate = (cfg.exchange_rate !== undefined && cfg.exchange_rate !== "" && cfg.exchange_rate !== null) ? parseFloat(cfg.exchange_rate) : 23.0;
       var cost = parseFloat(this._v("ptCost")) || 0;
       var coeff = parseFloat(this._v("ptCoeff")) || 1.0;
 
@@ -802,29 +824,70 @@
         return;
       }
 
-      var opt = '<option value="">— 请选择渠道 —</option>' + res.freights.map(function (f) {
-        return '<option value="' + f.channel + '" ' + (f.channel === res.selectedChannel ? "selected" : "") + ">¥" + f.cost + "  " + f.channel + (f.channel === res.optimalChannel ? "（最便宜）" : "") + "</option>";
-      }).join("");
+      var L = parseFloat(this._v("ptLen")) || 0;
+      var W = parseFloat(this._v("ptWid")) || 0;
+      var H = parseFloat(this._v("ptHei")) || 0;
+      var actWt = parseFloat(this._v("ptWgt")) || 0;
+      var sumSides = L + W + H;
+      var declared = Math.round(actWt * 4 * 7.19 * 100) / 100;          // 申报金额 = 实重×4×7.19 (商业件川日大包)
+      var commTax = Math.round(declared * 0.1 * 100) / 100 + 50;        // 商业件税金 = 申报金额×10% + 50
 
+      function cell(k, v) {
+        return '<div><div class="pt-k">' + k + '</div><div class="pt-v">' + v + "</div></div>";
+      }
+      function fmt2(v) { return String(Math.round(v * 100) / 100); }
+
+      // ── 公共信息区: 全渠道共用的派生值与全局参数 ──
+      var common =
+        '<div class="pt-common"><div class="pt-common-title">📋 公共信息 <span style="font-weight:400;color:#94a3b8;">(全部渠道共用 · 税率/汇率/系数取自系统管理计价参数)</span></div>' +
+        '<div class="pt-common-grid">' +
+        cell("体积重 ÷6000", res.vol6000 + " kg") +
+        cell("体积重 ÷8000", res.vol8000 + " kg") +
+        cell("三边和 (长+宽+高)", fmt2(sumSides) + " cm") +
+        cell("申报金额 (实重×4×7.19)", "¥" + fmt2(declared)) +
+        cell("商业件税金 (×10%+50)", "¥" + fmt2(commTax)) +
+        cell("采购价 / 利润系数", "¥" + cost + " / " + coeff) +
+        cell("税率 (日本综合)", (taxRate * 100).toFixed(0) + "%") +
+        cell("汇率 (1¥≈N円)", exRate + " 円") +
+        cell("价格系数", pCoeff) +
+        "</div></div>";
+
+      // ── 渠道明细表: 每个快递一行, 按运费由低到高 ──
       var rows = res.freights.map(function (f) {
-        var cls = f.channel === res.selectedChannel ? ' class="pt-best"' : "";
-        var badge = f.channel === res.optimalChannel ? ' <span class="pt-badge">最优</span>' : "";
+        var total = cost + f.cost;                       // 合计 = 采购 + 该渠道运费
+        var planned = total * coeff;                     // 计划利润 = 合计 × 利润系数
+        var price = Math.round((total + planned) * pCoeff);  // 建议售价(円)
+        var after = price * (1 - taxRate);               // 扣完税 = 售价 × (1-税率)
+        var rate = after > 0 ? (1 - (total * exRate) / after) : null;  // 利润率 = 1 - 成本×汇率 ÷ 扣完税
+        var esc = String(f.channel).replace(/"/g, "&quot;");
+        var cls = f.channel === res.selectedChannel ? ' class="pt-best"' : ' class="pt-row"';
+        var badge = f.channel === res.optimalChannel ? ' <span class="pt-badge">最便宜</span>' : "";
         var tag = f.channel === res.selectedChannel && res.selectedChannel !== res.optimalChannel ? ' <span class="pt-badge" style="background:#dbeafe;color:#1d4ed8;">当前</span>' : "";
-        return "<tr" + cls + "><td>" + f.channel + badge + tag + '</td><td>' + (f.cw !== null && f.cw !== undefined ? f.cw + " kg" : "-") + '</td><td>¥' + f.cost + "</td></tr>";
+        var rateHtml = rate === null ? "—" :
+          '<span class="' + (rate >= 0 ? "pt-rate-pos" : "pt-rate-neg") + '">' + (rate * 100).toFixed(2) + "%</span>";
+        return "<tr" + cls + ' data-channel="' + esc + '" title="点击选用 ' + esc + '">' +
+          "<td>" + f.channel + badge + tag + "</td>" +
+          '<td class="pt-num">' + (f.cw !== null && f.cw !== undefined ? f.cw + " kg" : "-") + "</td>" +
+          '<td class="pt-num"><b>¥' + fmt2(f.cost) + "</b></td>" +
+          '<td class="pt-num">¥' + fmt2(total) + "</td>" +
+          '<td class="pt-num">' + price + " 円</td>" +
+          '<td class="pt-num">' + fmt2(after) + " 円</td>" +
+          '<td class="pt-num">' + rateHtml + "</td></tr>";
       }).join("");
 
       area.innerHTML = [
-        '<div class="pt-grid" style="margin-bottom:2px;">',
-        '  <div class="pt-field" style="grid-column:1/-1;"><label>快递渠道（按运费升序，可切换后实时重算）</label><select class="pt-select" id="ptChannelSelect">' + opt + "</select></div>",
-        "</div>",
-        '<div class="pt-summary">',
-        '  <div class="pt-card"><div class="pt-k">最优渠道</div><div class="pt-v">' + res.optimalChannel + '</div><div style="font-size:.74rem;color:#64748b;margin-top:2px;">¥' + res.optimalFreight + "</div></div>",
-        '  <div class="pt-card"><div class="pt-k">所选渠道运费</div><div class="pt-v">¥' + res.selectedFreight + "</div></div>",
-        '  <div class="pt-card"><div class="pt-k">体积重 (÷6000 / ÷8000)</div><div class="pt-v" style="font-size:.88rem;">' + res.vol6000 + " / " + res.vol8000 + " kg</div></div>",
-        '  <div class="pt-card pt-price"><div class="pt-k">建议日元售价</div><div class="pt-v">¥ ' + res.priceJpy + " 円</div></div>",
-        "</div>",
-        '<div class="pt-formula">( 采购价 ¥' + cost + " + 运费 ¥" + res.selectedFreight + " ) × ( 1 + 利润系数 " + coeff + " ) × 价格系数 " + pCoeff + " = " + res.priceJpy + " 円</div>",
-        '<table class="pt-table"><thead><tr><th>渠道</th><th>计费重</th><th>运费 (¥)</th></tr></thead><tbody>' + rows + "</tbody></table>"
+        common,
+        '<div style="font-weight:700;font-size:.86rem;color:#475569;margin-top:16px;">🚚 各快递渠道明细 <span style="font-weight:400;font-size:.76rem;color:#94a3b8;">按运费由低到高 · 点击行切换选用渠道</span></div>',
+        '<table class="pt-table"><thead><tr>' +
+        "<th>渠道</th><th class=\"pt-num\">计费重</th><th class=\"pt-num\">运费 (¥)</th>" +
+        '<th class="pt-num">合计成本 (¥)</th><th class="pt-num">建议售价 (円)</th>' +
+        '<th class="pt-num">扣完税 (円)</th><th class="pt-num">利润率</th>' +
+        "</tr></thead><tbody>" + rows + "</tbody></table>",
+        '<div class="pt-formula" style="text-align:left;">📌 选用「' + res.selectedChannel + "」: 合计 ¥" + fmt2(res.selectedFreight + cost) +
+          " (采购 ¥" + cost + " + 运费 ¥" + fmt2(res.selectedFreight) + ") → 售价 = 合计×(1+" + coeff + ")×" + pCoeff + " = " +
+          res.priceJpy + " 円 → 扣完税 " + fmt2(res.priceJpy * (1 - taxRate)) + " 円 → 利润率 " +
+          ((1 - ((res.selectedFreight + cost) * exRate) / (res.priceJpy * (1 - taxRate)) ) * 100).toFixed(2) + "%" +
+          "　<span style='color:#cbd5e1;'>|</span>　利润率 = 1 − 成本×汇率 ÷ 扣税后售价</div>"
       ].join("");
     }
   };

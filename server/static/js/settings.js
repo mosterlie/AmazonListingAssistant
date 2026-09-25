@@ -892,6 +892,9 @@ function crRowNum(scope, f) {
 function collectChannelRules() {
   const list = document.getElementById("channelRulesList");
   if (!list) return null;
+  // 编辑器未渲染的高级字段从载入的原始规则回补, 防止保存时丢失
+  const origMap = {};
+  (crWorking || []).forEach((r) => { if (r && r.key) origMap[r.key] = r; });
   const rules = [];
   list.querySelectorAll(".cr-card").forEach((card, ci) => {
     const qv = (f) => crRowVal(card, f);
@@ -977,6 +980,13 @@ function collectChannelRules() {
       });
       rule.surcharges.push(grp);
     });
+    const orig = origMap[rule.key] || {};
+    if (orig.limits && orig.limits.max_cw_surplus_ratio != null) {
+      rule.limits.max_cw_surplus_ratio = orig.limits.max_cw_surplus_ratio;
+    }
+    if (orig.pricing && orig.pricing.girth_discount) {
+      rule.pricing.girth_discount = orig.pricing.girth_discount;
+    }
     rules.push(rule);
   });
   return rules;
