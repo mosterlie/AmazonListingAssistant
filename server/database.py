@@ -605,6 +605,17 @@ def init_db():
     );
     """)
 
+    # 日本法定节假日日历 (date.nager.at 定时同步, 供月历展示与大节日邮件提醒)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS jp_holidays (
+        date TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        local_name TEXT DEFAULT '',
+        types TEXT DEFAULT '',
+        synced_at TEXT DEFAULT ''
+    );
+    """)
+
     # 初始化默认管理员用户 (admin / admin)
     cursor.execute("SELECT id FROM users WHERE username = 'admin';")
     if not cursor.fetchone():

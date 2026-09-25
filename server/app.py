@@ -38,6 +38,7 @@ from server.routers import (
     forwarder_router,
     forwarder_doc_router,
     alert_router,
+    jp_holiday_router,
     db_agent_router
 )
 
@@ -56,12 +57,17 @@ async def lifespan(app: FastAPI):
     from server.services.daily_digest_scheduler import start_daily_digest_scheduler
 
     digest_scheduler_task = start_daily_digest_scheduler()
+    # 日本节假日日历同步 + 大节日邮件提醒: services/jp_holiday_scheduler.py (每60s心跳)
+    from server.services.jp_holiday_scheduler import start_jp_holiday_scheduler
+
+    jp_holiday_task = start_jp_holiday_scheduler()
     display_host = "127.0.0.1" if SERVER_HOST in ("0.0.0.0", "") else SERVER_HOST
     print(f"🚀 服务已就绪！访问地址: http://{display_host}:{SERVER_PORT}")
     yield
     scheduler_task.cancel()
     dxm_scheduler_task.cancel()
     digest_scheduler_task.cancel()
+    jp_holiday_task.cancel()
 
 # 1. 实例化 FastAPI 应用
 app = FastAPI(
@@ -115,6 +121,7 @@ app.include_router(prompt_router.router)
 app.include_router(forwarder_router.router)
 app.include_router(forwarder_doc_router.router)
 app.include_router(alert_router.router)
+app.include_router(jp_holiday_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
 app.include_router(db_agent_router.router)
 
@@ -255,6 +262,19 @@ async def render_forwarder_page(request: Request):
 
     return templates.TemplateResponse(request=request, name="forwarder.html", context={
         "active_page": "forwarder",
+        "current_user": user
+    })
+
+
+@app.get("/japan-calendar", response_class=HTMLResponse, summary="日本节假日日历页面")
+async def render_japan_calendar_page(request: Request):
+    """渲染日本节假日日历页面 (需登录; 提醒配置仅管理员可改)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
+    if redirect_resp:
+        return redirect_resp
+
+    return templates.TemplateResponse(request=request, name="japan_calendar.html", context={
+        "active_page": "japan_calendar",
         "current_user": user
     })
 
