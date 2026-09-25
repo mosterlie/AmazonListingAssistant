@@ -1127,7 +1127,7 @@ function renderMatrixTable() {
       <td>
         <div style="display:flex; align-items:center; gap:3px; justify-content:center;">
           <input type="text" inputmode="decimal" class="table-input profit-coeff-inp" placeholder="系数" style="width:46px; text-align:center;" value="${row.profit_coefficient !== undefined ? row.profit_coefficient : 1.0}" data-idx="${idx}">
-          <button type="button" class="row-fill-btn" tabindex="-1" onclick="applyBulkToRow(${idx})" title="把标题行上方的批量值填入本行（标题行为空则清空本行对应字段）">📥</button>
+          <button type="button" class="row-fill-btn" tabindex="-1" onclick="applyBulkToRow(${idx})" title="把标题行的批量值填入本行（标题行为空则清空本行对应字段）">📥</button>
         </div>
       </td>
       <td style="text-align:center;">
@@ -1312,6 +1312,40 @@ function clearAllBulkThInputs() {
   const firstInp = document.getElementById(BULK_FIELD_CONFIG[0].inputId);
   if (firstInp) firstInp.focus();
   showToast("🧹 已清空标题行全部批量输入框（系数保持默认 1）");
+}
+
+/**
+ * 打开运费/售价试算：把标题行各批量输入框的值带入试算工具
+ */
+function openRowTrialCalc() {
+  if (typeof PricingTool === "undefined") {
+    showToast("试算组件未加载，请刷新页面", "error");
+    return;
+  }
+  const val = (id) => {
+    const raw = (document.getElementById(id)?.value ?? "").trim();
+    const n = parseFloat(raw);
+    return isNaN(n) ? undefined : n;
+  };
+  PricingTool.open({
+    length: val("bulkLenInput"),
+    width: val("bulkWidthInput"),
+    height: val("bulkHeightInput"),
+    weight: val("bulkWeightInput"),
+    cost: val("bulkPurchasePriceInput"),
+    coeff: val("bulkProfitCoeffInput")
+  });
+}
+
+/**
+ * 标题行利润系数步进：每次 ±0.1，最小 0（与试算页一致；只改批量框，需点 ⬇ 才批量填入）
+ */
+function stepBulkCoeff(delta) {
+  const inp = document.getElementById("bulkProfitCoeffInput");
+  if (!inp) return;
+  let cur = parseFloat(inp.value);
+  if (isNaN(cur)) cur = 1.0;
+  inp.value = Math.max(0, Math.round((cur + delta) * 10) / 10);
 }
 
 /**
@@ -1785,9 +1819,9 @@ async function loadProductForEdit(productId) {
       hint.textContent = `商品 ID: #${p.id} | Parent SKU: ${p.parent_sku || p.sku || '-'} | 标题: ${p.title || '-'}`;
     }
 
-    // 动态调整保存按钮文案
+    // 动态调整保存按钮文案 (编辑与新增统一显示「保存」)
     const saveBtn = document.getElementById("saveProductBtn");
-    if (saveBtn) saveBtn.textContent = "保存修改";
+    if (saveBtn) saveBtn.textContent = "保存";
 
     // 1. 店铺与基础配置
     const storeSel = document.getElementById("storeAccountSelect");
@@ -2222,7 +2256,7 @@ function refreshSaveButtonLockState() {
     }
   } else if (saveBtn.disabled) {
     saveBtn.disabled = false;
-    saveBtn.textContent = (editingProductId !== null && editingProductId !== undefined) ? "保存修改" : "保存";
+    saveBtn.textContent = "保存";
     saveBtn.style.opacity = "";
     saveBtn.style.cursor = "";
     saveBtn.title = "";

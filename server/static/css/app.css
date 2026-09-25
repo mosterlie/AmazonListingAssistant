@@ -408,6 +408,13 @@ body {
   background: #fafcff;
 }
 
+/* 子SKU明细表: 内容全部居中 (标题/正文/输入框文字) */
+.matrix-table.matrix-center,
+.matrix-table.matrix-center th,
+.matrix-table.matrix-center td {
+  text-align: center;
+}
+
 .table-input {
   width: 100%;
   padding: 6px 8px;
@@ -446,12 +453,13 @@ body {
 .bulk-th-top {
   display: flex;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
+  gap: 4px;
   margin-bottom: 4px;
 }
 
 .bulk-th-inp {
-  width: 100%;
+  width: 70px; /* 固定统一宽度, 标题行各批量输入框一致 */
   min-width: 0;
   padding: 3px 5px;
   border: 1px solid var(--border);
@@ -494,8 +502,8 @@ body {
 .bulk-th-bottom {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
+  justify-content: center; /* 批量输入框在列内水平居中 */
+  gap: 3px;
 }
 
 .bulk-th-apply {
@@ -515,6 +523,73 @@ body {
 .bulk-th-apply:hover {
   background: #dbeafe;
   border-color: #93c5fd;
+}
+
+/* 标题行系数框内步进按钮 (与试算页利润系数样式一致) */
+.bulk-step {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto; /* 输入框固定统一宽度, 不被按钮挤压 */
+  min-width: 0;
+}
+
+.bulk-step .bulk-th-inp {
+  padding-right: 18px;
+}
+
+.bulk-step-btns {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  bottom: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.bulk-step-btn {
+  flex: 1;
+  width: 13px;
+  padding: 0;
+  border: 1px solid #e2e8f0;
+  background: #f1f5f9;
+  color: #475569;
+  border-radius: 3px;
+  font-size: 7px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bulk-step-btn:hover {
+  background: #ede9fe;
+  border-color: #8b5cf6;
+  color: #6d28d9;
+}
+
+/* 标题行试算按钮 (把批量值带入试算工具) */
+.bulk-th-calc {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  padding: 0;
+  border: 1px solid #a7f3d0;
+  background: #ecfdf5;
+  color: #059669;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bulk-th-calc:hover {
+  background: #d1fae5;
+  border-color: #6ee7b7;
 }
 
 .row-fill-btn {

@@ -641,6 +641,11 @@
         "#pricingToolModal .pt-field label{display:block;font-size:.75rem;color:#64748b;font-weight:600;margin-bottom:4px;}",
         "#pricingToolModal .pt-field input{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:.88rem;outline:none;}",
         "#pricingToolModal .pt-field input:focus{border-color:#8b5cf6;box-shadow:0 0 0 2px rgba(139,92,246,.15);}",
+        "#pricingToolModal .pt-step{position:relative;display:flex;}",
+        "#pricingToolModal .pt-step input{width:100%;min-width:0;padding-right:32px;}",
+        "#pricingToolModal .pt-step-btns{position:absolute;right:4px;top:4px;bottom:4px;display:flex;flex-direction:column;gap:2px;}",
+        "#pricingToolModal .pt-step-btn{flex:1;width:24px;border:1px solid #e2e8f0;background:#f1f5f9;border-radius:4px;font-size:.55rem;color:#475569;cursor:pointer;line-height:1;padding:0;display:flex;align-items:center;justify-content:center;}",
+        "#pricingToolModal .pt-step-btn:hover{background:#ede9fe;border-color:#8b5cf6;color:#6d28d9;}",
         "#pricingToolModal .pt-btn{width:100%;margin-top:14px;padding:10px 0;border:none;border-radius:8px;background:#8b5cf6;color:#fff;font-size:.92rem;font-weight:600;cursor:pointer;}",
         "#pricingToolModal .pt-btn:hover{background:#7c3aed;}",
         "#pricingToolModal .pt-select{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:.86rem;background:#fff;}",
@@ -703,7 +708,7 @@
         '      <div class="pt-field"><label>高 (cm)</label><input type="number" step="any" min="0" id="ptHei" placeholder="高"></div>',
         '      <div class="pt-field"><label>重量 (kg)</label><input type="number" step="any" min="0" id="ptWgt" placeholder="重量"></div>',
         '      <div class="pt-field"><label>采购价 (¥)</label><input type="number" step="any" min="0" id="ptCost" placeholder="采购价"></div>',
-        '      <div class="pt-field"><label>利润系数</label><input type="number" step="any" min="0" id="ptCoeff" placeholder="1.0"></div>',
+        '      <div class="pt-field"><label>利润系数</label><div class="pt-step"><input type="number" step="0.1" min="0" id="ptCoeff" placeholder="1.0"><div class="pt-step-btns"><button type="button" class="pt-step-btn" onclick="PricingTool.stepCoeff(0.1)" title="增大 0.1">▲</button><button type="button" class="pt-step-btn" onclick="PricingTool.stepCoeff(-0.1)" title="减小 0.1">▼</button></div></div></div>',
         '    </div>',
         '    <button type="button" class="pt-btn" onclick="PricingTool.calc()">🧮 立即试算</button>',
         '    <div id="ptResultArea" style="margin-top:16px;"></div>',
@@ -737,7 +742,14 @@
 
       // ESC 关闭
       document.addEventListener("keydown", function (e) {
+        var modal = document.getElementById("pricingToolModal");
         if (e.key === "Escape") PricingTool.close();
+        // 弹窗打开时按回车即触发立即试算 (输入框/页面任意处; 按钮焦点除外避免重复触发)
+        if (e.key === "Enter" && modal && modal.style.display !== "none"
+            && e.target && e.target.tagName !== "BUTTON" && e.target.tagName !== "TEXTAREA" && e.target.tagName !== "SELECT") {
+          e.preventDefault();
+          PricingTool.calc();
+        }
       });
     },
 
@@ -768,13 +780,26 @@
       }).catch(function () { self._cfg = fallback; self._rules = null; });
     },
 
-    open: function () {
+    open: function (prefill) {
       this._inject();
       var self = this;
       this._loadConfig().then(function () {
         var coeffInp = document.getElementById("ptCoeff");
         if (coeffInp && !coeffInp.value && self._cfg) {
           coeffInp.value = self._cfg.default_profit_coeff || 1.0;
+        }
+        // 外部带入的初始值 (如商品录入页标题行批量值): 数值写入; 空/非法则清空 (系数回退默认)
+        if (prefill && typeof prefill === "object") {
+          [["length", "ptLen"], ["width", "ptWid"], ["height", "ptHei"], ["weight", "ptWgt"], ["cost", "ptCost"]].forEach(function (it) {
+            var el = document.getElementById(it[1]);
+            if (!el) return;
+            var v = parseFloat(prefill[it[0]]);
+            el.value = isNaN(v) ? "" : v;
+          });
+          if (coeffInp) {
+            var c = parseFloat(prefill.coeff);
+            coeffInp.value = isNaN(c) ? ((self._cfg && self._cfg.default_profit_coeff) || 1.0) : c;
+          }
         }
         self._renderStandards();
         self.calc();
@@ -788,6 +813,17 @@
     },
 
     _v: function (id) { return document.getElementById(id).value; },
+
+    // 利润系数步进: 每次 ±0.1, 最小 0, 自动重算
+    stepCoeff: function (delta) {
+      var inp = document.getElementById("ptCoeff");
+      if (!inp) return;
+      var cur = parseFloat(inp.value);
+      if (isNaN(cur)) cur = (this._cfg && this._cfg.default_profit_coeff) ? parseFloat(this._cfg.default_profit_coeff) : 1.0;
+      var next = Math.max(0, Math.round((cur + delta) * 10) / 10);
+      inp.value = next;
+      this.calc();
+    },
 
     calc: function () {
       var area = document.getElementById("ptResultArea");
@@ -836,6 +872,13 @@
         return '<div><div class="pt-k">' + k + '</div><div class="pt-v">' + v + "</div></div>";
       }
       function fmt2(v) { return String(Math.round(v * 100) / 100); }
+      // 利润率配色 (百分数值): ≥50 绿色 / [30,50) 橘黄含30 / [10,30) 红色含10 / <10 灰色
+      function rateTone(r) {
+        if (r >= 50) return "#15803d";
+        if (r >= 30) return "#ea580c";
+        if (r >= 10) return "#dc2626";
+        return "#94a3b8";
+      }
 
       // ── 公共信息区: 全渠道共用的派生值与全局参数 ──
       var common =
@@ -864,7 +907,7 @@
         var badge = f.channel === res.optimalChannel ? ' <span class="pt-badge">最便宜</span>' : "";
         var tag = f.channel === res.selectedChannel && res.selectedChannel !== res.optimalChannel ? ' <span class="pt-badge" style="background:#dbeafe;color:#1d4ed8;">当前</span>' : "";
         var rateHtml = rate === null ? "—" :
-          '<span class="' + (rate >= 0 ? "pt-rate-pos" : "pt-rate-neg") + '">' + (rate * 100).toFixed(2) + "%</span>";
+          '<span style="font-weight:700;color:' + rateTone(rate * 100) + ';">' + (rate * 100).toFixed(2) + "%</span>";
         return "<tr" + cls + ' data-channel="' + esc + '" title="点击选用 ' + esc + '">' +
           "<td>" + f.channel + badge + tag + "</td>" +
           '<td class="pt-num">' + (f.cw !== null && f.cw !== undefined ? f.cw + " kg" : "-") + "</td>" +
@@ -875,6 +918,7 @@
           '<td class="pt-num">' + rateHtml + "</td></tr>";
       }).join("");
 
+      var selRate = (1 - ((res.selectedFreight + cost) * exRate) / (res.priceJpy * (1 - taxRate))) * 100;
       area.innerHTML = [
         common,
         '<div style="font-weight:700;font-size:.86rem;color:#475569;margin-top:16px;">🚚 各快递渠道明细 <span style="font-weight:400;font-size:.76rem;color:#94a3b8;">按运费由低到高 · 点击行切换选用渠道</span></div>',
@@ -886,7 +930,7 @@
         '<div class="pt-formula" style="text-align:left;">📌 选用「' + res.selectedChannel + "」: 合计 ¥" + fmt2(res.selectedFreight + cost) +
           " (采购 ¥" + cost + " + 运费 ¥" + fmt2(res.selectedFreight) + ") → 售价 = 合计×(1+" + coeff + ")×" + pCoeff + " = " +
           res.priceJpy + " 円 → 扣完税 " + fmt2(res.priceJpy * (1 - taxRate)) + " 円 → 利润率 " +
-          ((1 - ((res.selectedFreight + cost) * exRate) / (res.priceJpy * (1 - taxRate)) ) * 100).toFixed(2) + "%" +
+          '<span style="font-weight:700;color:' + rateTone(selRate) + ';">' + selRate.toFixed(2) + "%</span>" +
           "　<span style='color:#cbd5e1;'>|</span>　利润率 = 1 − 成本×汇率 ÷ 扣税后售价</div>"
       ].join("");
     }

@@ -6,7 +6,7 @@ import sys
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Union
-from server.database import get_setting, set_setting
+from server.database import get_setting, set_setting, delete_setting, get_settings_by_prefix
 from server.services.pricing_config import get_global_pricing_config, GLOBAL_PRICING_CONFIG
 from server.dependencies import require_admin_user
 
@@ -69,7 +69,6 @@ class SystemSettingsSchema(BaseModel):
     ai_config: AiConfigSchema = Field(default_factory=AiConfigSchema, description="AI 大模型配置 (自动生成五点描述)")
     db_agent_token: Optional[str] = Field("", description="桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token 校验, 留空使用默认 erp2024)")
     email_notify: EmailNotifySchema = Field(default_factory=EmailNotifySchema, description="邮件通知配置 (汇总邮件+各预警邮件共用 SMTP 发信通道)")
-    channel_rules: Optional[Any] = Field(None, description="物流渠道计费规则列表 (通用维度模型; null=清除配置回退前端内置默认)")
 
 
 def normalize_store_accounts(raw_stores: Any) -> List[Dict[str, Any]]:
@@ -187,7 +186,7 @@ async def get_system_settings():
                     "price_coefficient": pricing.get("price_coefficient", 26.0),
                     "default_profit_coeff": pricing.get("default_profit_coeff", 1.0)
                 },
-                "channel_rules": get_setting("channel_rules", None),
+                "channel_rules": _aggregate_channel_rules(),
                 "storage_paths": {
                     "mac": storage_mac,
                     "win": storage_win,
@@ -287,9 +286,8 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         email_notify = _FDS.save_config(_en_payload)
         email_notify["mail_to"] = ", ".join(email_notify.get("mail_to") or [])
 
-        # 10. 保存物流渠道计费规则 (settings.js 始终携带该键: 列表=自定义配置 / null=清除回退内置默认)
-        channel_rules = payload.channel_rules if isinstance(payload.channel_rules, (list, dict)) else None
-        set_setting("channel_rules", channel_rules)
+        # 10. 物流渠道计费规则已改为每渠道独立存储键 (channel_rule:{key}), 由渠道级接口单独读写;
+        #     此处不再接收整表覆盖, 防止整批写回波及其他渠道
 
         # 同步刷新内存全局参数
         GLOBAL_PRICING_CONFIG.update(pricing_dict)
@@ -300,7 +298,7 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
             "data": {
                 "store_accounts": stores,
                 "pricing_config": pricing_dict,
-                "channel_rules": channel_rules,
+                "channel_rules": _aggregate_channel_rules(),
                 "storage_paths": {
                     "mac": mac_path,
                     "win": win_path,
@@ -317,3 +315,112 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         }
     except Exception as e:
         return {"code": 500, "msg": f"保存配置异常: {str(e)}", "data": None}
+
+
+# ============================================================================
+# 物流渠道计费规则 — 渠道级粒度存储与操作 (每渠道独立存储键, 互不影响)
+# 存储: 每个渠道一条独立配置键 channel_rule:{key}; channel_rules_order 维护展示顺序;
+#       历史 channel_rules 大键在首次访问时自动拆分迁移, 之后删除
+# 效果: 启停/保存/删除某渠道只写它自己的那一行, 其他渠道物理上不可能被波及
+# ============================================================================
+
+CR_PREFIX = "channel_rule:"
+CR_ORDER_KEY = "channel_rules_order"
+
+
+def _migrate_legacy_channel_rules() -> None:
+    """历史整表大键 → 每渠道独立键 (幂等, 只在旧键存在时执行一次)"""
+    legacy = get_setting("channel_rules", None)
+    if not (isinstance(legacy, list) and legacy):
+        return
+    order = []
+    for r in legacy:
+        if isinstance(r, dict) and r.get("key"):
+            set_setting(CR_PREFIX + str(r["key"]), r)
+            order.append(str(r["key"]))
+    if order:
+        set_setting(CR_ORDER_KEY, order)
+    delete_setting("channel_rules")
+
+
+def _aggregate_channel_rules() -> List[Dict[str, Any]]:
+    """聚合全部渠道独立键为列表 (按 channel_rules_order 排序, 未登记的新键排在尾部)"""
+    _migrate_legacy_channel_rules()
+    rows = get_settings_by_prefix(CR_PREFIX)
+    order = get_setting(CR_ORDER_KEY, [])
+    if not isinstance(order, list):
+        order = []
+    ordered = [k for k in order if k in rows] + [k for k in rows if k not in order]
+    return [rows[k] for k in ordered if isinstance(rows[k], dict)]
+
+
+class ChannelRuleSaveSchema(BaseModel):
+    rule: Dict[str, Any] = Field(..., description="单条渠道规则完整对象 (key 必填)")
+    defaults: Optional[List[Dict[str, Any]]] = Field(None, description="该渠道尚无独立存储且库内无来源时用于物化的内置默认规则")
+
+
+class ChannelRuleToggleSchema(BaseModel):
+    enabled: bool = Field(..., description="目标渠道启用状态")
+    defaults: Optional[List[Dict[str, Any]]] = Field(None, description="该渠道尚无独立存储时用于物化的内置默认规则")
+
+
+@router.post("/channel_rules/{key}")
+async def save_one_channel_rule(key: str, payload: ChannelRuleSaveSchema, admin: Dict[str, Any] = Depends(require_admin_user)):
+    """单渠道保存: 只写 channel_rule:{key} 这一行 (新渠道追加到展示顺序尾部), 其他渠道零接触"""
+    rule = dict(payload.rule or {})
+    if not rule:
+        raise HTTPException(400, detail="rule 不能为空")
+    _migrate_legacy_channel_rules()
+    rule["key"] = key
+    set_setting(CR_PREFIX + key, rule)
+    order = get_setting(CR_ORDER_KEY, [])
+    if not isinstance(order, list):
+        order = []
+    if key not in order:
+        order.append(key)
+        set_setting(CR_ORDER_KEY, order)
+    return {"code": 0, "msg": f"渠道「{rule.get('name') or key}」已单独保存 (其他渠道不受影响)", "data": {"channel_rules": _aggregate_channel_rules()}}
+
+
+@router.post("/channel_rules/{key}/toggle")
+async def toggle_one_channel_rule(key: str, payload: ChannelRuleToggleSchema, admin: Dict[str, Any] = Depends(require_admin_user)):
+    """单渠道启停: 只读写 channel_rule:{key} 这一行, 仅翻转 enabled 字段"""
+    _migrate_legacy_channel_rules()
+    row = get_setting(CR_PREFIX + key, None)
+    if not isinstance(row, dict):
+        # 该渠道尚无独立存储 → 从前端物化的默认列表中取该渠道落库 (仅此一条)
+        seed = next((r for r in (payload.defaults or []) if isinstance(r, dict) and r.get("key") == key), None)
+        if not isinstance(seed, dict):
+            raise HTTPException(404, detail=f"渠道 {key} 不存在")
+        row = dict(seed)
+        order = get_setting(CR_ORDER_KEY, [])
+        if isinstance(order, list) and key not in order:
+            order.append(key)
+            set_setting(CR_ORDER_KEY, order)
+    row["enabled"] = bool(payload.enabled)
+    set_setting(CR_PREFIX + key, row)
+    return {"code": 0, "msg": f"渠道「{row.get('name') or key}」已{'启用' if payload.enabled else '停用'} (仅此渠道)", "data": {"channel_rules": _aggregate_channel_rules()}}
+
+
+@router.post("/channel_rules/{key}/delete")
+async def delete_one_channel_rule(key: str, admin: Dict[str, Any] = Depends(require_admin_user)):
+    """单渠道删除: 只删除 channel_rule:{key} 这一行"""
+    _migrate_legacy_channel_rules()
+    if get_setting(CR_PREFIX + key, None) is None:
+        raise HTTPException(404, detail=f"渠道 {key} 不存在")
+    delete_setting(CR_PREFIX + key)
+    order = get_setting(CR_ORDER_KEY, [])
+    if isinstance(order, list) and key in order:
+        order = [k for k in order if k != key]
+        set_setting(CR_ORDER_KEY, order)
+    return {"code": 0, "msg": "渠道已删除", "data": {"channel_rules": _aggregate_channel_rules()}}
+
+
+@router.post("/channel_rules/reset")
+async def reset_channel_rules_config(admin: Dict[str, Any] = Depends(require_admin_user)):
+    """清空全部渠道独立键与顺序 → 全部渠道回退前端内置默认"""
+    _migrate_legacy_channel_rules()
+    for k in get_settings_by_prefix(CR_PREFIX).keys():
+        delete_setting(CR_PREFIX + k)
+    delete_setting(CR_ORDER_KEY)
+    return {"code": 0, "msg": "已恢复默认渠道计费标准", "data": {"channel_rules": None}}

@@ -645,12 +645,36 @@ def set_setting(key: str, value: Any) -> None:
     cursor = conn.cursor()
     val_json = json.dumps(value, ensure_ascii=False)
     cursor.execute("""
-    INSERT INTO system_settings (key, value_json, updated_at) 
+    INSERT INTO system_settings (key, value_json, updated_at)
     VALUES (?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = CURRENT_TIMESTAMP;
     """, (key, val_json))
     conn.commit()
     conn.close()
+
+
+def delete_setting(key: str) -> None:
+    """删除指定配置项 (不存在时静默跳过)"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM system_settings WHERE key = ?;", (key,))
+    conn.commit()
+    conn.close()
+
+
+def get_settings_by_prefix(prefix: str) -> dict:
+    """按前缀批量读取配置项, 返回 {key_without_prefix: value}"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT key, value_json FROM system_settings WHERE key LIKE ?;", (prefix.replace("%", r"\%") + "_%",))
+    result = {}
+    for row in cursor.fetchall():
+        try:
+            result[row["key"][len(prefix):]] = json.loads(row["value_json"])
+        except Exception:
+            continue
+    conn.close()
+    return result
 
 
 if __name__ == "__main__":

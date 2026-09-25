@@ -424,10 +424,9 @@ async function saveSettings() {
       mail_from: (document.getElementById("docMailFromInput")?.value || "").trim(),
       mail_to: (document.getElementById("docMailToInput")?.value || "").trim()
     },
-    // 物流渠道计费规则 (恢复默认时提交 null 清除自定义配置)
-    channel_rules: crResetPending ? null : collectChannelRules()
+    // 物流渠道计费规则已解耦为渠道级粒度保存 (卡片上「💾 保存」/启用开关即时生效),
+    // 全局保存不再携带 channel_rules, 避免整表覆盖波及其他渠道
   };
-  crResetPending = false;
 
   try {
     const res = await fetch("/api/settings", {
@@ -644,7 +643,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 物流渠道计费标准面板
   const crSaveBtn = document.getElementById("saveChannelRulesBtn");
-  if (crSaveBtn) crSaveBtn.addEventListener("click", saveSettings);
+  if (crSaveBtn) crSaveBtn.addEventListener("click", saveAllChannelRules);
   const crResetBtn = document.getElementById("resetChannelRulesBtn");
   if (crResetBtn) crResetBtn.addEventListener("click", resetChannelRules);
   const crAddBtn = document.getElementById("addChannelRuleBtn");
@@ -692,7 +691,6 @@ async function sendEmailTestEmail() {
 // 工作副本 crWorking 随渲染重建; 结构性增删先从 DOM 收集再改再渲染, 不丢已编辑内容
 // ============================================================================
 let crWorking = null;       // 当前编辑中的规则数组
-let crResetPending = false; // 「恢复默认」标记: 下次保存提交 channel_rules=null
 const crOpen = {};          // 卡片展开状态 (按索引)
 
 function crDefaults() {
@@ -811,6 +809,7 @@ function renderChannelCard(rule, ci) {
         <input type="checkbox" data-f="enabled" ${rule.enabled === false ? "" : "checked"}> 启用
       </label>
       <span style="flex:1;"></span>
+      <button type="button" class="btn btn-outline btn-sm" data-act="save-ch" data-ci="${ci}" style="background:#eff6ff;color:#1d4ed8;border-color:#93c5fd;" title="仅保存此渠道 (其他渠道不受影响)">💾 保存</button>
       <button type="button" class="btn btn-outline btn-sm" data-act="del-ch" data-ci="${ci}">🗑 删除</button>
       <button type="button" class="btn btn-outline btn-sm" data-act="toggle" data-ci="${ci}">${open ? "▴ 收起" : "▾ 展开"}</button>
     </div>
@@ -888,108 +887,119 @@ function crRowNum(scope, f) {
   return isNaN(n) ? null : n;
 }
 
-/** 从 DOM 收集全部渠道规则 (数字空串→null); 保存与结构性操作共用 */
+/** 从单个渠道卡片 DOM 收集规则 (数字空串→null); 单渠道保存与全表收集共用 */
+function collectOneRule(card, ci) {
+  const qv = (f) => crRowVal(card, f);
+  const qn = (f) => crRowNum(card, f);
+  const qchk = (f) => { const el = card.querySelector(`[data-f="${f}"]`); return el ? !!el.checked : true; };
+  const ptype = qv("p.type") || "tiered_step";
+  const rule = {
+    key: (qv("key") || ("ch_" + (ci + 1))).trim(),
+    name: (qv("name") || ("渠道" + (ci + 1))).trim(),
+    enabled: qchk("enabled"),
+    limits: {
+      max_weight: qn("limits.max_weight"),
+      max_single_side: qn("limits.max_single_side"),
+      max_sum_sides: qn("limits.max_sum_sides"),
+      max_length: qn("limits.max_length"),
+      max_width: qn("limits.max_width"),
+      max_height: qn("limits.max_height"),
+      max_combined_girth: qn("limits.max_combined_girth"),
+      max_cw: qn("limits.max_cw"),
+      reject_both_over: []
+    },
+    charge_weight: {
+      vol_ratio: qn("cw.vol_ratio"),
+      round_to: qn("cw.round_to"),
+      min_cw: qn("cw.min_cw"),
+      bands: []
+    },
+    pricing: {
+      type: ptype, step_unit: null, tiers: [],
+      first_weight_fee: null, continue_per_kg: null, extra_fee: null,
+      op_fee: qn("p.op_fee"), discount: qn("p.discount")
+    },
+    surcharges: [],
+    round_total: qv("p.round_total") || null
+  };
+  card.querySelectorAll('[data-row="rbo"]').forEach((row) => {
+    const g = { mid: crRowNum(row, "rbo.mid"), min: crRowNum(row, "rbo.min") };
+    if (g.mid !== null || g.min !== null) rule.limits.reject_both_over.push(g);
+  });
+  card.querySelectorAll('[data-row="band"]').forEach((row) => {
+    const b = {
+      max_sum: crRowNum(row, "band.max_sum"),
+      cmp: crRowVal(row, "band.cmp") || "lte",
+      mode: crRowVal(row, "band.mode") || "actual"
+    };
+    if (b.mode === "cond_vol_cap") {
+      b.ref_vol_ratio = crRowNum(row, "band.ref_vol_ratio");
+      b.cap = crRowNum(row, "band.cap");
+      b.if_true = crRowVal(row, "band.if_true") || "actual";
+      b.if_false = crRowVal(row, "band.if_false") || "avg";
+    }
+    rule.charge_weight.bands.push(b);
+  });
+  if (ptype === "first_continue") {
+    rule.pricing.first_weight_fee = qn("p.first_weight_fee");
+    rule.pricing.continue_per_kg = qn("p.continue_per_kg");
+    rule.pricing.extra_fee = qn("p.extra_fee");
+  } else {
+    rule.pricing.step_unit = qn("p.step_unit");
+    card.querySelectorAll('[data-row="tier"]').forEach((row) => {
+      rule.pricing.tiers.push({
+        max_cw: crRowNum(row, "tier.max_cw"),
+        cmp: crRowVal(row, "tier.cmp") || "lte",
+        base: crRowNum(row, "tier.base"),
+        step: crRowNum(row, "tier.step"),
+        rate: crRowNum(row, "tier.rate"),
+        min_charge: crRowNum(row, "tier.min_charge")
+      });
+    });
+  }
+  card.querySelectorAll('[data-row="sg"]').forEach((gEl) => {
+    const grp = { pick: crRowVal(gEl, "sg.pick") || "add", items: [] };
+    gEl.querySelectorAll('[data-row="sgitem"]').forEach((iEl) => {
+      const item = {
+        basis: crRowVal(iEl, "sgi.basis") || "sum_sides",
+        cw_below: crRowNum(iEl, "sgi.cw_below"),
+        tiers: []
+      };
+      iEl.querySelectorAll('[data-row="sgtier"]').forEach((tEl) => {
+        item.tiers.push({ min: crRowNum(tEl, "sgt.min"), fee: crRowNum(tEl, "sgt.fee") });
+      });
+      grp.items.push(item);
+    });
+    rule.surcharges.push(grp);
+  });
+  // 编辑器未渲染的高级字段从载入的原始规则回补, 防止保存时丢失
+  const orig = (crWorking || []).find((r) => r && r.key === rule.key) || {};
+  if (orig.limits && orig.limits.max_cw_surplus_ratio != null) {
+    rule.limits.max_cw_surplus_ratio = orig.limits.max_cw_surplus_ratio;
+  }
+  if (orig.pricing && orig.pricing.girth_discount) {
+    rule.pricing.girth_discount = orig.pricing.girth_discount;
+  }
+  // round_total 防丢: 下拉框缺失 (旧版渲染的残留页面) 时回退原始值, 避免被清成 null
+  const rtEl = card.querySelector('[data-f="p.round_total"]');
+  if (!rtEl && orig.round_total) rule.round_total = orig.round_total;
+  return rule;
+}
+
+/** 从 DOM 收集全部渠道规则; 保存与结构性操作共用 */
 function collectChannelRules() {
   const list = document.getElementById("channelRulesList");
   if (!list) return null;
-  // 编辑器未渲染的高级字段从载入的原始规则回补, 防止保存时丢失
-  const origMap = {};
-  (crWorking || []).forEach((r) => { if (r && r.key) origMap[r.key] = r; });
   const rules = [];
   list.querySelectorAll(".cr-card").forEach((card, ci) => {
-    const qv = (f) => crRowVal(card, f);
-    const qn = (f) => crRowNum(card, f);
-    const qchk = (f) => { const el = card.querySelector(`[data-f="${f}"]`); return el ? !!el.checked : true; };
-    const ptype = qv("p.type") || "tiered_step";
-    const rule = {
-      key: (qv("key") || ("ch_" + (ci + 1))).trim(),
-      name: (qv("name") || ("渠道" + (ci + 1))).trim(),
-      enabled: qchk("enabled"),
-      limits: {
-        max_weight: qn("limits.max_weight"),
-        max_single_side: qn("limits.max_single_side"),
-        max_sum_sides: qn("limits.max_sum_sides"),
-        max_length: qn("limits.max_length"),
-        max_width: qn("limits.max_width"),
-        max_height: qn("limits.max_height"),
-        max_combined_girth: qn("limits.max_combined_girth"),
-        max_cw: qn("limits.max_cw"),
-        reject_both_over: []
-      },
-      charge_weight: {
-        vol_ratio: qn("cw.vol_ratio"),
-        round_to: qn("cw.round_to"),
-        min_cw: qn("cw.min_cw"),
-        bands: []
-      },
-      pricing: {
-        type: ptype, step_unit: null, tiers: [],
-        first_weight_fee: null, continue_per_kg: null, extra_fee: null,
-        op_fee: qn("p.op_fee"), discount: qn("p.discount")
-      },
-      surcharges: [],
-      round_total: qv("p.round_total") || null
-    };
-    card.querySelectorAll('[data-row="rbo"]').forEach((row) => {
-      const g = { mid: crRowNum(row, "rbo.mid"), min: crRowNum(row, "rbo.min") };
-      if (g.mid !== null || g.min !== null) rule.limits.reject_both_over.push(g);
-    });
-    card.querySelectorAll('[data-row="band"]').forEach((row) => {
-      const b = {
-        max_sum: crRowNum(row, "band.max_sum"),
-        cmp: crRowVal(row, "band.cmp") || "lte",
-        mode: crRowVal(row, "band.mode") || "actual"
-      };
-      if (b.mode === "cond_vol_cap") {
-        b.ref_vol_ratio = crRowNum(row, "band.ref_vol_ratio");
-        b.cap = crRowNum(row, "band.cap");
-        b.if_true = crRowVal(row, "band.if_true") || "actual";
-        b.if_false = crRowVal(row, "band.if_false") || "avg";
-      }
-      rule.charge_weight.bands.push(b);
-    });
-    if (ptype === "first_continue") {
-      rule.pricing.first_weight_fee = qn("p.first_weight_fee");
-      rule.pricing.continue_per_kg = qn("p.continue_per_kg");
-      rule.pricing.extra_fee = qn("p.extra_fee");
-    } else {
-      rule.pricing.step_unit = qn("p.step_unit");
-      card.querySelectorAll('[data-row="tier"]').forEach((row) => {
-        rule.pricing.tiers.push({
-          max_cw: crRowNum(row, "tier.max_cw"),
-          cmp: crRowVal(row, "tier.cmp") || "lte",
-          base: crRowNum(row, "tier.base"),
-          step: crRowNum(row, "tier.step"),
-          rate: crRowNum(row, "tier.rate"),
-          min_charge: crRowNum(row, "tier.min_charge")
-        });
-      });
-    }
-    card.querySelectorAll('[data-row="sg"]').forEach((gEl) => {
-      const grp = { pick: crRowVal(gEl, "sg.pick") || "add", items: [] };
-      gEl.querySelectorAll('[data-row="sgitem"]').forEach((iEl) => {
-        const item = {
-          basis: crRowVal(iEl, "sgi.basis") || "sum_sides",
-          cw_below: crRowNum(iEl, "sgi.cw_below"),
-          tiers: []
-        };
-        iEl.querySelectorAll('[data-row="sgtier"]').forEach((tEl) => {
-          item.tiers.push({ min: crRowNum(tEl, "sgt.min"), fee: crRowNum(tEl, "sgt.fee") });
-        });
-        grp.items.push(item);
-      });
-      rule.surcharges.push(grp);
-    });
-    const orig = origMap[rule.key] || {};
-    if (orig.limits && orig.limits.max_cw_surplus_ratio != null) {
-      rule.limits.max_cw_surplus_ratio = orig.limits.max_cw_surplus_ratio;
-    }
-    if (orig.pricing && orig.pricing.girth_discount) {
-      rule.pricing.girth_discount = orig.pricing.girth_discount;
-    }
-    rules.push(rule);
+    rules.push(collectOneRule(card, ci));
   });
   return rules;
+}
+
+/** 数据库无自定义配置时需要物化默认列表 → 提交内置默认; 已有配置 → 不传 (服务端读库) */
+function crSeedDefaults() {
+  return settingsState.channelRules ? undefined : crDefaults();
 }
 
 function addChannelRule() {
@@ -1008,11 +1018,50 @@ function addChannelRule() {
   if (listEl) listEl.lastElementChild && listEl.lastElementChild.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function resetChannelRules() {
-  if (!confirm("确定恢复默认渠道计费标准吗？\n当前自定义配置将被清除 (需保存后生效)。")) return;
-  crResetPending = true;
-  settingsState.channelRules = null;
-  saveSettings();
+/** 面板级「保存渠道计费标准」: 逐个渠道走单渠道保存接口 (每渠道独立替换, 某个失败不影响已保存的其他渠道) */
+async function saveAllChannelRules() {
+  const list = document.getElementById("channelRulesList");
+  if (!list) return;
+  const cards = Array.from(list.querySelectorAll(".cr-card"));
+  let ok = 0, fail = 0;
+  for (let i = 0; i < cards.length; i++) {
+    const rule = collectOneRule(cards[i], i);
+    try {
+      const res = await fetch(`/api/settings/channel_rules/${encodeURIComponent(rule.key)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rule, defaults: crSeedDefaults() })
+      });
+      const result = await res.json();
+      if (result.code === 0) {
+        ok++;
+        settingsState.channelRules = result.data.channel_rules;
+      } else {
+        fail++;
+      }
+    } catch (err) {
+      fail++;
+    }
+  }
+  showToast(`渠道计费标准保存完成: 成功 ${ok} 个` + (fail ? `，失败 ${fail} 个` : "，渠道间互不影响"), fail ? "error" : "success");
+}
+
+async function resetChannelRules() {
+  if (!confirm("确定恢复默认渠道计费标准吗？\n自定义配置将被立即清除, 全部渠道回退内置默认。")) return;
+  try {
+    const res = await fetch("/api/settings/channel_rules/reset", { method: "POST" });
+    const result = await res.json();
+    if (result.code === 0) {
+      settingsState.channelRules = null;
+      crWorking = null;
+      renderChannelRules(); // fromWorking=false → 从内置默认重建
+      showToast(result.msg || "已恢复默认", "success");
+    } else {
+      showToast(result.msg || result.detail || "恢复默认失败", "error");
+    }
+  } catch (err) {
+    showToast(`恢复默认失败: ${err.message}`, "error");
+  }
 }
 
 function initChannelRulesEditor() {
@@ -1020,7 +1069,7 @@ function initChannelRulesEditor() {
   if (!list || list.dataset.crInit === "1") return;
   list.dataset.crInit = "1";
 
-  list.addEventListener("click", (e) => {
+  list.addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-act]");
     if (!btn) return;
     const act = btn.dataset.act;
@@ -1034,15 +1083,65 @@ function initChannelRulesEditor() {
       return;
     }
 
+    // 单渠道保存: 只提交本卡片, 服务端按 key 定位替换 → 其余渠道零影响
+    if (act === "save-ch") {
+      const card = btn.closest(".cr-card");
+      if (!card) return;
+      const rule = collectOneRule(card, ci);
+      try {
+        btn.disabled = true;
+        const res = await fetch(`/api/settings/channel_rules/${encodeURIComponent(rule.key)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rule, defaults: crSeedDefaults() })
+        });
+        const result = await res.json();
+        if (result.code === 0) {
+          settingsState.channelRules = result.data.channel_rules;
+          showToast(result.msg || "渠道已保存", "success");
+        } else {
+          showToast(result.msg || result.detail || "保存失败", "error");
+        }
+      } catch (err) {
+        showToast(`保存渠道失败: ${err.message}`, "error");
+      } finally {
+        btn.disabled = false;
+      }
+      return;
+    }
+
+    // 单渠道删除: 服务端只移除该 key, 本地同步重渲染
+    if (act === "del-ch") {
+      const card = btn.closest(".cr-card");
+      const rule = card ? collectOneRule(card, ci) : null;
+      if (!rule) return;
+      if (!confirm(`确定删除渠道「${rule.name}」吗？\n仅删除此渠道, 其他渠道不受影响。`)) return;
+      try {
+        btn.disabled = true;
+        const res = await fetch(`/api/settings/channel_rules/${encodeURIComponent(rule.key)}/delete`, { method: "POST" });
+        const result = await res.json();
+        if (result.code === 0) {
+          settingsState.channelRules = result.data.channel_rules;
+          crWorking = (result.data.channel_rules || []).map((r) => JSON.parse(JSON.stringify(r)));
+          showToast(result.msg || "渠道已删除", "success");
+          renderChannelRules(true);
+        } else {
+          showToast(result.msg || result.detail || "删除失败", "error");
+        }
+      } catch (err) {
+        showToast(`删除渠道失败: ${err.message}`, "error");
+      } finally {
+        btn.disabled = false;
+      }
+      return;
+    }
+
     // 结构性操作: 先收集 DOM → 修改 → 重渲染 (保证未保存编辑不丢失)
     const rules = collectChannelRules() || [];
     const rule = rules[ci];
     if (!rule) return;
 
-    if (act === "del-ch") {
-      if (!confirm(`确定删除渠道「${rule.name}」吗？`)) return;
-      rules.splice(ci, 1);
-    } else if (act === "add-rbo") {
+    if (act === "add-rbo") {
       rule.limits.reject_both_over.push({ mid: null, min: null });
     } else if (act === "del-rbo") {
       rule.limits.reject_both_over.splice(parseInt(btn.dataset.ri), 1);
@@ -1078,6 +1177,29 @@ function initChannelRulesEditor() {
   list.addEventListener("change", (e) => {
     const f = e.target.getAttribute && e.target.getAttribute("data-f");
     if (!f) return;
+    if (f === "enabled") {
+      // 单渠道启停即保存: 服务端只翻转该渠道 enabled 字段, 其他渠道零影响
+      const card = e.target.closest(".cr-card");
+      if (!card) return;
+      const key = crRowVal(card, "key");
+      fetch(`/api/settings/channel_rules/${encodeURIComponent(key)}/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: e.target.checked, defaults: crSeedDefaults() })
+      }).then((r) => r.json()).then((result) => {
+        if (result.code === 0) {
+          settingsState.channelRules = result.data.channel_rules;
+          showToast(result.msg || "已更新", "success");
+        } else {
+          showToast(result.msg || result.detail || "操作失败 (新渠道请先点💾保存)", "error");
+          e.target.checked = !e.target.checked;
+        }
+      }).catch((err) => {
+        showToast(`操作失败: ${err.message}`, "error");
+        e.target.checked = !e.target.checked;
+      });
+      return;
+    }
     if (f === "band.mode") {
       const row = e.target.closest('[data-row="band"]');
       const cond = row && row.querySelector("[data-cond]");
