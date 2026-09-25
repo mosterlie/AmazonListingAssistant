@@ -1,0 +1,945 @@
+{
+  "_comment": "生产铺底配置快照 (2026-09-25): 计价系数 / 物流渠道(每渠道独立键) / 告警任务轮询规则 / 提醒任务",
+  "_usage": "python3 server/tools/apply_seed_settings.py server/seed/system_settings_seed.json",
+  "_warn": "邮件通知SMTP配置与店小秘账号密码不在本文件 (涉密不入库), 部署后在「系统管理→邮件通知」与「告警任务→店小秘」手工填写",
+  "settings": {
+    "pricing_config": {
+      "tax_rate": 0.17,
+      "exchange_rate": 22.0,
+      "price_coefficient": 28.0,
+      "default_profit_coeff": 1.0
+    },
+    "channel_rules_order": [
+      "sf_small",
+      "sf_large",
+      "rc_plain",
+      "rc_batt",
+      "rc_big",
+      "sagawa",
+      "yw_small",
+      "chudao160",
+      "chudao_heimao",
+      "air_post"
+    ],
+    "fwd_doc_sync_mode": "daily",
+    "fwd_doc_sync_time": "08:00",
+    "fwd_doc_interval_hours": 24,
+    "fwd_doc_alert_days": 5,
+    "fwd_doc_date_column": "采购日期",
+    "fwd_doc_ship_column": "仓库发货日期",
+    "fwd_doc_sheet_name": "发货数据",
+    "dxm_order_scan_enabled": true,
+    "dxm_order_warn_hours": 12.0,
+    "dxm_order_danger_hours": 3.0,
+    "fwd_doc_email_enabled": true,
+    "fwd_doc_digest_time": "08:15",
+    "fwd_doc_digest_mail_to": "gx5478882@163.com",
+    "fwd_doc_subject_prefix": "[货代发货提醒]",
+    "dxm_order_alert_email_enabled": true,
+    "dxm_order_repeat_red_alert": true,
+    "dxm_order_alert_mail_to": "gx5478882@163.com",
+    "dxm_order_subject_prefix": "[店小秘发货预警]",
+    "channel_rule:air_post": {
+      "key": "air_post",
+      "name": "航空邮政大包",
+      "enabled": true,
+      "limits": {
+        "max_weight": 30,
+        "max_single_side": 150,
+        "max_sum_sides": null,
+        "max_length": null,
+        "max_width": null,
+        "max_height": null,
+        "max_combined_girth": null,
+        "max_cw": null,
+        "reject_both_over": []
+      },
+      "charge_weight": {
+        "vol_ratio": null,
+        "round_to": 1,
+        "min_cw": null,
+        "bands": [
+          {
+            "max_sum": null,
+            "cmp": "lte",
+            "mode": "actual"
+          }
+        ]
+      },
+      "pricing": {
+        "type": "first_continue",
+        "step_unit": null,
+        "tiers": [],
+        "first_weight_fee": 124.2,
+        "continue_per_kg": 29.6,
+        "extra_fee": 8,
+        "op_fee": 0,
+        "discount": null,
+        "girth_discount": {
+          "threshold": 330,
+          "factor_above": 1,
+          "factor_below": 0.9
+        }
+      },
+      "surcharges": [],
+      "round_total": "ceil2"
+    },
+    "channel_rule:chudao160": {
+      "key": "chudao160",
+      "name": "初岛160免泡",
+      "enabled": true,
+      "limits": {
+        "max_weight": null,
+        "max_single_side": 9100,
+        "max_sum_sides": 260,
+        "max_length": null,
+        "max_width": null,
+        "max_height": null,
+        "max_combined_girth": null,
+        "max_cw": null,
+        "reject_both_over": []
+      },
+      "charge_weight": {
+        "vol_ratio": 6000,
+        "round_to": null,
+        "min_cw": null,
+        "bands": [
+          {
+            "max_sum": 160,
+            "cmp": "lte",
+            "mode": "actual"
+          },
+          {
+            "max_sum": null,
+            "cmp": "lte",
+            "mode": "avg_actual_vol"
+          }
+        ]
+      },
+      "pricing": {
+        "type": "tiered_step",
+        "step_unit": 0.5,
+        "tiers": [
+          {
+            "max_cw": 2,
+            "cmp": "lte",
+            "base": 34,
+            "step": 6,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": 5,
+            "cmp": "lte",
+            "base": 35,
+            "step": 7,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": null,
+            "cmp": "lte",
+            "base": 36,
+            "step": 8,
+            "rate": null,
+            "min_charge": null
+          }
+        ],
+        "first_weight_fee": null,
+        "continue_per_kg": null,
+        "extra_fee": null,
+        "op_fee": 20,
+        "discount": null
+      },
+      "surcharges": [
+        {
+          "pick": "add",
+          "items": [
+            {
+              "basis": "sum_sides",
+              "cw_below": null,
+              "tiers": [
+                {
+                  "min": 160,
+                  "fee": 50
+                },
+                {
+                  "min": 200,
+                  "fee": 100
+                }
+              ]
+            },
+            {
+              "basis": "sum_sides",
+              "cw_below": null,
+              "tiers": [
+                {
+                  "min": 160,
+                  "fee": 30
+                },
+                {
+                  "min": 200,
+                  "fee": 20
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "round_total": "ceil"
+    },
+    "channel_rule:chudao_heimao": {
+      "key": "chudao_heimao",
+      "name": "初岛黑猫",
+      "enabled": true,
+      "limits": {
+        "max_weight": null,
+        "max_single_side": 160,
+        "max_sum_sides": 160,
+        "max_length": null,
+        "max_width": null,
+        "max_height": null,
+        "max_combined_girth": null,
+        "max_cw": null,
+        "reject_both_over": []
+      },
+      "charge_weight": {
+        "vol_ratio": 6000,
+        "round_to": null,
+        "min_cw": null,
+        "bands": [
+          {
+            "max_sum": 120,
+            "cmp": "lte",
+            "mode": "actual"
+          },
+          {
+            "max_sum": 159,
+            "cmp": "lte",
+            "mode": "avg_actual_vol"
+          }
+        ]
+      },
+      "pricing": {
+        "type": "tiered_step",
+        "step_unit": 0.5,
+        "tiers": [
+          {
+            "max_cw": 2,
+            "cmp": "lte",
+            "base": 36,
+            "step": 6,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": 5,
+            "cmp": "lte",
+            "base": 37,
+            "step": 7,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": 10,
+            "cmp": "lte",
+            "base": 38,
+            "step": 8,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": null,
+            "cmp": "lte",
+            "base": 39,
+            "step": 10,
+            "rate": null,
+            "min_charge": null
+          }
+        ],
+        "first_weight_fee": null,
+        "continue_per_kg": null,
+        "extra_fee": null,
+        "op_fee": 0,
+        "discount": null
+      },
+      "surcharges": [],
+      "round_total": "ceil"
+    },
+    "channel_rule:rc_batt": {
+      "key": "rc_batt",
+      "name": "日川带电",
+      "enabled": true,
+      "limits": {
+        "max_weight": null,
+        "max_single_side": null,
+        "max_sum_sides": 960,
+        "max_length": null,
+        "max_width": null,
+        "max_height": null,
+        "max_combined_girth": null,
+        "max_cw": null,
+        "reject_both_over": []
+      },
+      "charge_weight": {
+        "vol_ratio": 6000,
+        "round_to": 0.5,
+        "min_cw": null,
+        "bands": [
+          {
+            "max_sum": 100,
+            "cmp": "lt",
+            "mode": "actual"
+          },
+          {
+            "max_sum": null,
+            "cmp": "lte",
+            "mode": "max_actual_avg"
+          }
+        ]
+      },
+      "pricing": {
+        "type": "tiered_step",
+        "step_unit": 0.5,
+        "tiers": [
+          {
+            "max_cw": 2,
+            "cmp": "lte",
+            "base": 38,
+            "step": 9,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": 5,
+            "cmp": "lte",
+            "base": 39,
+            "step": 9.5,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": 10,
+            "cmp": "lte",
+            "base": 40,
+            "step": 10,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": null,
+            "cmp": "lte",
+            "base": 41,
+            "step": 11,
+            "rate": null,
+            "min_charge": null
+          }
+        ],
+        "first_weight_fee": null,
+        "continue_per_kg": null,
+        "extra_fee": null,
+        "op_fee": 0,
+        "discount": null
+      },
+      "surcharges": [
+        {
+          "pick": "add",
+          "items": [
+            {
+              "basis": "sum_sides",
+              "cw_below": null,
+              "tiers": [
+                {
+                  "min": 159,
+                  "fee": 80
+                },
+                {
+                  "min": 179,
+                  "fee": 100
+                },
+                {
+                  "min": 200,
+                  "fee": 150
+                },
+                {
+                  "min": 220,
+                  "fee": 200
+                },
+                {
+                  "min": 239,
+                  "fee": 260
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "pick": "add",
+          "items": [
+            {
+              "basis": "weight",
+              "cw_below": null,
+              "tiers": [
+                {
+                  "min": 9.9,
+                  "fee": 50
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "round_total": "ceil"
+    },
+    "channel_rule:rc_big": {
+      "key": "rc_big",
+      "name": "川日大包",
+      "enabled": true,
+      "limits": {
+        "max_weight": null,
+        "max_single_side": null,
+        "max_sum_sides": 960,
+        "max_length": 305,
+        "max_width": 175,
+        "max_height": 155,
+        "max_combined_girth": null,
+        "max_cw": null,
+        "max_cw_surplus_ratio": 3,
+        "reject_both_over": []
+      },
+      "charge_weight": {
+        "vol_ratio": 6000,
+        "round_to": 0.5,
+        "min_cw": null,
+        "bands": [
+          {
+            "max_sum": 100,
+            "cmp": "lt",
+            "mode": "actual"
+          },
+          {
+            "max_sum": null,
+            "cmp": "lte",
+            "mode": "max_actual_avg"
+          }
+        ]
+      },
+      "pricing": {
+        "type": "tiered_step",
+        "step_unit": 0.5,
+        "tiers": [
+          {
+            "max_cw": 21,
+            "cmp": "lt",
+            "base": 60,
+            "step": 18,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": 51,
+            "cmp": "lt",
+            "base": null,
+            "step": null,
+            "rate": 19,
+            "min_charge": null
+          },
+          {
+            "max_cw": 101,
+            "cmp": "lt",
+            "base": null,
+            "step": null,
+            "rate": 18.5,
+            "min_charge": null
+          },
+          {
+            "max_cw": 301,
+            "cmp": "lt",
+            "base": null,
+            "step": null,
+            "rate": 17.5,
+            "min_charge": null
+          },
+          {
+            "max_cw": 501,
+            "cmp": "lt",
+            "base": null,
+            "step": null,
+            "rate": 17,
+            "min_charge": null
+          },
+          {
+            "max_cw": 1000,
+            "cmp": "lt",
+            "base": null,
+            "step": null,
+            "rate": 16.5,
+            "min_charge": null
+          },
+          {
+            "max_cw": null,
+            "cmp": "lte",
+            "base": null,
+            "step": null,
+            "rate": 16,
+            "min_charge": null
+          }
+        ],
+        "first_weight_fee": null,
+        "continue_per_kg": null,
+        "extra_fee": null,
+        "op_fee": 0,
+        "discount": null
+      },
+      "surcharges": [
+        {
+          "pick": "add",
+          "items": [
+            {
+              "basis": "max_side",
+              "cw_below": 300,
+              "tiers": [
+                {
+                  "min": 159,
+                  "fee": 200
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "round_total": null
+    },
+    "channel_rule:rc_plain": {
+      "key": "rc_plain",
+      "name": "日川普货",
+      "enabled": true,
+      "limits": {
+        "max_weight": null,
+        "max_single_side": null,
+        "max_sum_sides": 960,
+        "max_length": null,
+        "max_width": null,
+        "max_height": null,
+        "max_combined_girth": null,
+        "max_cw": null,
+        "reject_both_over": []
+      },
+      "charge_weight": {
+        "vol_ratio": 6000,
+        "round_to": 0.5,
+        "min_cw": null,
+        "bands": [
+          {
+            "max_sum": 100,
+            "cmp": "lt",
+            "mode": "actual"
+          },
+          {
+            "max_sum": null,
+            "cmp": "lte",
+            "mode": "max_actual_avg"
+          }
+        ]
+      },
+      "pricing": {
+        "type": "tiered_step",
+        "step_unit": 0.5,
+        "tiers": [
+          {
+            "max_cw": 2,
+            "cmp": "lte",
+            "base": 32,
+            "step": 6.5,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": 5,
+            "cmp": "lte",
+            "base": 33,
+            "step": 7,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": 10,
+            "cmp": "lte",
+            "base": 34,
+            "step": 7.5,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": null,
+            "cmp": "lte",
+            "base": 35,
+            "step": 8,
+            "rate": null,
+            "min_charge": null
+          }
+        ],
+        "first_weight_fee": null,
+        "continue_per_kg": null,
+        "extra_fee": null,
+        "op_fee": 0,
+        "discount": null
+      },
+      "surcharges": [
+        {
+          "pick": "add",
+          "items": [
+            {
+              "basis": "sum_sides",
+              "cw_below": null,
+              "tiers": [
+                {
+                  "min": 159,
+                  "fee": 80
+                },
+                {
+                  "min": 179,
+                  "fee": 100
+                },
+                {
+                  "min": 200,
+                  "fee": 150
+                },
+                {
+                  "min": 220,
+                  "fee": 200
+                },
+                {
+                  "min": 239,
+                  "fee": 260
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "pick": "add",
+          "items": [
+            {
+              "basis": "weight",
+              "cw_below": null,
+              "tiers": [
+                {
+                  "min": 9.9,
+                  "fee": 50
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "round_total": "ceil"
+    },
+    "channel_rule:sagawa": {
+      "key": "sagawa",
+      "name": "佐川大件",
+      "enabled": true,
+      "limits": {
+        "max_weight": null,
+        "max_single_side": 150,
+        "max_sum_sides": 250,
+        "max_length": null,
+        "max_width": null,
+        "max_height": null,
+        "max_combined_girth": null,
+        "max_cw": 30,
+        "reject_both_over": []
+      },
+      "charge_weight": {
+        "vol_ratio": 6000,
+        "round_to": 0.5,
+        "min_cw": null,
+        "bands": [
+          {
+            "max_sum": 100,
+            "cmp": "lt",
+            "mode": "actual"
+          },
+          {
+            "max_sum": null,
+            "cmp": "lte",
+            "mode": "max_actual_avg"
+          }
+        ]
+      },
+      "pricing": {
+        "type": "tiered_step",
+        "step_unit": 0.5,
+        "tiers": [
+          {
+            "max_cw": null,
+            "cmp": "lte",
+            "base": 40,
+            "step": 10,
+            "rate": null,
+            "min_charge": null
+          }
+        ],
+        "first_weight_fee": null,
+        "continue_per_kg": null,
+        "extra_fee": null,
+        "op_fee": 0,
+        "discount": null
+      },
+      "surcharges": [],
+      "round_total": null
+    },
+    "channel_rule:sf_large": {
+      "key": "sf_large",
+      "name": "顺丰国际大件",
+      "enabled": false,
+      "limits": {
+        "max_weight": null,
+        "max_single_side": 200,
+        "max_sum_sides": null,
+        "max_length": null,
+        "max_width": null,
+        "max_height": null,
+        "max_combined_girth": null,
+        "max_cw": null,
+        "reject_both_over": [
+          {
+            "mid": 80,
+            "min": 80
+          },
+          {
+            "mid": 70,
+            "min": 70
+          }
+        ]
+      },
+      "charge_weight": {
+        "vol_ratio": 6000,
+        "round_to": 0.001,
+        "min_cw": null,
+        "bands": [
+          {
+            "max_sum": null,
+            "cmp": "lte",
+            "mode": "max_actual_vol"
+          }
+        ]
+      },
+      "pricing": {
+        "type": "tiered_step",
+        "step_unit": null,
+        "tiers": [
+          {
+            "max_cw": 100,
+            "cmp": "lt",
+            "base": null,
+            "step": null,
+            "rate": 15,
+            "min_charge": 20
+          },
+          {
+            "max_cw": 500,
+            "cmp": "lt",
+            "base": null,
+            "step": null,
+            "rate": 14,
+            "min_charge": null
+          },
+          {
+            "max_cw": 1000,
+            "cmp": "lt",
+            "base": null,
+            "step": null,
+            "rate": 13,
+            "min_charge": null
+          }
+        ],
+        "first_weight_fee": null,
+        "continue_per_kg": null,
+        "extra_fee": null,
+        "op_fee": 0,
+        "discount": null
+      },
+      "surcharges": [],
+      "round_total": "ceil2"
+    },
+    "channel_rule:sf_small": {
+      "key": "sf_small",
+      "name": "顺丰小包",
+      "enabled": true,
+      "limits": {
+        "max_weight": 30,
+        "max_single_side": 120,
+        "max_sum_sides": 160,
+        "max_length": null,
+        "max_width": null,
+        "max_height": null,
+        "max_combined_girth": null,
+        "max_cw": null,
+        "reject_both_over": []
+      },
+      "charge_weight": {
+        "vol_ratio": 8000,
+        "round_to": null,
+        "min_cw": null,
+        "bands": [
+          {
+            "max_sum": null,
+            "cmp": "lte",
+            "mode": "max_actual_vol"
+          }
+        ]
+      },
+      "pricing": {
+        "type": "tiered_step",
+        "step_unit": 0.5,
+        "tiers": [
+          {
+            "max_cw": 2,
+            "cmp": "lte",
+            "base": 38,
+            "step": 8,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": 5,
+            "cmp": "lte",
+            "base": 40,
+            "step": 9,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": 10,
+            "cmp": "lte",
+            "base": 41,
+            "step": 11,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": null,
+            "cmp": "lte",
+            "base": 42,
+            "step": 12,
+            "rate": null,
+            "min_charge": null
+          }
+        ],
+        "first_weight_fee": null,
+        "continue_per_kg": null,
+        "extra_fee": null,
+        "op_fee": 0,
+        "discount": 0.8
+      },
+      "surcharges": [],
+      "round_total": "round2"
+    },
+    "channel_rule:yw_small": {
+      "key": "yw_small",
+      "name": "义乌小包",
+      "enabled": true,
+      "limits": {
+        "max_weight": null,
+        "max_single_side": 9100,
+        "max_sum_sides": 9160,
+        "max_length": null,
+        "max_width": null,
+        "max_height": null,
+        "max_combined_girth": null,
+        "max_cw": null,
+        "reject_both_over": []
+      },
+      "charge_weight": {
+        "vol_ratio": 6000,
+        "round_to": null,
+        "min_cw": null,
+        "bands": [
+          {
+            "max_sum": 140,
+            "cmp": "lte",
+            "mode": "actual"
+          },
+          {
+            "max_sum": 160,
+            "cmp": "lte",
+            "mode": "avg_actual_vol"
+          },
+          {
+            "max_sum": null,
+            "cmp": "lte",
+            "mode": "max_actual_vol"
+          }
+        ]
+      },
+      "pricing": {
+        "type": "tiered_step",
+        "step_unit": 0.5,
+        "tiers": [
+          {
+            "max_cw": 2,
+            "cmp": "lte",
+            "base": 34,
+            "step": 6,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": 5,
+            "cmp": "lte",
+            "base": 35,
+            "step": 7,
+            "rate": null,
+            "min_charge": null
+          },
+          {
+            "max_cw": null,
+            "cmp": "lte",
+            "base": 36,
+            "step": 8,
+            "rate": null,
+            "min_charge": null
+          }
+        ],
+        "first_weight_fee": null,
+        "continue_per_kg": null,
+        "extra_fee": null,
+        "op_fee": 0,
+        "discount": null
+      },
+      "surcharges": [
+        {
+          "pick": "max",
+          "items": [
+            {
+              "basis": "max_side",
+              "cw_below": null,
+              "tiers": [
+                {
+                  "min": 99,
+                  "fee": 35
+                }
+              ]
+            },
+            {
+              "basis": "sum_sides",
+              "cw_below": null,
+              "tiers": [
+                {
+                  "min": 160,
+                  "fee": 80
+                },
+                {
+                  "min": 200,
+                  "fee": 120
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "round_total": "ceil"
+    }
+  }
+}
