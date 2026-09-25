@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}告警中心{% endblock %}
+
+{% block content %}
+<style>
+  .ac-stat-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:14px; margin-bottom:18px; }
+  .ac-stat-card { background:#fff; border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px 16px; box-shadow:0 2px 8px rgba(15,23,42,0.05); }
+  .ac-stat-card .ac-num { font-size:1.7rem; font-weight:800; line-height:1.2; }
+  .ac-stat-card .ac-label { font-size:0.8rem; color:var(--text-muted); margin-top:2px; }
+  .ac-stat-card .ac-sub { font-size:0.72rem; color:#94a3b8; margin-top:4px; line-height:1.5; }
+  .level-chip { display:inline-block; padding:2px 10px; border-radius:9999px; font-size:0.75rem; font-weight:700; }
+  .level-chip.lv1 { background:#fffbeb; color:#b45309; border:1px solid #fde68a; }
+  .level-chip.lv2 { background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; }
+  .source-chip { display:inline-block; padding:2px 10px; border-radius:9999px; font-size:0.75rem; font-weight:600; }
+  .source-chip.fwd { background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; }
+  .source-chip.dxm { background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe; }
+  @media (max-width: 900px) { .ac-stat-grid { grid-template-columns:repeat(2, 1fr); } }
+</style>
+
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; position:sticky; top:64px; z-index:90; background:var(--bg-main); padding:10px 12px; margin-left:-12px; margin-right:-12px; border-radius:0 0 var(--radius-sm) var(--radius-sm); box-shadow:0 2px 8px rgba(15,23,42,0.06);">
+  <div>
+    <h1 style="font-size:1.4rem; font-weight:700; color:var(--text-main); margin:0;">🚨 告警中心</h1>
+    <p style="font-size:0.82rem; color:var(--text-muted); margin:4px 0 0;">全部监控任务的告警信息汇总 (货代文档采集 · 店小秘订单采集)</p>
+  </div>
+  <div style="display:flex; gap:10px; flex-shrink:0;">
+    {% if current_user and current_user.role == 'admin' %}
+    <a href="/alert-tasks" class="btn btn-outline" style="text-decoration:none;">🔔 告警任务</a>
+    {% endif %}
+    <button class="btn btn-primary" id="acRefreshBtn" type="button">🔄 刷新</button>
+  </div>
+</div>
+
+<!-- 统计卡 -->
+<div class="ac-stat-grid">
+  <div class="ac-stat-card">
+    <div class="ac-num" id="statFwdNum" style="color:#1d4ed8;">0</div>
+    <div class="ac-label">🚢 货代今日超期告警</div>
+    <div class="ac-sub" id="statFwdSub">最近批次: —</div>
+  </div>
+  <div class="ac-stat-card">
+    <div class="ac-num" id="statYellowNum" style="color:#d97706;">0</div>
+    <div class="ac-label">📦 店小秘黄色预警 (未发货)</div>
+    <div class="ac-sub" id="statDxmSub">最近批次: —</div>
+  </div>
+  <div class="ac-stat-card">
+    <div class="ac-num" id="statRedNum" style="color:#dc2626;">0</div>
+    <div class="ac-label">📦 店小秘红/超时 (未发货)</div>
+    <div class="ac-sub" id="statCancelledSub">已取消订单: 0</div>
+  </div>
+  <div class="ac-stat-card">
+    <div class="ac-num" id="statDigestNum" style="color:#15803d; font-size:1.15rem;">—</div>
+    <div class="ac-label">📧 每日汇总邮件最近发送</div>
+    <div class="ac-sub" id="statDigestSub">—</div>
+  </div>
+</div>
+
+<!-- 过滤器 -->
+<div class="form-card" style="margin-bottom:16px;">
+  <div class="card-body" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+    <div class="form-group" style="margin-bottom:0; min-width:150px;">
+      <label class="form-label">来源</label>
+      <select class="form-input" id="acSourceSelect" style="width:100%;">
+        <option value="">全部来源</option>
+        <option value="forwarder">🚢 货代文档采集</option>
+        <option value="dxm">📦 店小秘订单采集</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:0; min-width:140px;">
+      <label class="form-label">业务日期</label>
+      <input type="date" class="form-input" id="acDateInput" style="width:100%;">
+    </div>
+    <div class="form-group" style="margin-bottom:0; min-width:120px;">
+      <label class="form-label">级别</label>
+      <select class="form-input" id="acLevelSelect" style="width:100%;">
+        <option value="">全部级别</option>
+        <option value="1">🟡 黄色</option>
+        <option value="2">🔴 红色/超时</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:0; flex:1; min-width:180px;">
+      <label class="form-label">关键词</label>
+      <input type="text" class="form-input" id="acKeywordInput" placeholder="订单号/店铺/货代/产品名..." style="width:100%;">
+    </div>
+    <button class="btn btn-primary" id="acSearchBtn" type="button">🔍 查询</button>
+    <button class="btn btn-outline" id="acResetBtn" type="button">重置</button>
+  </div>
+</div>
+
+<!-- 告警列表 -->
+<div class="form-card">
+  <div class="card-header">
+    <div class="card-title">
+      <div class="card-title-icon">📋</div>
+      <span>告警信息列表</span>
+    </div>
+    <span class="tag-badge" id="acTotalBadge" style="background:#f1f5f9; color:#475569; border-color:#cbd5e1;">共 0 条</span>
+  </div>
+  <div class="card-body">
+    <div class="table-wrapper" style="border:1px solid var(--border); border-radius:var(--radius-sm); overflow:auto; max-height:62vh;">
+      <table class="matrix-table" style="width:100%; font-size:0.85rem; margin-bottom:0; min-width:860px;">
+        <thead>
+          <tr style="background:#f8fafc; position:sticky; top:0; z-index:2;">
+            <th style="width:130px; text-align:center;">来源</th>
+            <th style="width:96px; text-align:center;">级别</th>
+            <th>标题 / 单号</th>
+            <th>明细</th>
+            <th style="width:110px; text-align:center;">业务日期</th>
+            <th style="width:150px; text-align:center;">时间</th>
+          </tr>
+        </thead>
+        <tbody id="acTableBody"></tbody>
+      </table>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; gap:10px; flex-wrap:wrap;">
+      <small style="color:var(--text-muted);" id="acPageInfo">第 1 / 1 页</small>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-outline btn-sm" id="acPrevBtn" type="button">← 上一页</button>
+        <button class="btn btn-outline btn-sm" id="acNextBtn" type="button">下一页 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/alert_center.js?v=20260925_alert1"></script>
+{% endblock %}

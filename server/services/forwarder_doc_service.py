@@ -1,33 +1,26 @@
 """
 货代在线登记文档定时采集服务 (ForwarderDocService)
 
-流程 (每批次):
+流程 (每批次, 纯采集不发邮件 — 邮件已解耦至 daily_digest_service 每日汇总任务):
   1. 读取 forwarders 表全部货代的「在线链接」(在线登记文档, 不含货代网址)
   2. 按 (doc_id, tab) 去重后, 无头浏览器直读腾讯文档全部 sheet (TencentDocExtractor)
   3. 幂等入库: 先删当天 (biz_date) 同链接快照再插入 (重跑=删当天重跑)
   4. 告警: 「发货数据」sheet 内, 采购日期可解析 + 发货列为空 + (当天-采购日期) >= 阈值(默认7, 大于等于)
-  5. SMTP 邮件推送告警明细 (发信失败只记日志, 不影响落盘)
 
 配置全部存 system_settings (fwd_doc_* 扁平键), 系统管理页维护。
+其中 smtp_*/mail_*/subject_prefix/email_enabled/digest_time 由每日汇总邮件任务
+(DailyDigestService) 消费, email_enabled=每日汇总邮件总开关, digest_time=发送时间(默认08:15)。
 """
 import json
 import re
-import smtplib
 import threading
 import traceback
 from datetime import datetime, date
-from email.header import Header
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.utils import formataddr
 from typing import Any, Dict, List, Optional
 
 from server.database import get_db_connection, get_setting, set_setting
 from server.services.forwarder_service import ForwarderService
 from server.services.tencent_doc_extractor import TencentDocExtractor, parse_doc_url
-
-# 告警明细邮件中优先展示的列 (与「发货数据」表头对应, 缺列自动跳过)
-_ALERT_DISPLAY_COLUMNS = ["产品名称及备注", "国内包裹数量", "国际单号", "订单号"]
 
 _DEFAULT_CONFIG = {
     "sync_mode": "daily",        # daily=每天定时 / interval=间隔轮询
@@ -37,7 +30,8 @@ _DEFAULT_CONFIG = {
     "date_column": "采购日期",
     "ship_column": "仓库发货日期",
     "sheet_name": "发货数据",
-    "email_enabled": False,
+    "email_enabled": False,      # 每日汇总邮件总开关 (DailyDigestService 消费)
+    "digest_time": "08:15",      # 每日汇总邮件发送时间 (HH:MM)
     "smtp_host": "smtp.qq.com",
     "smtp_port": 465,
     "smtp_ssl": True,
@@ -235,12 +229,6 @@ class ForwarderDocService:
         ForwarderDocService._store_alerts(biz_date, all_alerts)
         summary["alerts_found"] = len(all_alerts)
         summary["alert_days"] = cfg["alert_days"]
-
-        # 4. 邮件推送
-        if cfg["email_enabled"]:
-            summary["email_status"] = ForwarderDocService._send_alert_email(cfg, biz_date, all_alerts)
-        else:
-            summary["email_status"] = "disabled"
         return summary
 
     @staticmethod
@@ -354,80 +342,6 @@ class ForwarderDocService:
             conn.commit()
         finally:
             conn.close()
-
-    # ───────────────── 邮件 ─────────────────
-    @staticmethod
-    def _send_alert_email(cfg: Dict[str, Any], biz_date: str, alerts: List[Dict[str, Any]]) -> str:
-        try:
-            to_list = cfg.get("mail_to") or []
-            if not to_list:
-                return "failed: 未配置收件人"
-            subject = (f"{cfg.get('subject_prefix', '')} {biz_date} "
-                       f"超{cfg['alert_days']}天未发货 {len(alerts)} 行"
-                       if alerts else f"{cfg.get('subject_prefix', '')} {biz_date} 批次简报 (无未发货告警)")
-            html = ForwarderDocService._build_email_html(cfg, biz_date, alerts)
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = Header(subject, "utf-8")
-            msg["From"] = formataddr((Header("ERP货代监控", "utf-8").encode(), cfg.get("mail_from") or cfg["smtp_user"]))
-            msg["To"] = ", ".join(to_list)
-            msg.attach(MIMEText(html, "html", "utf-8"))
-            if cfg["smtp_ssl"]:
-                server = smtplib.SMTP_SSL(cfg["smtp_host"], cfg["smtp_port"], timeout=20)
-            else:
-                server = smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"], timeout=20)
-            try:
-                server.login(cfg["smtp_user"], cfg["smtp_password"])
-                server.sendmail(cfg.get("mail_from") or cfg["smtp_user"], to_list, msg.as_string())
-            finally:
-                server.quit()
-            return "sent"
-        except Exception as e:
-            return f"failed: {e.__class__.__name__}: {str(e)[:200]}"
-
-    @staticmethod
-    def _build_email_html(cfg: Dict[str, Any], biz_date: str, alerts: List[Dict[str, Any]]) -> str:
-        if not alerts:
-            return (f"<div style='font-family:Microsoft YaHei,Arial;font-size:14px;'>"
-                    f"<h3>货代文档采集批次简报</h3><p>{biz_date} 采集完成, 无超过 "
-                    f"{cfg['alert_days']} 天未发货的记录。</p></div>")
-        # 按货代分组
-        groups: Dict[str, List[dict]] = {}
-        for a in alerts:
-            groups.setdefault(a["forwarder_name"], []).append(a)
-        parts = [f"<div style='font-family:Microsoft YaHei,Arial;font-size:13px;'>"
-                 f"<h2 style='color:#dc2626;'>⚠️ 货代发货超期提醒</h2>"
-                 f"<p>日期 <b>{biz_date}</b> · 超过 <b>{cfg['alert_days']}</b> 天未发货共 "
-                 f"<b style='color:#dc2626;'>{len(alerts)}</b> 行</p>"]
-        for fwd_name, items in groups.items():
-            parts.append(f"<h3 style='margin:16px 0 6px;'>🚢 {fwd_name} ({len(items)} 行)</h3>")
-            rows_html = ""
-            for a in items:
-                try:
-                    data = json.loads(a["row_json"])
-                except Exception:
-                    data = {}
-                detail_cells = "".join(
-                    f"<td style='border:1px solid #e5e7eb;padding:4px 8px;'>"
-                    f"{str(data.get(col, '') or '')[:60]}</td>"
-                    for col in _ALERT_DISPLAY_COLUMNS if col in data)
-                rows_html += (f"<tr><td style='border:1px solid #e5e7eb;padding:4px 8px;'>"
-                              f"{a['purchase_date']}</td>"
-                              f"<td style='border:1px solid #e5e7eb;padding:4px 8px;color:#dc2626;font-weight:700;'>"
-                              f"{a['days_elapsed']} 天</td>{detail_cells}</tr>")
-            head_cells = "".join(f"<th style='border:1px solid #e5e7eb;background:#f8fafc;padding:5px 8px;text-align:left;'>{c}</th>"
-                                 for c in ["采购日期", "未发货天数"] + [c for c in _ALERT_DISPLAY_COLUMNS
-                                                                      if any(c in (json.loads(i["row_json"]) or {} ) for i in items)])
-            parts.append(f"<table style='border-collapse:collapse;font-size:12.5px;'>"
-                         f"<thead><tr>{head_cells}</tr></thead><tbody>{rows_html}</tbody></table>")
-        parts.append("<p style='color:#94a3b8;font-size:11px;margin-top:14px;'>"
-                     "本邮件由 ERP 中间件货代文档监控自动发送</p></div>")
-        return "".join(parts)
-
-    @staticmethod
-    def send_test_email(cfg_override: Optional[Dict[str, Any]] = None) -> str:
-        """发送测试邮件; cfg_override 传入表单当前值 (不落库), 便于保存前验证"""
-        cfg = ForwarderDocService.get_config(cfg_override)
-        return ForwarderDocService._send_alert_email(cfg, _today().isoformat(), [])
 
     # ───────────────── 调度 ─────────────────
     @staticmethod

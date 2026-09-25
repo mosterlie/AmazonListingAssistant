@@ -48,6 +48,7 @@
     <button class="settings-nav-item" data-tab="automation" type="button">🚀 自动化上件</button>
     <button class="settings-nav-item" data-tab="ai" type="button">🤖 AI 大模型</button>
     <button class="settings-nav-item" data-tab="token" type="button">🔑 远程通道令牌</button>
+    <button class="settings-nav-item" data-tab="email" type="button">📧 邮件通知</button>
   </nav>
 
   <!-- 右侧配置面板 -->
@@ -374,62 +375,26 @@
         </div>
       </div>
 
-      <!-- 7. 货代在线登记文档定时采集 -->
+    </div>
+
+    <!-- 8. 邮件通知 (汇总邮件 + 各预警邮件共用发信通道) -->
+    <div class="settings-panel" data-panel="email">
       <div class="form-card">
         <div class="card-header">
           <div class="card-title">
-            <div class="card-title-icon">🚢</div>
-            <span>货代文档采集与发货提醒</span>
+            <div class="card-title-icon">📧</div>
+            <span>邮件通知 (SMTP 发信配置)</span>
           </div>
-          <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">监控货代「在线链接」登记文档</span>
+          <span class="tag-badge" style="background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">全部邮件共用此发信通道</span>
         </div>
         <div class="card-body">
-          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;">
-            <div class="form-group">
-              <label class="form-label">调度模式</label>
-              <select class="form-input" id="docSyncModeSelect" style="width:100%;">
-                <option value="daily">每天定时</option>
-                <option value="interval">间隔轮询</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">每日采集时间 (daily)</label>
-              <input type="time" class="form-input" id="docSyncTimeInput" value="08:00" style="width:100%;">
-            </div>
-            <div class="form-group">
-              <label class="form-label">轮询间隔 (interval, 小时)</label>
-              <input type="number" class="form-input" id="docSyncIntervalInput" value="24" min="1" max="720" style="width:100%;">
-            </div>
-          </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:14px;">
-            <div class="form-group">
-              <label class="form-label">告警阈值 (天, 大于等于)</label>
-              <input type="number" class="form-input" id="docAlertDaysInput" value="7" min="1" max="365" style="width:100%;">
-            </div>
-            <div class="form-group">
-              <label class="form-label">采购日期列名</label>
-              <input type="text" class="form-input" id="docDateColumnInput" value="采购日期" style="width:100%;">
-            </div>
-            <div class="form-group">
-              <label class="form-label">发货日期列名 (空=未发货)</label>
-              <input type="text" class="form-input" id="docShipColumnInput" value="仓库发货日期" style="width:100%;">
-            </div>
-            <div class="form-group">
-              <label class="form-label">告警 sheet 名</label>
-              <input type="text" class="form-input" id="docSheetNameInput" value="发货数据" style="width:100%;">
-            </div>
-          </div>
-          <small style="color:var(--text-muted); font-size:0.78rem; display:block; margin-bottom:12px;">
-            每日数据快照存入数据库 (重跑自动先删当天)；告警 = 采购日期可解析 + 发货列为空 + 超期天数 ≥ 阈值。采集入口为货代管理中各货代的「在线链接」。
-          </small>
-          <div style="border-top:1px dashed var(--border-color,#e5e7eb); padding-top:12px; margin-bottom:4px; font-weight:700; font-size:0.88rem;">📧 邮件推送 (SMTP)</div>
-          <div style="display:grid; grid-template-columns:auto 1fr 120px auto 1fr; gap:14px; align-items:end;">
-            <div class="form-group" style="margin-bottom:8px;">
-              <label class="form-label">启用</label>
-              <label style="display:flex; align-items:center; gap:6px; padding:8px 0;">
-                <input type="checkbox" id="docEmailEnabledCheckbox" style="width:16px; height:16px;"> 开启推送
-              </label>
-            </div>
+          <p style="font-size:0.84rem; color:var(--text-muted); margin-bottom:14px;">
+            本页仅配置 SMTP 发信通道与默认收件人。各邮件的提醒规则请在独立页面配置：① <b>每日定时提醒</b> 与 ② <b>店小秘红/超时实时提醒</b> 在
+            <a href="/reminders" style="color:var(--primary); font-weight:700;">📧 提醒任务</a> 页配置; 轮询采集与告警阈值在
+            <a href="/alert-tasks" style="color:var(--primary); font-weight:700;">🔔 告警任务</a> 页配置。
+          </p>
+          <div style="font-weight:700; font-size:0.9rem; margin-bottom:8px;">📨 SMTP 发信通道 (所有邮件共用)</div>
+          <div style="display:grid; grid-template-columns:1fr 120px auto 1fr; gap:14px; align-items:end;">
             <div class="form-group">
               <label class="form-label">SMTP 服务器</label>
               <input type="text" class="form-input" id="docSmtpHostInput" value="smtp.qq.com" placeholder="smtp.qq.com" style="width:100%;">
@@ -449,7 +414,7 @@
               <input type="text" class="form-input" id="docSmtpUserInput" placeholder="you@qq.com" style="width:100%;">
             </div>
           </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
             <div class="form-group">
               <label class="form-label">SMTP 授权码 (非登录密码)</label>
               <div style="display:flex; gap:8px; align-items:center;">
@@ -461,95 +426,17 @@
               <label class="form-label">发件人 (留空用 SMTP 账号)</label>
               <input type="text" class="form-input" id="docMailFromInput" style="width:100%;">
             </div>
-            <div class="form-group">
-              <label class="form-label">主题前缀</label>
-              <input type="text" class="form-input" id="docSubjectPrefixInput" value="[货代发货提醒]" style="width:100%;">
-            </div>
           </div>
           <div class="form-group">
-            <label class="form-label">收件人 (多个用英文逗号分隔)</label>
+            <label class="form-label">默认收件人 (多个用英文逗号分隔; 各提醒任务未配置独立收件人时使用)</label>
             <div style="display:flex; gap:8px; align-items:center;">
               <input type="text" class="form-input" id="docMailToInput" placeholder="you@qq.com, boss@qq.com" style="flex:1;">
-              <button type="button" class="btn btn-outline btn-sm" onclick="sendDocSyncTestEmail()" style="padding:8px 14px; white-space:nowrap;">📨 测试邮件</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="sendEmailTestEmail()" style="padding:8px 14px; white-space:nowrap;">📨 测试邮件</button>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- 8. 店小秘订单剩余发货时间采集与预警 -->
-      <div class="form-card">
-        <div class="card-header">
-          <div class="card-title">
-            <div class="card-title-icon">📦</div>
-            <span>店小秘订单预警</span>
-          </div>
-          <span class="tag-badge" style="background:#fffbeb; color:#b45309; border-color:#fde68a;">剩余发货时间监控 · 临期邮件提醒</span>
-        </div>
-        <div class="card-body">
-          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;">
-            <div class="form-group">
-              <label class="form-label">店小秘登录账号 (未登录时自动模拟登录)</label>
-              <input type="text" class="form-input" id="dxmAccountInput" placeholder="如: mosterlike" style="width:100%;">
-            </div>
-            <div class="form-group">
-              <label class="form-label">登录密码</label>
-              <div style="display:flex; gap:8px; align-items:center;">
-                <input type="password" class="form-input" id="dxmPasswordInput" autocomplete="new-password" style="flex:1;">
-                <button type="button" class="btn btn-outline btn-sm" onclick="toggleTokenVisibility(this, 'dxmPasswordInput')" title="显示/隐藏" style="padding:6px 10px;">👁</button>
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">采集间隔 (分钟)</label>
-              <input type="number" class="form-input" id="dxmIntervalInput" value="60" min="5" max="1440" style="width:100%;">
-            </div>
-          </div>
-          <div style="display:grid; grid-template-columns:auto 1fr 1fr auto auto; gap:14px; align-items:end;">
-            <div class="form-group" style="margin-bottom:8px;">
-              <label class="form-label">定时采集</label>
-              <label style="display:flex; align-items:center; gap:6px; padding:8px 0;">
-                <input type="checkbox" id="dxmScanEnabledCheckbox" checked style="width:16px; height:16px;"> 开启
-              </label>
-            </div>
-            <div class="form-group">
-              <label class="form-label">🟡 黄色阈值 (剩余小时, 默认24)</label>
-              <input type="number" class="form-input" id="dxmWarnHoursInput" value="24" min="0.5" step="0.5" style="width:100%;">
-            </div>
-            <div class="form-group">
-              <label class="form-label">🔴 红色阈值 (剩余小时, 默认6)</label>
-              <input type="number" class="form-input" id="dxmDangerHoursInput" value="6" min="0" step="0.5" style="width:100%;">
-            </div>
-            <div class="form-group" style="margin-bottom:8px;">
-              <label class="form-label">红色重复提醒</label>
-              <label style="display:flex; align-items:center; gap:6px; padding:8px 0;">
-                <input type="checkbox" id="dxmRepeatRedCheckbox" checked style="width:16px; height:16px;"> 每轮重复
-              </label>
-            </div>
-            <div class="form-group" style="margin-bottom:8px;">
-              <label class="form-label">预警邮件</label>
-              <label style="display:flex; align-items:center; gap:6px; padding:8px 0;">
-                <input type="checkbox" id="dxmEmailEnabledCheckbox" style="width:16px; height:16px;"> 开启推送
-              </label>
-            </div>
-          </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
-            <div class="form-group">
-              <label class="form-label">预警收件人 (多个用英文逗号分隔)</label>
-              <div style="display:flex; gap:8px; align-items:center;">
-                <input type="text" class="form-input" id="dxmMailToInput" placeholder="you@qq.com, boss@qq.com" style="flex:1;">
-                <button type="button" class="btn btn-outline btn-sm" onclick="sendDxmTestEmail()" style="padding:8px 14px; white-space:nowrap;">📨 测试邮件</button>
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">主题前缀</label>
-              <input type="text" class="form-input" id="dxmSubjectPrefixInput" value="[店小秘发货预警]" style="width:100%;">
-            </div>
-          </div>
-          <div style="display:flex; gap:10px; align-items:center; margin-top:4px;">
-            <button type="button" class="btn btn-outline btn-sm" onclick="testDxmLogin()" style="padding:8px 14px;">🔐 测试登录 (未登录时自动模拟登录+验证码识别)</button>
-            <small style="color:var(--text-muted); font-size:0.78rem;">
-              采集通道复用 9222 Chrome 独立标签页；邮件 SMTP 复用上方「货代文档采集」的发信配置；验证码识别失败会自动换图重试 3 次。
-            </small>
-          </div>
+          <small style="color:var(--text-muted); font-size:0.78rem; display:block;">
+            提醒开关 / 发送时间 / 各提醒独立收件人 / 主题前缀在 📧 提醒任务 页配置 (本页收件人作为默认兜底)。
+          </small>
         </div>
       </div>
     </div>
@@ -557,5 +444,5 @@
   </div>
 </div>
 
-<script src="/static/js/settings.js?v=20260923_dxmorder"></script>
+<script src="/static/js/settings.js?v=20260925_rem1"></script>
 {% endblock %}

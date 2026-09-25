@@ -6,11 +6,13 @@
   2. 登录态检测: 未登录 → 用配置账密模拟登录 (图形验证码 ddddocr 本地识别, 最多3次/每次换新图)
   3. 在已登录页面上下文调用内部接口 /api/package/list.json 拉全量订单 (自动翻页)
   4. 幂等入库 dxm_order_deadlines (UPSERT by order_no; 已发货/消失订单保留快照)
-  5. 预警: 未发货且剩余 < warn_hours → 黄; < danger_hours → 红; <= 0 → 超时; 邮件复用货代 SMTP 配置
+  5. 预警: 未发货且剩余 < warn_hours → 黄; < danger_hours → 红; <= 0 → 超时
+     红色/超时订单出现即单独发预警邮件 (SMTP 复用货代配置);
+     每日 8:15 汇总邮件 (含橘色+红色明细) 由 daily_digest_service 独立发送, 与本服务解耦
+调度: 每自然小时一次 (整点后首个心跳触发, 保证每天 8 点有「8点批次」供汇总邮件取数)
 互斥: product_items 中存在 status='publishing' 的商品 (上件任务运行中) 时跳过本轮采集。
 """
 import json
-import re
 import smtplib
 import threading
 import time
@@ -58,7 +60,6 @@ _DEFAULT_CONFIG = {
     "dxm_account": "",
     "dxm_password": "",
     "scan_enabled": True,
-    "scan_interval_minutes": 60,
     "warn_hours": 24,
     "danger_hours": 6,
     "repeat_red_alert": True,
@@ -96,10 +97,6 @@ class DxmOrderService:
                 cfg[key] = val
         if override:
             cfg.update({k: v for k, v in override.items() if k in _DEFAULT_CONFIG})
-        try:
-            cfg["scan_interval_minutes"] = max(5, int(cfg["scan_interval_minutes"] or 60))
-        except Exception:
-            cfg["scan_interval_minutes"] = 60
         try:
             cfg["warn_hours"] = max(0.5, float(cfg["warn_hours"] or 24))
         except Exception:
@@ -281,7 +278,7 @@ class DxmOrderService:
         warn_sec = cfg["warn_hours"] * 3600
         danger_sec = cfg["danger_hours"] * 3600
         stats = {"orders_total": 0, "pending_total": 0, "alert_yellow": 0,
-                 "alert_red": 0, "alert_expired": 0, "email_rows": []}
+                 "alert_red": 0, "alert_expired": 0, "orders_cancelled": 0, "email_rows": []}
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # Python 本地时间 (SQLite CURRENT_TIMESTAMP 是 UTC)
         conn = get_db_connection()
         try:
@@ -290,7 +287,12 @@ class DxmOrderService:
                 if not order_no or od.get("isVoided") or od.get("isRemoved"):
                     continue
                 stats["orders_total"] += 1
-                status = (od.get("orderStatePlatform") or od.get("orderState") or "").strip()
+                state_l = (od.get("orderState") or "").strip().lower()
+                platform_state = (od.get("orderStatePlatform") or "").strip()
+                platform_l = platform_state.lower()
+                # 已取消订单 (CANCELED/Cancelled/已取消): 不轮询预警, 库内标记 alert_level=-1 退出预警列表
+                is_cancelled = ("cancel" in state_l or "cancel" in platform_l or "取消" in platform_state)
+                status = platform_state or (od.get("orderState") or "").strip()
                 is_shipped = (od.get("orderState") == "shipped" or status.lower() == "shipped")
                 try:
                     timeout_ts = int(od.get("orderTimeoutTime") or 0)
@@ -298,7 +300,10 @@ class DxmOrderService:
                     timeout_ts = 0
                 deadline_at = datetime.fromtimestamp(timeout_ts).strftime("%Y-%m-%d %H:%M:%S") if timeout_ts else ""
                 remaining_min = int((timeout_ts - now_ts) // 60) if timeout_ts else -1
-                if is_shipped:
+                if is_cancelled:
+                    alert_level = -1
+                    stats["orders_cancelled"] += 1
+                elif is_shipped:
                     alert_level = 0
                 else:
                     stats["pending_total"] += 1
@@ -317,11 +322,10 @@ class DxmOrderService:
                 row = conn.execute(
                     "SELECT alerted_levels FROM dxm_order_deadlines WHERE order_no = ?", (order_no,)).fetchone()
                 old_alerted = (row["alerted_levels"] or "") if row else ""
-                # 邮件范围: 黄级首次触达 + 红级(首次触达或每轮重复提醒)
-                if alert_level >= 1:
-                    yellow_new = "1" not in old_alerted
-                    red_repeat = alert_level == 2 and (cfg["repeat_red_alert"] or "2" not in old_alerted)
-                    if yellow_new or red_repeat:
+                # 邮件范围: 仅红/超时级 (首次触达或每轮重复提醒); 黄级只入库记录不发邮件
+                if alert_level == 2:
+                    red_repeat = cfg["repeat_red_alert"] or "2" not in old_alerted
+                    if red_repeat:
                         stats["email_rows"].append({
                             "order_no": order_no, "shop_name": od.get("shopPlatform") or od.get("shopName") or "",
                             "site": od.get("buyerCountry") or "", "order_status": status,
@@ -351,11 +355,24 @@ class DxmOrderService:
         finally:
             conn.close()
 
-        # 邮件: 黄级首达 + 红级(首达或每轮重复) —— email_rows 已含全部 level>=1 未发货订单
+        # 邮件: 仅红/超时级 (email_rows 已只含 level==2; 黄级静默记录)
         stats["email_status"] = "disabled"
         if cfg["alert_email_enabled"] and stats["email_rows"]:
             stats["email_status"] = DxmOrderService._send_alert_email(cfg, stats["email_rows"])
         return stats
+
+    # ───────────────── 每日邮件快照 ─────────────────
+    @staticmethod
+    def timeout_orders_snapshot() -> List[Dict[str, Any]]:
+        """库内最近一次采集快照中的 红/超时 未发货订单 (供状态页/汇总邮件查询)"""
+        conn = get_db_connection()
+        try:
+            rows = conn.execute(
+                "SELECT order_no, shop_name, site, order_status, deadline_at, remaining_minutes "
+                "FROM dxm_order_deadlines WHERE alert_level = 2 ORDER BY remaining_minutes ASC").fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
 
     # ───────────────── 邮件 ─────────────────
     @staticmethod
@@ -385,9 +402,8 @@ class DxmOrderService:
             if not smtp.get("smtp_user"):
                 return "failed: 未配置 SMTP (系统管理 → 货代文档采集邮件配置)"
             red_n = sum(1 for r in rows if r["level"] == 2)
-            yellow_n = len(rows) - red_n
             subject = (f"{cfg.get('subject_prefix', '')} "
-                       f"{red_n} 红 / {yellow_n} 黄 共 {len(rows)} 单 ({datetime.now().strftime('%m-%d %H:%M')})")
+                       f"{red_n} 红/超时 共 {len(rows)} 单 ({datetime.now().strftime('%m-%d %H:%M')})")
             body_rows = ""
             for r in sorted(rows, key=lambda x: x["remaining_minutes"]):
                 color = "#dc2626" if r["level"] == 2 else "#d97706"
@@ -402,8 +418,7 @@ class DxmOrderService:
             html = (
                 "<div style='font-family:Microsoft YaHei,Arial;font-size:13px;'>"
                 "<h2 style='color:#dc2626;'>⏰ 店小秘订单发货截止预警</h2>"
-                f"<p>🔴 红色(剩余&lt;{cfg['danger_hours']}h): <b>{red_n}</b> 单 · "
-                f"🟡 黄色(剩余&lt;{cfg['warn_hours']}h): <b>{yellow_n}</b> 单</p>"
+                f"<p>🔴 红/超时(剩余&lt;{cfg['danger_hours']}h 或已超时): <b>{red_n}</b> 单 (黄色订单仅页面展示, 不再邮件提醒)</p>"
                 "<table style='border-collapse:collapse;font-size:12.5px;'>"
                 "<thead><tr>" + "".join(
                     f"<th style='border:1px solid #e5e7eb;background:#f8fafc;padding:5px 8px;text-align:left;'>{c}</th>"
@@ -512,7 +527,11 @@ class DxmOrderService:
     # ───────────────── 调度 ─────────────────
     @staticmethod
     def maybe_trigger_scheduled() -> bool:
-        """调度心跳 (每60s调用): 开启采集 + 距上次批次超过间隔 + 空闲 → 后台线程触发"""
+        """调度心跳 (每60s调用): 开启采集 + 当前自然小时还没有成功批次 + 空闲 → 后台线程触发。
+
+        按自然小时对齐 (整点后首个心跳触发), 保证每天 8 点时段有「8点批次」供每日汇总邮件取数;
+        本小时内批次失败会在下个心跳自动重试, 直至该小时出现成功批次。
+        """
         if _RUN_LOCK.locked() or _RUNNING["running"]:
             return False
         cfg = DxmOrderService.get_config()
@@ -531,8 +550,8 @@ class DxmOrderService:
                 last = datetime.fromisoformat(row["started_at"])
             except Exception:
                 last = None
-            if last and (now - last).total_seconds() < cfg["scan_interval_minutes"] * 60:
-                return False
+            if last and last.date() == now.date() and last.hour >= now.hour:
+                return False   # 本自然小时已采集成功过
         threading.Thread(target=DxmOrderService.run_batch, kwargs={"trigger": "scheduled"},
                          daemon=True).start()
         return True
@@ -553,6 +572,7 @@ class DxmOrderService:
                      SUM(CASE WHEN alert_level = 1 AND order_status NOT LIKE 'Shipped%' THEN 1 ELSE 0 END) yellow,
                      SUM(CASE WHEN alert_level = 2 AND remaining_minutes > 0 THEN 1 ELSE 0 END) red,
                      SUM(CASE WHEN alert_level = 2 AND remaining_minutes <= 0 THEN 1 ELSE 0 END) expired,
+                     SUM(CASE WHEN alert_level = -1 THEN 1 ELSE 0 END) cancelled,
                      COUNT(*) total
                    FROM dxm_order_deadlines""").fetchone()
         finally:
@@ -563,7 +583,8 @@ class DxmOrderService:
             "running_trigger": _RUNNING["trigger"],
             "last_log": dict(last) if last else None,
             "counts": {"yellow": cnt["yellow"] or 0, "red": cnt["red"] or 0,
-                       "expired": cnt["expired"] or 0, "total": cnt["total"] or 0},
+                       "expired": cnt["expired"] or 0, "cancelled": cnt["cancelled"] or 0,
+                       "total": cnt["total"] or 0},
             "publishing_busy": DxmOrderService._has_publishing_task(),
             "config": {k: ("" if "password" in k else v) for k, v in cfg.items()},
         }
@@ -575,6 +596,7 @@ class DxmOrderService:
         where, params = ["1=1"], []
         if pending_only:
             where.append("order_status NOT LIKE 'Shipped%' AND order_status != 'shipped'")
+            where.append("alert_level != -1")   # 已取消订单不进预警列表
         if alert_level is not None:
             where.append("alert_level = ?")
             params.append(int(alert_level))

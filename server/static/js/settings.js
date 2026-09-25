@@ -33,19 +33,10 @@ const settingsState = {
   },
   // 桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token, 原 db_agent 8765)
   db_agent_token: "",
-  // 货代在线登记文档定时采集配置
-  doc_sync: {
-    sync_mode: "daily", sync_time: "08:00", interval_hours: 24,
-    alert_days: 7, date_column: "采购日期", ship_column: "仓库发货日期", sheet_name: "发货数据",
-    email_enabled: false, smtp_host: "smtp.qq.com", smtp_port: 465, smtp_ssl: true,
-    smtp_user: "", smtp_password: "", mail_from: "", mail_to: "", subject_prefix: "[货代发货提醒]"
-  },
-  // 店小秘订单剩余发货时间采集与预警配置
-  dxm_order: {
-    dxm_account: "", dxm_password: "",
-    scan_enabled: true, scan_interval_minutes: 60,
-    warn_hours: 24, danger_hours: 6, repeat_red_alert: true,
-    alert_email_enabled: false, alert_mail_to: "", subject_prefix: "[店小秘发货预警]"
+  // 邮件通知配置 (SMTP 发信通道 + 默认收件人; 存 fwd_doc_* 扁平键, 提醒规则在「提醒任务」页)
+  email_notify: {
+    smtp_host: "smtp.qq.com", smtp_port: 465, smtp_ssl: true,
+    smtp_user: "", smtp_password: "", mail_from: "", mail_to: ""
   },
   // 物流渠道计费规则 (null=未自定义, 前端回退 pricing_tool.js 内置默认)
   channelRules: null
@@ -100,11 +91,8 @@ async function loadSettings() {
       if (result.data.db_agent_token !== undefined) {
         settingsState.db_agent_token = result.data.db_agent_token || "";
       }
-      if (result.data.doc_sync) {
-        settingsState.doc_sync = { ...settingsState.doc_sync, ...result.data.doc_sync };
-      }
-      if (result.data.dxm_order) {
-        settingsState.dxm_order = { ...settingsState.dxm_order, ...result.data.dxm_order };
+      if (result.data.email_notify) {
+        settingsState.email_notify = { ...settingsState.email_notify, ...result.data.email_notify };
       }
       if (result.data.channel_rules !== undefined) {
         settingsState.channelRules = (Array.isArray(result.data.channel_rules) && result.data.channel_rules.length)
@@ -162,44 +150,20 @@ function populateForm() {
   const dbAgentTokenInp = document.getElementById("dbAgentTokenInput");
   if (dbAgentTokenInp) dbAgentTokenInp.value = settingsState.db_agent_token || "";
 
-  // 货代文档采集配置回填
-  const ds = settingsState.doc_sync;
-  const dsMap = {
-    docSyncModeSelect: ds.sync_mode, docSyncTimeInput: ds.sync_time,
-    docSyncIntervalInput: ds.interval_hours, docAlertDaysInput: ds.alert_days,
-    docDateColumnInput: ds.date_column, docShipColumnInput: ds.ship_column,
-    docSheetNameInput: ds.sheet_name, docSmtpHostInput: ds.smtp_host,
-    docSmtpPortInput: ds.smtp_port, docSmtpUserInput: ds.smtp_user,
-    docSmtpPasswordInput: ds.smtp_password, docMailFromInput: ds.mail_from,
-    docMailToInput: ds.mail_to, docSubjectPrefixInput: ds.subject_prefix
+  // 邮件通知配置回填 (SMTP 通道 + 默认收件人; 提醒规则已迁往「提醒任务」页)
+  const en = settingsState.email_notify;
+  const enMap = {
+    docSmtpHostInput: en.smtp_host,
+    docSmtpPortInput: en.smtp_port, docSmtpUserInput: en.smtp_user,
+    docSmtpPasswordInput: en.smtp_password, docMailFromInput: en.mail_from,
+    docMailToInput: en.mail_to
   };
-  for (const [id, val] of Object.entries(dsMap)) {
+  for (const [id, val] of Object.entries(enMap)) {
     const el = document.getElementById(id);
     if (el) el.value = val == null ? "" : val;
   }
-  const dsEnabled = document.getElementById("docEmailEnabledCheckbox");
-  if (dsEnabled) dsEnabled.checked = !!ds.email_enabled;
-  const dsSsl = document.getElementById("docSmtpSslCheckbox");
-  if (dsSsl) dsSsl.checked = !!ds.smtp_ssl;
-
-  // 店小秘订单预警配置回填
-  const dxm = settingsState.dxm_order;
-  const dxmMap = {
-    dxmAccountInput: dxm.dxm_account, dxmPasswordInput: dxm.dxm_password,
-    dxmIntervalInput: dxm.scan_interval_minutes, dxmWarnHoursInput: dxm.warn_hours,
-    dxmDangerHoursInput: dxm.danger_hours, dxmMailToInput: dxm.alert_mail_to,
-    dxmSubjectPrefixInput: dxm.subject_prefix
-  };
-  for (const [id, val] of Object.entries(dxmMap)) {
-    const el = document.getElementById(id);
-    if (el) el.value = val == null ? "" : val;
-  }
-  const dxmScanChk = document.getElementById("dxmScanEnabledCheckbox");
-  if (dxmScanChk) dxmScanChk.checked = !!dxm.scan_enabled;
-  const dxmRepeatChk = document.getElementById("dxmRepeatRedCheckbox");
-  if (dxmRepeatChk) dxmRepeatChk.checked = !!dxm.repeat_red_alert;
-  const dxmEmailChk = document.getElementById("dxmEmailEnabledCheckbox");
-  if (dxmEmailChk) dxmEmailChk.checked = !!dxm.alert_email_enabled;
+  const enSsl = document.getElementById("docSmtpSslCheckbox");
+  if (enSsl) enSsl.checked = !!en.smtp_ssl;
 
   const submitYes = document.getElementById("submitAdYes");
   const submitNo = document.getElementById("submitAdNo");
@@ -450,36 +414,15 @@ async function saveSettings() {
       api_key: (document.getElementById("aiApiKeyInput")?.value || "").trim()
     },
     db_agent_token: (document.getElementById("dbAgentTokenInput")?.value || "").trim(),
-    doc_sync: {
-      sync_mode: document.getElementById("docSyncModeSelect")?.value || "daily",
-      sync_time: document.getElementById("docSyncTimeInput")?.value || "08:00",
-      interval_hours: parseInt(document.getElementById("docSyncIntervalInput")?.value) || 24,
-      alert_days: parseInt(document.getElementById("docAlertDaysInput")?.value) || 7,
-      date_column: (document.getElementById("docDateColumnInput")?.value || "采购日期").trim(),
-      ship_column: (document.getElementById("docShipColumnInput")?.value || "仓库发货日期").trim(),
-      sheet_name: (document.getElementById("docSheetNameInput")?.value || "发货数据").trim(),
-      email_enabled: !!document.getElementById("docEmailEnabledCheckbox")?.checked,
+    // 邮件通知配置 (SMTP 发信通道 + 默认收件人; 提醒规则在「提醒任务」页)
+    email_notify: {
       smtp_host: (document.getElementById("docSmtpHostInput")?.value || "smtp.qq.com").trim(),
       smtp_port: parseInt(document.getElementById("docSmtpPortInput")?.value) || 465,
       smtp_ssl: !!document.getElementById("docSmtpSslCheckbox")?.checked,
       smtp_user: (document.getElementById("docSmtpUserInput")?.value || "").trim(),
       smtp_password: (document.getElementById("docSmtpPasswordInput")?.value || "").trim(),
       mail_from: (document.getElementById("docMailFromInput")?.value || "").trim(),
-      mail_to: (document.getElementById("docMailToInput")?.value || "").trim(),
-      subject_prefix: (document.getElementById("docSubjectPrefixInput")?.value || "[货代发货提醒]").trim()
-    },
-    // 店小秘订单预警配置
-    dxm_order: {
-      dxm_account: (document.getElementById("dxmAccountInput")?.value || "").trim(),
-      dxm_password: (document.getElementById("dxmPasswordInput")?.value || "").trim(),
-      scan_enabled: !!document.getElementById("dxmScanEnabledCheckbox")?.checked,
-      scan_interval_minutes: parseInt(document.getElementById("dxmIntervalInput")?.value) || 60,
-      warn_hours: parseFloat(document.getElementById("dxmWarnHoursInput")?.value) || 24,
-      danger_hours: parseFloat(document.getElementById("dxmDangerHoursInput")?.value) || 6,
-      repeat_red_alert: !!document.getElementById("dxmRepeatRedCheckbox")?.checked,
-      alert_email_enabled: !!document.getElementById("dxmEmailEnabledCheckbox")?.checked,
-      alert_mail_to: (document.getElementById("dxmMailToInput")?.value || "").trim(),
-      subject_prefix: (document.getElementById("dxmSubjectPrefixInput")?.value || "[店小秘发货预警]").trim()
+      mail_to: (document.getElementById("docMailToInput")?.value || "").trim()
     },
     // 物流渠道计费规则 (恢复默认时提交 null 清除自定义配置)
     channel_rules: crResetPending ? null : collectChannelRules()
@@ -513,11 +456,8 @@ async function saveSettings() {
       if (result.data.db_agent_token !== undefined) {
         settingsState.db_agent_token = result.data.db_agent_token || "";
       }
-      if (result.data.doc_sync !== undefined) {
-        settingsState.doc_sync = { ...settingsState.doc_sync, ...result.data.doc_sync };
-      }
-      if (result.data.dxm_order !== undefined) {
-        settingsState.dxm_order = { ...settingsState.dxm_order, ...result.data.dxm_order };
+      if (result.data.email_notify !== undefined) {
+        settingsState.email_notify = { ...settingsState.email_notify, ...result.data.email_notify };
       }
       if (result.data.channel_rules !== undefined) {
         settingsState.channelRules = (Array.isArray(result.data.channel_rules) && result.data.channel_rules.length)
@@ -713,32 +653,22 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ============================================================================
-// 货代文档采集: 测试邮件
+// 邮件通知: 测试汇总邮件 (用表单当前值直接发送, 不落库)
 // ============================================================================
-async function sendDocSyncTestEmail() {
+async function sendEmailTestEmail() {
   const to = (document.getElementById("docMailToInput")?.value || "").trim();
   if (!to) {
     showToast("请先填写收件人再发送测试邮件", "error");
     return;
   }
-  // 用表单当前值直接发送 (不落库), 避免"配置填了没保存导致测试误导"
-  const payload = { doc_sync: {
-    sync_mode: document.getElementById("docSyncModeSelect")?.value || "daily",
-    sync_time: document.getElementById("docSyncTimeInput")?.value || "08:00",
-    interval_hours: parseInt(document.getElementById("docSyncIntervalInput")?.value) || 24,
-    alert_days: parseInt(document.getElementById("docAlertDaysInput")?.value) || 7,
-    date_column: (document.getElementById("docDateColumnInput")?.value || "采购日期").trim(),
-    ship_column: (document.getElementById("docShipColumnInput")?.value || "仓库发货日期").trim(),
-    sheet_name: (document.getElementById("docSheetNameInput")?.value || "发货数据").trim(),
-    email_enabled: true,
-    smtp_host: (document.getElementById("docSmtpHostInput")?.value || "smtp.163.com").trim(),
+  const payload = { email_notify: {
+    smtp_host: (document.getElementById("docSmtpHostInput")?.value || "smtp.qq.com").trim(),
     smtp_port: parseInt(document.getElementById("docSmtpPortInput")?.value) || 465,
     smtp_ssl: !!document.getElementById("docSmtpSslCheckbox")?.checked,
     smtp_user: (document.getElementById("docSmtpUserInput")?.value || "").trim(),
     smtp_password: (document.getElementById("docSmtpPasswordInput")?.value || "").trim(),
     mail_from: (document.getElementById("docMailFromInput")?.value || "").trim(),
-    mail_to: to,
-    subject_prefix: (document.getElementById("docSubjectPrefixInput")?.value || "[货代发货提醒]").trim()
+    mail_to: to
   } };
   try {
     const res = await fetch("/api/forwarder-docs/test-email", {
@@ -748,85 +678,12 @@ async function sendDocSyncTestEmail() {
     });
     const result = await res.json();
     if (res.ok && result.code === 0) {
-      showToast(`📨 测试邮件已发送至 ${to} (测试通过后请记得点"保存设置")`, "success");
+      showToast(`📨 测试邮件已发送至 ${to} (测试通过后请记得点"保存配置")`, "success");
     } else {
       showToast(`发送失败: ${result.detail || result.msg || "未知错误"}`, "error");
     }
   } catch (err) {
     showToast(`发送异常: ${err.message}`, "error");
-  }
-}
-
-// ============================================================================
-// 店小秘订单预警: 测试邮件 / 测试登录
-// ============================================================================
-async function sendDxmTestEmail() {
-  const to = (document.getElementById("dxmMailToInput")?.value || "").trim();
-  if (!to) {
-    showToast("请先填写预警收件人再发送测试邮件", "error");
-    return;
-  }
-  const payload = { dxm_order: {
-    dxm_account: (document.getElementById("dxmAccountInput")?.value || "").trim(),
-    dxm_password: (document.getElementById("dxmPasswordInput")?.value || "").trim(),
-    scan_enabled: !!document.getElementById("dxmScanEnabledCheckbox")?.checked,
-    scan_interval_minutes: parseInt(document.getElementById("dxmIntervalInput")?.value) || 60,
-    warn_hours: parseFloat(document.getElementById("dxmWarnHoursInput")?.value) || 24,
-    danger_hours: parseFloat(document.getElementById("dxmDangerHoursInput")?.value) || 6,
-    repeat_red_alert: !!document.getElementById("dxmRepeatRedCheckbox")?.checked,
-    alert_email_enabled: true,
-    alert_mail_to: to,
-    subject_prefix: (document.getElementById("dxmSubjectPrefixInput")?.value || "[店小秘发货预警]").trim()
-  } };
-  try {
-    const res = await fetch("/api/dxm-orders/test-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const result = await res.json();
-    if (res.ok && result.code === 0) {
-      showToast(`📨 测试邮件已发送至 ${to} (测试通过后请记得点"保存设置")`, "success");
-    } else {
-      showToast(`发送失败: ${result.detail || result.msg || "未知错误"}`, "error");
-    }
-  } catch (err) {
-    showToast(`发送异常: ${err.message}`, "error");
-  }
-}
-
-async function testDxmLogin() {
-  const btn = event && event.target ? event.target : null;
-  const originText = btn ? btn.innerText : "";
-  if (btn) { btn.disabled = true; btn.innerText = "⏳ 检测中..."; }
-  const payload = { dxm_order: {
-    dxm_account: (document.getElementById("dxmAccountInput")?.value || "").trim(),
-    dxm_password: (document.getElementById("dxmPasswordInput")?.value || "").trim(),
-    scan_enabled: !!document.getElementById("dxmScanEnabledCheckbox")?.checked,
-    scan_interval_minutes: parseInt(document.getElementById("dxmIntervalInput")?.value) || 60,
-    warn_hours: parseFloat(document.getElementById("dxmWarnHoursInput")?.value) || 24,
-    danger_hours: parseFloat(document.getElementById("dxmDangerHoursInput")?.value) || 6,
-    repeat_red_alert: !!document.getElementById("dxmRepeatRedCheckbox")?.checked,
-    alert_email_enabled: !!document.getElementById("dxmEmailEnabledCheckbox")?.checked,
-    alert_mail_to: (document.getElementById("dxmMailToInput")?.value || "").trim(),
-    subject_prefix: (document.getElementById("dxmSubjectPrefixInput")?.value || "[店小秘发货预警]").trim()
-  } };
-  try {
-    const res = await fetch("/api/dxm-orders/test-login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const result = await res.json();
-    if (result.code === 0) {
-      showToast(`✅ ${result.msg || "登录态正常"}`, "success");
-    } else {
-      showToast(`⚠️ ${result.msg || "登录失败"}`, "error");
-    }
-  } catch (err) {
-    showToast(`测试登录异常: ${err.message}`, "error");
-  } finally {
-    if (btn) { btn.disabled = false; btn.innerText = originText; }
   }
 }
 

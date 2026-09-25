@@ -55,14 +55,14 @@ async function loadDxmStatus() {
     } else if (last) {
       line = `最近采集: ${dxmFmtTime(last.started_at)} · 订单 ${last.orders_total} 单 · ${last.status}`;
       if (last.message) line += ` · ${last.message.slice(0, 60)}`;
-      // 下轮倒计时
+      // 下轮倒计时 (每自然小时一次: 整点后触发)
       if (st.config && st.config.scan_enabled && last.status === "success") {
-        const nextMs = new Date(last.started_at.replace(" ", "T")).getTime() + (st.config.scan_interval_minutes || 60) * 60000;
+        const nextMs = Math.ceil(Date.now() / 3600000) * 3600000;
         const mins = Math.max(0, Math.round((nextMs - Date.now()) / 60000));
-        line += ` · 下轮约 ${mins} 分钟后`;
+        line += ` · 下轮约 ${mins} 分钟后 (每小时)`;
       }
     } else {
-      line = "尚未采集过 (启动后自动按间隔采集)";
+      line = "尚未采集过 (启动后每小时自动采集)";
     }
     statusEl.innerText = line;
 

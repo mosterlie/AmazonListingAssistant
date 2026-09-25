@@ -38,6 +38,7 @@ from server.routers import (
     forwarder_router,
     forwarder_doc_router,
     dxm_order_router,
+    alert_router,
     db_agent_router
 )
 
@@ -52,11 +53,16 @@ async def lifespan(app: FastAPI):
     from server.services.dxm_order_scheduler import start_dxm_order_scheduler
 
     dxm_scheduler_task = start_dxm_order_scheduler()
+    # 每日汇总邮件 (08:15, 货代采集+店小秘8点批次结果): services/daily_digest_scheduler.py
+    from server.services.daily_digest_scheduler import start_daily_digest_scheduler
+
+    digest_scheduler_task = start_daily_digest_scheduler()
     display_host = "127.0.0.1" if SERVER_HOST in ("0.0.0.0", "") else SERVER_HOST
     print(f"🚀 服务已就绪！访问地址: http://{display_host}:{SERVER_PORT}")
     yield
     scheduler_task.cancel()
     dxm_scheduler_task.cancel()
+    digest_scheduler_task.cancel()
 
 # 1. 实例化 FastAPI 应用
 app = FastAPI(
@@ -110,6 +116,7 @@ app.include_router(prompt_router.router)
 app.include_router(forwarder_router.router)
 app.include_router(forwarder_doc_router.router)
 app.include_router(dxm_order_router.router)
+app.include_router(alert_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
 app.include_router(db_agent_router.router)
 
@@ -263,6 +270,45 @@ async def render_dxm_orders_page(request: Request):
 
     return templates.TemplateResponse(request=request, name="dxm_orders.html", context={
         "active_page": "dxm_orders",
+        "current_user": user
+    })
+
+
+@app.get("/alert-tasks", response_class=HTMLResponse, summary="告警任务配置页面")
+async def render_alert_tasks_page(request: Request):
+    """渲染告警任务配置页面 (仅限管理员访问)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=True)
+    if redirect_resp:
+        return redirect_resp
+
+    return templates.TemplateResponse(request=request, name="alert_tasks.html", context={
+        "active_page": "alert_tasks",
+        "current_user": user
+    })
+
+
+@app.get("/reminders", response_class=HTMLResponse, summary="提醒任务配置页面")
+async def render_reminders_page(request: Request):
+    """渲染提醒任务配置页面 (邮件提醒, 仅限管理员访问)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=True)
+    if redirect_resp:
+        return redirect_resp
+
+    return templates.TemplateResponse(request=request, name="reminders.html", context={
+        "active_page": "reminders",
+        "current_user": user
+    })
+
+
+@app.get("/alerts", response_class=HTMLResponse, summary="告警中心页面")
+async def render_alert_center_page(request: Request):
+    """渲染告警中心页面 (需登录, 全员可看)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
+    if redirect_resp:
+        return redirect_resp
+
+    return templates.TemplateResponse(request=request, name="alert_center.html", context={
+        "active_page": "alert_center",
         "current_user": user
     })
 

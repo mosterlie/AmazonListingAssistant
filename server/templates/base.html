@@ -24,7 +24,10 @@
         <a href="/knowledge" class="nav-item {% if active_page == 'knowledge' %}active{% endif %}">📚 知识库</a>
         <a href="/forwarder" class="nav-item {% if active_page == 'forwarder' %}active{% endif %}">🚢 货代管理</a>
         <a href="/dxm-orders" class="nav-item {% if active_page == 'dxm_orders' %}active{% endif %}">📦 订单预警</a>
+        <a href="/alerts" class="nav-item {% if active_page == 'alert_center' %}active{% endif %}">🚨 告警中心</a>
         {% if current_user and current_user.role == 'admin' %}
+        <a href="/alert-tasks" class="nav-item {% if active_page == 'alert_tasks' %}active{% endif %}">🔔 告警任务</a>
+        <a href="/reminders" class="nav-item {% if active_page == 'reminders' %}active{% endif %}">📧 提醒任务</a>
         <a href="/settings" class="nav-item {% if active_page == 'settings' %}active{% endif %}">⚙️ 系统管理</a>
         <a href="/users" class="nav-item {% if active_page == 'users' %}active{% endif %}">👥 用户管理</a>
         <a href="/docs" target="_blank" class="nav-item">⚡ API 文档</a>

@@ -41,38 +41,16 @@ class AiConfigSchema(BaseModel):
     api_key: str = Field("sk-44d5b47efaa64e3a967efc0c8fc05ce2", description="公共大模型 API Key")
 
 
-class DocSyncConfigSchema(BaseModel):
-    """货代在线登记文档定时采集配置 (调度频率/告警阈值/SMTP邮件)"""
-    sync_mode: str = Field("daily", description="调度模式: daily=每天定时 / interval=间隔轮询")
-    sync_time: str = Field("08:00", description="daily 模式每日采集时间 HH:MM")
-    interval_hours: int = Field(24, description="interval 模式轮询间隔 (小时)")
-    alert_days: int = Field(7, description="未发货告警阈值 (天, 大于等于)")
-    date_column: str = Field("采购日期", description="采购日期列名")
-    ship_column: str = Field("仓库发货日期", description="发货日期列名 (为空视为未发货)")
-    sheet_name: str = Field("发货数据", description="参与告警分析的 sheet 名")
-    email_enabled: bool = Field(False, description="是否启用邮件推送")
+class EmailNotifySchema(BaseModel):
+    """SMTP 发信通道 + 默认收件人 (存 fwd_doc_* 扁平键)。
+    提醒规则 (每日定时提醒/实时提醒的开关、时间、独立收件人、主题前缀) 已迁往「提醒任务」页 (/reminders)。"""
     smtp_host: str = Field("smtp.qq.com", description="SMTP 服务器")
     smtp_port: int = Field(465, description="SMTP 端口")
     smtp_ssl: bool = Field(True, description="是否 SSL")
     smtp_user: str = Field("", description="SMTP 账号")
     smtp_password: str = Field("", description="SMTP 授权码 (非登录密码)")
     mail_from: str = Field("", description="发件人 (留空用 smtp_user)")
-    mail_to: str = Field("", description="收件人 (逗号分隔)")
-    subject_prefix: str = Field("[货代发货提醒]", description="邮件主题前缀")
-
-
-class DxmOrderConfigSchema(BaseModel):
-    """店小秘订单剩余发货时间采集与预警配置 (模拟登录账密/调度/阈值/邮件)"""
-    dxm_account: str = Field("", description="店小秘登录账号 (未登录时模拟登录用)")
-    dxm_password: str = Field("", description="店小秘登录密码 (存储方式与 smtp_password 一致)")
-    scan_enabled: bool = Field(True, description="是否启用定时采集")
-    scan_interval_minutes: int = Field(60, description="采集轮询间隔 (分钟, 最小5)")
-    warn_hours: float = Field(24, description="黄色预警阈值 (剩余小时数, 默认24h)")
-    danger_hours: float = Field(6, description="红色预警阈值 (剩余小时数, 默认6h)")
-    repeat_red_alert: bool = Field(True, description="红色级是否每轮重复邮件提醒")
-    alert_email_enabled: bool = Field(False, description="是否启用预警邮件 (SMTP 复用货代采集配置)")
-    alert_mail_to: str = Field("", description="预警收件人 (逗号分隔)")
-    subject_prefix: str = Field("[店小秘发货预警]", description="预警邮件主题前缀")
+    mail_to: str = Field("", description="默认收件人 (逗号分隔; 各提醒任务未配置独立收件人时使用)")
 
 
 class StoreBrandItemSchema(BaseModel):
@@ -90,8 +68,7 @@ class SystemSettingsSchema(BaseModel):
     submit_ad_enabled: bool = Field(False, description="自动投放是否提交广告 (True=每批录入后自动点击提交并确认; False=停在提交前待人工确认)")
     ai_config: AiConfigSchema = Field(default_factory=AiConfigSchema, description="AI 大模型配置 (自动生成五点描述)")
     db_agent_token: Optional[str] = Field("", description="桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token 校验, 留空使用默认 erp2024)")
-    doc_sync: DocSyncConfigSchema = Field(default_factory=DocSyncConfigSchema, description="货代在线登记文档定时采集配置 (调度/告警阈值/邮件)")
-    dxm_order: DxmOrderConfigSchema = Field(default_factory=DxmOrderConfigSchema, description="店小秘订单剩余发货时间采集与预警配置")
+    email_notify: EmailNotifySchema = Field(default_factory=EmailNotifySchema, description="邮件通知配置 (汇总邮件+各预警邮件共用 SMTP 发信通道)")
     channel_rules: Optional[Any] = Field(None, description="物流渠道计费规则列表 (通用维度模型; null=清除配置回退前端内置默认)")
 
 
@@ -192,14 +169,12 @@ async def get_system_settings():
         }
         # 桌面上件助手远程通道令牌 (原 db_agent 8765, 现已内嵌于本服务同一端口)
         db_agent_token = (get_setting("db_agent_token", "") or "").strip() or "erp2024"
-        # 货代在线登记文档定时采集配置 (mail_to 存储为列表, 表单展示为逗号分隔字符串)
+        # 邮件通知配置 (SMTP 通道 + 默认收件人; 提醒规则在「提醒任务」页, mail_to 存列表, 展示为逗号串)
         from server.services.forwarder_doc_service import ForwarderDocService as _FDS
-        _ds = _FDS.get_config()
-        _ds["mail_to"] = ", ".join(_ds.get("mail_to") or [])
-        doc_sync = _ds
-        # 店小秘订单剩余发货时间采集与预警配置
-        from server.services.dxm_order_service import DxmOrderService as _DOS
-        dxm_order = _DOS.get_config()
+        _en = _FDS.get_config()
+        email_notify = {k: _en.get(k) for k in
+                        ("smtp_host", "smtp_port", "smtp_ssl", "smtp_user", "smtp_password", "mail_from")}
+        email_notify["mail_to"] = ", ".join(_en.get("mail_to") or [])
 
         return {
             "code": 0,
@@ -224,8 +199,7 @@ async def get_system_settings():
                 "submit_ad_enabled": submit_ad_enabled,
                 "ai_config": ai_config,
                 "db_agent_token": db_agent_token,
-                "doc_sync": doc_sync,
-                "dxm_order": dxm_order
+                "email_notify": email_notify
             }
         }
     except Exception as e:
@@ -307,18 +281,11 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         db_agent_token = (payload.db_agent_token or "").strip() or "erp2024"
         set_setting("db_agent_token", db_agent_token)
 
-        # 9. 保存货代在线登记文档采集配置 (调度频率/告警阈值/SMTP邮件)
+        # 9. 保存邮件通知配置 (汇总邮件+各预警邮件共用 SMTP 发信通道, 落 fwd_doc_* 扁平键)
         from server.services.forwarder_doc_service import ForwarderDocService as _FDS
-        _ds_payload = payload.doc_sync.model_dump()
-        _mt = _ds_payload.get("mail_to")
-        if isinstance(_mt, list):
-            _ds_payload["mail_to"] = ", ".join(str(x).strip() for x in _mt if str(x).strip())
-        doc_sync = _FDS.save_config(_ds_payload)
-        doc_sync["mail_to"] = ", ".join(doc_sync.get("mail_to") or [])
-
-        # 9.5 保存店小秘订单剩余发货时间采集与预警配置
-        from server.services.dxm_order_service import DxmOrderService as _DOS
-        dxm_order = _DOS.save_config(payload.dxm_order.model_dump())
+        _en_payload = payload.email_notify.model_dump()
+        email_notify = _FDS.save_config(_en_payload)
+        email_notify["mail_to"] = ", ".join(email_notify.get("mail_to") or [])
 
         # 10. 保存物流渠道计费规则 (settings.js 始终携带该键: 列表=自定义配置 / null=清除回退内置默认)
         channel_rules = payload.channel_rules if isinstance(payload.channel_rules, (list, dict)) else None
@@ -345,8 +312,7 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
                 "submit_ad_enabled": submit_ad_enabled,
                 "ai_config": ai_config,
                 "db_agent_token": db_agent_token,
-                "doc_sync": doc_sync,
-                "dxm_order": dxm_order
+                "email_notify": email_notify
             }
         }
     except Exception as e:

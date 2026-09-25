@@ -1,6 +1,6 @@
 """
 店小秘订单剩余发货时间采集 - 独立调度器
-后台心跳协程, 每 60s 检查是否到期 (scan_interval_minutes), 到期自动触发采集批次。
+后台心跳协程, 每 60s 检查是否到期 (每自然小时一次, 整点后首个心跳触发), 到期自动触发采集批次。
 到期判定与触发逻辑见 DxmOrderService.maybe_trigger_scheduled。
 """
 import asyncio

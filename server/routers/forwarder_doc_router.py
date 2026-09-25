@@ -63,11 +63,15 @@ async def run_now(admin: Dict[str, Any] = Depends(require_admin_user)):
 @router.post("/test-email")
 async def test_email(payload: Optional[Dict[str, Any]] = Body(default=None),
                      admin: Dict[str, Any] = Depends(require_admin_user)):
-    """发送测试邮件; 请求体可带 {doc_sync:{...}} 表单当前值 (优先使用, 不落库)"""
+    """发送测试每日汇总邮件; 请求体可带 {email_notify:{...}} (或旧键 doc_sync) 表单当前值 (优先使用, 不落库)"""
+    from server.services.daily_digest_service import DailyDigestService
     override = None
-    if isinstance(payload, dict) and isinstance(payload.get("doc_sync"), dict):
-        override = payload["doc_sync"]
-    status = forwarder_doc_service.ForwarderDocService.send_test_email(override)
+    if isinstance(payload, dict):
+        for k in ("email_notify", "doc_sync"):
+            if isinstance(payload.get(k), dict):
+                override = payload[k]
+                break
+    status = DailyDigestService.send_test_email(override)
     if status == "sent":
-        return {"code": 0, "msg": "测试邮件已发送", "data": {"status": status}}
+        return {"code": 0, "msg": "测试汇总邮件已发送", "data": {"status": status}}
     raise HTTPException(status_code=400, detail=f"发送失败: {status}")
