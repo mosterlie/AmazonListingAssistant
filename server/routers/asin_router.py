@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from starlette.responses import Response
 from urllib.parse import quote
 
-from server.routers.ad_router import require_admin
+from server.routers.ad_router import require_admin, require_auth
 from server.services.asin_pool_service import AsinPoolService
 
 router = APIRouter(prefix="/api/asin-pool", tags=["ASIN生成池模块"])
@@ -52,12 +52,24 @@ def purge_all(user: dict = Depends(require_admin)):
             "data": counts}
 
 
+@router.get("/check-duplicates", summary="对最新批次(或指定批次)做重复检查")
+async def check_duplicates(batch_id: int = None, user: dict = Depends(require_auth)):
+    try:
+        data = AsinPoolService.check_duplicates(batch_id)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    return {"code": 0, "msg": "检查完成", "data": data}
+
+
 @router.post("/generate", summary="输入已投放ASIN, 从未覆盖父体随机生成ASIN")
 async def generate_asins(request: Request, user: dict = Depends(require_admin)):
     body = await request.json()
     asins_text = (body or {}).get("asins_text", "")
+    mode = (body or {}).get("mode", "byAds")   # 默认 byAds 截取版
+    if mode not in ("byAds", "byAsin", "native", "variant"):
+        mode = "byAds"
     try:
-        data = AsinPoolService.generate(asins_text, operator=user.get("username", ""))
+        data = AsinPoolService.generate(asins_text, operator=user.get("username", ""), mode=mode)
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     return {"code": 0, "msg": "生成成功", "data": data}

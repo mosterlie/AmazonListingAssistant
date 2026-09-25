@@ -9,8 +9,9 @@ ASIN 生成池业务服务层 (AsinPoolService)
 import io
 import json
 import random
+import sqlite3
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from openpyxl import Workbook, load_workbook
 
@@ -128,6 +129,51 @@ class AsinPoolService:
         return wb, rows_iter, columns.index(pcol), columns.index(ccol), columns
 
     @staticmethod
+    def _analyze_pairs(pairs: set, raw_counter: Dict[Tuple[str, str], int],
+                       conn: Optional[sqlite3.Connection] = None,
+                       exclude_batch_id: Optional[int] = None) -> Dict[str, Any]:
+        """重复检查: 子ASIN重复/归属多父体/父体嵌套冲突/跨批次重复 (列表截断至50条)"""
+        child_parents: Dict[str, set] = {}
+        for p, c in pairs:
+            child_parents.setdefault(c, set()).add(p)
+
+        # 1) 同一父体下重复行 (Excel 中同 parent+child 出现多次)
+        same_parent_dup = {f"{p}/{c}": n for (p, c), n in raw_counter.items() if n > 1}
+
+        # 2) 子ASIN 归属多个父体 (冲突)
+        child_multi_parent = {c: sorted(ps) for c, ps in child_parents.items() if len(ps) > 1}
+
+        # 3) 父体同时是其他父体下的子ASIN (嵌套冲突; 自身父级行 parent=child 属正常)
+        parents_also_child = sorted(
+            p for p in {pp for pp, _ in pairs}
+            if p in child_parents and any(y != p for y in child_parents[p])
+        )
+
+        # 4) 跨批次重复: 子ASIN 已存在于其他批次
+        cross_dup: List[str] = []
+        if conn is not None and exclude_batch_id is not None:
+            children = sorted(child_parents)
+            for i in range(0, len(children), 500):
+                chunk = children[i:i + 500]
+                ph = ",".join("?" * len(chunk))
+                cross_dup += [r["child"] for r in conn.execute(
+                    f"SELECT DISTINCT child FROM asin_parent_child "
+                    f"WHERE batch_id != ? AND child IN ({ph})",
+                    [exclude_batch_id] + chunk,
+                ).fetchall()]
+
+        def _cap(d, n=50):
+            items = list(d.items())[:n]
+            return {"count": len(d), "items": items, "truncated": len(d) > n}
+
+        return {
+            "same_parent_dup": _cap(same_parent_dup),
+            "child_multi_parent": _cap(child_multi_parent),
+            "parents_also_child": {"count": len(parents_also_child), "items": parents_also_child[:50], "truncated": len(parents_also_child) > 50},
+            "cross_batch_dup_children": {"count": len(cross_dup), "items": sorted(set(cross_dup))[:50], "truncated": len(set(cross_dup)) > 50},
+        }
+
+    @staticmethod
     def import_excel(filename: str, content: bytes, operator: str = "") -> Dict[str, Any]:
         """解析赛狐在线产品 Excel 并追加为一个新批次。
 
@@ -136,6 +182,7 @@ class AsinPoolService:
         wb, rows_iter, pi, ci, _columns = AsinPoolService._load_sheet_rows(content)
 
         pairs: set = set()
+        raw_counter: Dict[Tuple[str, str], int] = {}
         excel_rows = 0
         for row in rows_iter:
             if row is None:
@@ -148,6 +195,7 @@ class AsinPoolService:
             if not parent:
                 parent = child
             pairs.add((parent, child))
+            raw_counter[(parent, child)] = raw_counter.get((parent, child), 0) + 1
         wb.close()
 
         # 兜底: read_only 表头正常但数据行被错误 dimension 截断 (0 数据行),
@@ -166,6 +214,7 @@ class AsinPoolService:
                 if not parent:
                     parent = child
                 pairs.add((parent, child))
+                raw_counter[(parent, child)] = raw_counter.get((parent, child), 0) + 1
             wb.close()
 
         if not pairs:
@@ -187,6 +236,7 @@ class AsinPoolService:
                 [(batch_id, p, c) for p, c in pairs],
             )
             conn.commit()
+            duplicate_check = AsinPoolService._analyze_pairs(pairs, raw_counter, conn, batch_id)
         finally:
             conn.close()
 
@@ -198,13 +248,44 @@ class AsinPoolService:
             "pair_count": len(pairs),
             "parent_count": len({p for p, _ in pairs}),
             "skipped": excel_rows - len(pairs),
+            "duplicate_check": duplicate_check,
         }
+
+    @staticmethod
+    def check_duplicates(batch_id: Optional[int] = None) -> Dict[str, Any]:
+        """对指定批次 (默认最新批次) 做重复检查"""
+        conn = get_db_connection()
+        try:
+            if batch_id is None:
+                batch = AsinPoolService._latest_batch(conn)
+                if not batch:
+                    raise ValueError("ASIN 池为空, 请先导入赛狐在线产品 Excel")
+                batch_id = batch["id"]
+            pairs = {(r["parent"], r["child"]) for r in conn.execute(
+                "SELECT parent, child FROM asin_parent_child WHERE batch_id = ?", (batch_id,)
+            ).fetchall()}
+            if not pairs:
+                raise ValueError(f"批次 #{batch_id} 不存在或无数据")
+            raw_counter = {pc: 1 for pc in pairs}
+            return {
+                "batch_id": batch_id,
+                "duplicate_check": AsinPoolService._analyze_pairs(pairs, raw_counter, conn, batch_id),
+            }
+        finally:
+            conn.close()
 
     # ================= 生成 ASIN =================
 
     @staticmethod
-    def generate(asins_text: str, operator: str = "") -> Dict[str, Any]:
-        """输入已投放 ASIN → 未覆盖父体各随机取 1 个子 ASIN (算法对齐参考工具)"""
+    def generate(asins_text: str, operator: str = "", mode: str = "byAds") -> Dict[str, Any]:
+        """输入已投放 ASIN → 未覆盖父体各随机取 1 个子 ASIN (算法对齐参考工具)
+
+        mode: byAds=截取版(每行截取前10位为 ASIN, 默认) | byAsin=原生解析(通用分隔符)
+              (兼容旧值: variant=byAds, native=byAsin)
+        """
+        if mode in ("byAds", "variant"):
+            lines = [ln.strip()[:10] for ln in (asins_text or "").splitlines() if ln.strip()]
+            asins_text = ",".join(lines)
         asins = parse_asins(asins_text, dedup=True)
         if not asins:
             raise ValueError("请输入至少一个 ASIN")
@@ -227,6 +308,19 @@ class AsinPoolService:
             matched_parents = sorted({p for p in found.values()})
             missing = [a for a in asins if a not in found]
 
+            # 输入明细: 每个 ASIN 是否在库 + 所属父 + 该父下全部子SKU
+            siblings_map: Dict[str, List[str]] = {}
+            for p in matched_parents:
+                siblings_map[p] = [r["child"] for r in conn.execute(
+                    "SELECT child FROM asin_parent_child WHERE batch_id = ? AND parent = ? ORDER BY child",
+                    (batch_id, p),
+                ).fetchall()]
+            input_details: List[Dict[str, Any]] = [
+                {"asin": a, "found": a in found,
+                 "parent": found.get(a), "siblings": siblings_map.get(found.get(a), []) if a in found else []}
+                for a in asins
+            ]
+
             # 全部父 ASIN (按入库顺序) 与未覆盖集合
             all_parents = [r["parent"] for r in conn.execute(
                 "SELECT parent FROM asin_parent_child WHERE batch_id = ? GROUP BY parent",
@@ -235,14 +329,17 @@ class AsinPoolService:
             matched_set = set(matched_parents)
             uncovered = [p for p in all_parents if p not in matched_set]
 
-            # 每个未覆盖父体随机取一个子 ASIN
+            # 每个未覆盖父体随机取一个子 ASIN (同时记录该子的父ASIN)
             results: List[str] = []
+            result_details: List[Dict[str, Any]] = []
             for p in uncovered:
                 children = [r["child"] for r in conn.execute(
                     "SELECT child FROM asin_parent_child WHERE batch_id = ? AND parent = ?",
                     (batch_id, p),
                 ).fetchall()]
-                results.append(random.choice(children))
+                chosen = random.choice(children)
+                results.append(chosen)
+                result_details.append({"asin": chosen, "parent": p})
 
             queried_at = _now_str()
             cur = conn.execute(
@@ -265,9 +362,11 @@ class AsinPoolService:
             "batch_id": batch_id,
             "batch_time": batch["imported_at"],
             "input_asins": asins,
+            "input_details": input_details,
             "matched_parents": matched_parents,
             "ignored_asins": missing,
             "result_asins": results,
+            "result_details": result_details,
         }
 
     # ================= 生成记录 =================

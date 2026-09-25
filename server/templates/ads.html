@@ -324,8 +324,10 @@
         <div style="display:flex; gap:10px; align-items:center; margin-top:12px;">
           <button class="btn btn-primary btn-sm" id="asinImportBtn" onclick="uploadAsinExcel()">⬆ 开始导入</button>
           <a class="btn btn-outline btn-sm" href="/api/asin-pool/template" style="text-decoration:none;">📥 下载导入模板</a>
+          <button class="btn btn-outline btn-sm" id="asinDupCheckBtn" onclick="checkAsinDuplicates()">🔍 重复检查</button>
           <span id="asinImportMsg" style="font-size:0.8rem;"></span>
         </div>
+        <div id="asinDupCheckResult" style="margin-top:10px;"></div>
         <div style="font-size:0.84rem; font-weight:700; color:#334155; margin:18px 0 8px;">历史导入批次（最新一批 = 当前生效数据）</div>
         <table class="matrix-table" style="width:100%; min-width:640px;">
           <thead>
@@ -348,6 +350,14 @@
       <!-- Tab ② 获取 -->
       <div class="asin-tab-pane" data-tab="generate" style="display:none;">
         <label class="form-label" style="font-weight:700;">已投放 ASIN 列表 <span style="color:#ef4444;">*</span></label>
+        <div style="display:flex; gap:16px; align-items:center; margin-top:6px; font-size:0.8rem; color:#334155;">
+          <label style="display:flex; align-items:center; gap:4px; cursor:pointer;" title="默认: 每行自动截取前10位作为 ASIN">
+            <input type="radio" name="asinGenMode" value="byAds" checked onchange="onAsinGenModeChange()"> byAds（截取前10位）
+          </label>
+          <label style="display:flex; align-items:center; gap:4px; cursor:pointer;" title="原生 ASIN 列表: 逗号 / 换行 / 空格分隔">
+            <input type="radio" name="asinGenMode" value="byAsin" onchange="onAsinGenModeChange()"> byAsin
+          </label>
+        </div>
         <textarea class="form-input" id="asinGenInput" rows="6"
           placeholder="粘贴已投放的 ASIN，逗号 / 换行 / 空格分隔，自动转大写去重&#10;例如：B0XXXXXXXX,B0YYYYYYYY"
           style="width:100%; resize:vertical; margin-top:6px;" oninput="updateAsinGenCounter()"></textarea>
@@ -355,6 +365,7 @@
           <span id="asinGenCounter" style="font-size:0.78rem; color:var(--text-muted);">已识别 0 个 ASIN</span>
           <button class="btn btn-primary btn-sm" id="asinGenBtn" onclick="generateAsins()">🎲 生成 ASIN</button>
         </div>
+        <div id="asinGenDupList"></div>
         <div id="asinGenResult" style="display:none; margin-top:14px;"></div>
       </div>
 
@@ -1073,6 +1084,7 @@ async function uploadAsinExcel() {
     msg.innerHTML = '<span style="color:#059669; font-weight:600;">✓ 导入成功：Excel ' + d.excel_rows +
       ' 行 → 入库 ' + d.pair_count + ' 对父子关系（' + d.parent_count + ' 个父ASIN，跳过 ' + d.skipped + ' 行），已成为当前生效批次</span>';
     showToast('ASIN 批次导入成功', 'success');
+    if (d.duplicate_check) renderAsinDupCheck(d.duplicate_check);
     input.value = '';
     document.getElementById('asinFileName').innerText = '';
     loadAsinBatches();
@@ -1082,6 +1094,42 @@ async function uploadAsinExcel() {
   } finally {
     btn.disabled = false; btn.innerText = '⬆ 开始导入';
   }
+}
+
+async function checkAsinDuplicates() {
+  const btn = document.getElementById('asinDupCheckBtn');
+  btn.disabled = true; btn.innerText = '检查中...';
+  try {
+    const j = await (await fetch('/api/asin-pool/check-duplicates')).json();
+    if (j.code !== 0) throw new Error(j.detail || '检查失败');
+    renderAsinDupCheck(j.data.duplicate_check, j.data.batch_id);
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerText = '🔍 重复检查';
+  }
+}
+
+function renderAsinDupCheck(dc, batchId) {
+  const box = document.getElementById('asinDupCheckResult');
+  const sec = (title, color, data, fmt) => {
+    if (!data || !data.count) return '';
+    const chips = (data.items || []).map(fmt).join('');
+    return '<div style="padding:6px 12px; border-top:1px solid #fde68a; font-size:0.78rem; line-height:2;">' +
+      '<b style="color:' + color + ';">⚠ ' + title + '：' + data.count + ' 项' + (data.truncated ? '（仅显示前 50 条）' : '') + '</b><br>' + chips + '</div>';
+  };
+  const chip = t => '<span class="asin-chip warn" style="margin:1px 4px 1px 0;">' + esc(t) + '</span>';
+  const hasAny = dc.same_parent_dup.count || dc.child_multi_parent.count || dc.parents_also_child.count || dc.cross_batch_dup_children.count;
+  box.innerHTML = '<div style="border:1px solid ' + (hasAny ? '#f59e0b' : '#86efac') + '; border-radius:10px; overflow:hidden; max-width:860px;">' +
+    '<div style="background:#fffbeb; padding:8px 12px; font-size:0.8rem; font-weight:700; color:#92400e;">' +
+    (batchId ? '批次 #' + batchId + ' ' : '') + (hasAny ? '重复检查发现 ' +
+      (dc.same_parent_dup.count + dc.child_multi_parent.count + dc.parents_also_child.count + dc.cross_batch_dup_children.count) + ' 处异常'
+      : '✓ 重复检查通过：无重复 ASIN，父体归属无冲突') + '</div>' +
+    sec('同一父体下重复行', '#b45309', dc.same_parent_dup, kv => chip(kv[0] + ' ×' + kv[1])) +
+    sec('子ASIN 归属多个父体（冲突）', '#dc2626', dc.child_multi_parent, kv => chip(kv[0] + ' ⇐ ' + kv[1].join(' / '))) +
+    sec('父体同时是其他父体的子ASIN（嵌套冲突）', '#dc2626', dc.parents_also_child, t => chip(t)) +
+    sec('跨批次重复子ASIN', '#b45309', dc.cross_batch_dup_children, t => chip(t)) +
+    '</div>';
 }
 
 async function loadAsinBatches() {
@@ -1114,23 +1162,81 @@ async function loadAsinBatches() {
 function parseAsinText(raw) {
   return Array.from(new Set((raw || '').split(/[,，;；\s\r\n\t]+/).map(s => s.trim().toUpperCase()).filter(Boolean)));
 }
+function getAsinGenMode() {
+  const el = document.querySelector('input[name="asinGenMode"]:checked');
+  return el ? el.value : 'byAds';
+}
+function analyzeAsinGenText(raw) {
+  // 返回 {list, lines, dups:[{raw,asin}], empties}: 行数/识别结果/重复合并明细/空行数
+  const mode = getAsinGenMode();
+  const rawLines = (raw || '').split(/\r\n|\n|\r/);
+  const lines = rawLines.map(l => l.trim()).filter(Boolean);
+  const empties = rawLines.filter(l => l.trim() === '').length;
+  const dups = [];
+  let list;
+  if (mode === 'byAds') {
+    const seen = new Map();
+    list = [];
+    lines.forEach(l => {
+      const a = l.slice(0, 10).toUpperCase();
+      if (seen.has(a)) {
+        seen.set(a, seen.get(a) + 1);
+        if (dups.length < 20) dups.push({ raw: l.length > 30 ? l.slice(0, 30) + '…' : l, asin: a });
+      } else { seen.set(a, 1); list.push(a); }
+    });
+  } else {
+    const seen = new Set();
+    list = [];
+    (raw || '').split(/[,，;；\s\r\n\t]+/).forEach(s => {
+      const a = s.trim().toUpperCase();
+      if (!a) return;
+      if (seen.has(a)) { if (dups.length < 20) dups.push({ raw: a, asin: a }); return; }
+      seen.add(a); list.push(a);
+    });
+  }
+  return { list, lines: lines.length, dups, empties };
+}
+function parseAsinGenText(raw) { return analyzeAsinGenText(raw).list; }
+function onAsinGenModeChange() {
+  const ta = document.getElementById('asinGenInput');
+  ta.placeholder = getAsinGenMode() === 'byAds'
+    ? '粘贴 byAds 内容，每行自动截取前10位作为 ASIN，自动转大写去重&#10;例如：B0XXXXXXXX-黑色-XXL ｜ B0YYYYYYYY(多行粘贴)'
+    : '粘贴原生 ASIN，逗号 / 换行 / 空格分隔，自动转大写去重&#10;例如：B0XXXXXXXX,B0YYYYYYYY';
+  updateAsinGenCounter();
+}
 function updateAsinGenCounter() {
-  const list = parseAsinText(document.getElementById('asinGenInput').value);
-  const bad = list.filter(a => !/^[A-Z0-9]{10}$/.test(a));
-  document.getElementById('asinGenCounter').innerHTML = '已识别 <b style="color:#2563eb;">' + list.length + '</b> 个 ASIN' +
+  const r = analyzeAsinGenText(document.getElementById('asinGenInput').value);
+  const bad = r.list.filter(a => !/^[A-Z0-9]{10}$/.test(a));
+  const modeTag = getAsinGenMode() === 'byAds' ? ' · byAds截取' : ' · byAsin';
+  const merged = Math.max(0, r.lines - r.list.length);
+  const dupNote = merged || r.empties
+    ? ' · 输入' + r.lines + '行' +
+      (merged ? '，<span style="color:#d97706; cursor:pointer; text-decoration:underline dotted;" onclick="toggleAsinDupList()">⚠ ' + merged + ' 行重复被合并（点击查看）</span>' : '') +
+      (r.empties ? '，' + r.empties + ' 空行' : '')
+    : '';
+  document.getElementById('asinGenCounter').innerHTML = '已识别 <b style="color:#2563eb;">' + r.list.length + '</b> 个 ASIN' + modeTag + dupNote +
     (bad.length ? ' · <span style="color:#dc2626;">⚠ ' + bad.length + ' 个格式异常</span>' : '');
+  const dupBox = document.getElementById('asinGenDupList');
+  if (dupBox) dupBox.dataset.payload = JSON.stringify(r.dups);
+}
+function toggleAsinDupList() {
+  const box = document.getElementById('asinGenDupList');
+  const payload = JSON.parse(box.dataset.payload || '[]');
+  if (!payload.length) { box.innerHTML = '<div style="font-size:0.75rem; color:#92400e; margin-top:4px;">（明细超出 20 条，仅显示部分）</div>'; return; }
+  box.innerHTML = '<div style="font-size:0.75rem; color:#92400e; margin-top:4px; line-height:1.8;">重复明细：' +
+    payload.map(d => '<div>「' + esc(d.raw) + '」→ 截取为 <b>' + esc(d.asin) + '</b>（与前一行相同，被合并）</div>').join('') + '</div>';
 }
 
 async function generateAsins() {
   const text = document.getElementById('asinGenInput').value;
-  const list = parseAsinText(text);
+  const list = parseAsinGenText(text);
   if (!list.length) { showToast('请输入至少一个已投放 ASIN', 'error'); return; }
   const btn = document.getElementById('asinGenBtn');
   btn.disabled = true; btn.innerText = '生成中...';
   try {
     const r = await fetch('/api/asin-pool/generate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ asins_text: text }),
+      body: JSON.stringify({ asins_text: text, mode: getAsinGenMode() }),
     });
     const j = await r.json();
     if (j.code !== 0) throw new Error(j.detail || '生成失败');
@@ -1146,11 +1252,38 @@ function renderAsinGenResult(d) {
   const box = document.getElementById('asinGenResult');
   box.style.display = 'block';
   const results = d.result_asins || [];
+  const resultDetails = d.result_details || (results.map(a => ({ asin: a, parent: '' })));
+  const inputDetails = d.input_details || (d.input_asins || []).map(a => ({ asin: a, found: true, parent: '', siblings: [] }));
   const ignored = d.ignored_asins || [];
   const matched = d.matched_parents || [];
   const chips = arr => arr.length
     ? arr.map(a => '<span class="asin-chip' + (a === '__warn__' ? ' warn' : '') + '">' + esc(a) + '</span>').join('')
     : '<span style="color:#94a3b8; font-size:0.8rem;">无</span>';
+  // 一键复制按钮: copy子 / copy父
+  const cpyBtn = (label, list) =>
+    '<button class="btn btn-outline btn-sm" style="padding:1px 8px; font-size:0.72rem;" onclick="copyAsins(' +
+    JSON.stringify(list).replace(/"/g, '&quot;') + ')">' + label + '</button>';
+  const inChildren = inputDetails.filter(t => t.found).map(t => t.asin);
+  const inParents = matched.slice();
+  const resParents = Array.from(new Set(resultDetails.map(t => t.parent).filter(Boolean)));
+  // 输入明细: 每个 ASIN → 所属父 ASIN (悬浮显示该父下全部子SKU)
+  const inRows = inputDetails.map(t => {
+    if (!t.found) return '<span class="asin-chip warn">' + esc(t.asin) + '</span><span style="font-size:0.72rem; color:#dc2626; margin-right:8px;">未在库中</span>';
+    const sib = (t.siblings || []).join(', ');
+    return '<span class="asin-chip">' + esc(t.asin) + '</span>→' +
+      '<span class="asin-chip" title="该父下子SKU(' + (t.siblings || []).length + '个): ' + esc(sib) + '">' + esc(t.parent) + '</span>' +
+      '<span style="font-size:0.7rem; color:#94a3b8; margin-right:8px;">(' + (t.siblings || []).length + '个子)</span>';
+  }).join('');
+  // 生成结果: 子 ASIN ⇐ 父 ASIN
+  const resChips = resultDetails.map(t =>
+    '<span style="display:inline-flex; align-items:center; gap:3px; margin:2px 8px 2px 0;">' +
+    '<span class="asin-chip">' + esc(t.asin) + '</span>' +
+    (t.parent ? '<span style="font-size:0.7rem; color:#92400e;" title="父ASIN: ' + esc(t.parent) + '">⇐父 ' + esc(t.parent) + '</span>' : '') +
+    '</span>').join('');
+  const secHead = (title, color, btnsHtml) =>
+    '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:4px;">' +
+    '<span style="font-size:0.8rem; font-weight:700; color:' + color + ';">' + title + '</span>' +
+    '<span style="display:flex; gap:6px; flex:none;">' + btnsHtml + '</span></div>';
   box.innerHTML =
     '<div style="border:1px solid #e2e8f0; border-radius:10px; overflow:hidden;">' +
     '<div style="background:#f8fafc; padding:10px 14px; font-size:0.8rem; color:#475569; line-height:1.7;">' +
@@ -1158,11 +1291,16 @@ function renderAsinGenResult(d) {
     '命中父体 <b style="color:#2563eb;">' + matched.length + '</b> 个，未覆盖父体 <b style="color:#059669;">' + results.length + '</b> 个，各随机取 1 个子 ASIN' +
     (ignored.length ? ' · <span style="color:#dc2626;">' + ignored.length + ' 个未在库中已忽略</span>' : '') +
     '</div>' +
-    (ignored.length ? '<div style="padding:8px 14px; border-top:1px solid #f1f5f9; font-size:0.78rem;"><b style="color:#b91c1c;">未在库中忽略：</b>' + ignored.map(a => '<span class="asin-chip warn">' + esc(a) + '</span>').join('') + '</div>' : '') +
+    (inRows ? '<div style="padding:8px 14px; border-top:1px solid #f1f5f9; font-size:0.78rem; max-height:150px; overflow:auto; line-height:2.1;">' +
+      secHead('输入明细（子SKU → 父ASIN，悬浮看该父下全部子SKU）', '#334155',
+        cpyBtn('copy子', inChildren) + cpyBtn('copy父', inParents)) + inRows + '</div>' : '') +
     '<div style="padding:8px 14px; border-top:1px solid #f1f5f9; font-size:0.78rem; max-height:120px; overflow:auto;"><b style="color:#334155;">命中父体：</b>' + chips(matched) + '</div>' +
     '<div style="padding:10px 14px; border-top:1px solid #f1f5f9; background:#fffbeb;">' +
-    '<div style="font-size:0.8rem; font-weight:700; color:#92400e; margin-bottom:6px;">生成结果（' + results.length + ' 个）</div>' +
-    (results.length ? '<div id="asinGenResultText" style="max-height:140px; overflow:auto; line-height:1.9;">' + results.map(a => '<span class="asin-chip">' + esc(a) + '</span>').join('') + '</div>'
+    (results.length
+      ? secHead('生成结果（' + results.length + ' 个，子ASIN ⇐ 父ASIN）', '#92400e',
+          cpyBtn('copy子', results) + cpyBtn('copy父', resParents))
+      : '<div style="font-size:0.8rem; font-weight:700; color:#92400e; margin-bottom:6px;">生成结果（0 个）</div>') +
+    (results.length ? '<div id="asinGenResultText" style="max-height:170px; overflow:auto; line-height:1.9;">' + resChips + '</div>'
       : '<div style="color:#94a3b8; font-size:0.82rem;">所有父体均已被输入 ASIN 覆盖，无新 ASIN 可生成</div>') +
     '</div></div>' +
     (results.length ? '<div style="display:flex; gap:8px; margin-top:10px;">' +
