@@ -62,17 +62,17 @@
         type: "tiered_step", step_unit: null,
         tiers: [
           { max_cw: 100, cmp: "lt", base: null, step: null, rate: 15, min_charge: 20 },
-          { max_cw: 500, cmp: "lte", base: null, step: null, rate: 14, min_charge: null },
-          { max_cw: 1000, cmp: "lte", base: null, step: null, rate: 13, min_charge: null }
+          { max_cw: 500, cmp: "lt", base: null, step: null, rate: 14, min_charge: null },
+          { max_cw: 1000, cmp: "lt", base: null, step: null, rate: 13, min_charge: null }
         ],
         first_weight_fee: null, continue_per_kg: null, extra_fee: null, op_fee: 0, discount: null
       },
       surcharges: [],
-      round_total: null
+      round_total: "ceil2"
     },
     {
       key: "rc_plain", name: "日川普货", enabled: true,
-      limits: { max_weight: 20, max_single_side: null, max_sum_sides: 960, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
+      limits: { max_weight: null, max_single_side: null, max_sum_sides: 960, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
       charge_weight: {
         vol_ratio: 6000, round_to: 0.5, min_cw: null,
         bands: [{ max_sum: 100, cmp: "lt", mode: "actual" }, { max_sum: null, cmp: "lte", mode: "max_actual_avg" }]
@@ -91,11 +91,11 @@
         { pick: "add", items: [{ basis: "sum_sides", cw_below: null, tiers: [{ min: 159, fee: 80 }, { min: 179, fee: 100 }, { min: 200, fee: 150 }, { min: 220, fee: 200 }, { min: 239, fee: 260 }] }] },
         { pick: "add", items: [{ basis: "weight", cw_below: null, tiers: [{ min: 9.9, fee: 50 }] }] }
       ],
-      round_total: null
+      round_total: "ceil"
     },
     {
       key: "rc_batt", name: "日川带电", enabled: true,
-      limits: { max_weight: 20, max_single_side: null, max_sum_sides: 960, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
+      limits: { max_weight: null, max_single_side: null, max_sum_sides: 960, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
       charge_weight: {
         vol_ratio: 6000, round_to: 0.5, min_cw: null,
         bands: [{ max_sum: 100, cmp: "lt", mode: "actual" }, { max_sum: null, cmp: "lte", mode: "max_actual_avg" }]
@@ -103,10 +103,10 @@
       pricing: {
         type: "tiered_step", step_unit: 0.5,
         tiers: [
-          { max_cw: 2, cmp: "lte", base: 35, step: 7, rate: null, min_charge: null },
-          { max_cw: 5, cmp: "lte", base: 36, step: 7.5, rate: null, min_charge: null },
-          { max_cw: 10, cmp: "lte", base: 36, step: 8, rate: null, min_charge: null },
-          { max_cw: null, cmp: "lte", base: 37, step: 8.5, rate: null, min_charge: null }
+          { max_cw: 2, cmp: "lte", base: 38, step: 9, rate: null, min_charge: null },
+          { max_cw: 5, cmp: "lte", base: 39, step: 9.5, rate: null, min_charge: null },
+          { max_cw: 10, cmp: "lte", base: 40, step: 10, rate: null, min_charge: null },
+          { max_cw: null, cmp: "lte", base: 41, step: 11, rate: null, min_charge: null }
         ],
         first_weight_fee: null, continue_per_kg: null, extra_fee: null, op_fee: 0, discount: null
       },
@@ -114,11 +114,11 @@
         { pick: "add", items: [{ basis: "sum_sides", cw_below: null, tiers: [{ min: 159, fee: 80 }, { min: 179, fee: 100 }, { min: 200, fee: 150 }, { min: 220, fee: 200 }, { min: 239, fee: 260 }] }] },
         { pick: "add", items: [{ basis: "weight", cw_below: null, tiers: [{ min: 9.9, fee: 50 }] }] }
       ],
-      round_total: null
+      round_total: "ceil"
     },
     {
       key: "rc_big", name: "川日大包", enabled: true,
-      limits: { max_weight: null, max_single_side: null, max_sum_sides: 960, max_length: 305, max_width: 175, max_height: 155, max_combined_girth: null, max_cw: 900, reject_both_over: [] },
+      limits: { max_weight: null, max_single_side: null, max_sum_sides: 960, max_length: 305, max_width: 175, max_height: 155, max_combined_girth: null, max_cw: null, max_cw_surplus_ratio: 3, reject_both_over: [] },
       charge_weight: {
         vol_ratio: 6000, round_to: 0.5, min_cw: null,
         bands: [{ max_sum: 100, cmp: "lt", mode: "actual" }, { max_sum: null, cmp: "lte", mode: "max_actual_avg" }]
@@ -131,14 +131,15 @@
           { max_cw: 101, cmp: "lt", base: null, step: null, rate: 18.5, min_charge: null },
           { max_cw: 301, cmp: "lt", base: null, step: null, rate: 17.5, min_charge: null },
           { max_cw: 501, cmp: "lt", base: null, step: null, rate: 17, min_charge: null },
-          { max_cw: null, cmp: "lte", base: null, step: null, rate: 16.5, min_charge: null }
+          { max_cw: 1000, cmp: "lt", base: null, step: null, rate: 16.5, min_charge: null },
+          { max_cw: null, cmp: "lte", base: null, step: null, rate: 16, min_charge: null }
         ],
         first_weight_fee: null, continue_per_kg: null, extra_fee: null, op_fee: 0, discount: null
       },
       surcharges: [
         { pick: "add", items: [{ basis: "max_side", cw_below: 300, tiers: [{ min: 159, fee: 200 }] }] }
       ],
-      round_total: "round2"
+      round_total: null
     },
     {
       key: "sagawa", name: "佐川大件", enabled: true,
@@ -157,7 +158,7 @@
     },
     {
       key: "yw_small", name: "义乌小包", enabled: true,
-      limits: { max_weight: 20, max_single_side: 9100, max_sum_sides: 9160, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
+      limits: { max_weight: null, max_single_side: 9100, max_sum_sides: 9160, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
       charge_weight: {
         vol_ratio: 6000, round_to: null, min_cw: null,
         bands: [
@@ -185,7 +186,7 @@
     },
     {
       key: "chudao160", name: "初岛160免泡", enabled: true,
-      limits: { max_weight: 20, max_single_side: 9100, max_sum_sides: 260, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
+      limits: { max_weight: null, max_single_side: 9100, max_sum_sides: 260, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
       charge_weight: {
         vol_ratio: 6000, round_to: null, min_cw: null,
         bands: [{ max_sum: 160, cmp: "lte", mode: "actual" }, { max_sum: null, cmp: "lte", mode: "avg_actual_vol" }]
@@ -209,10 +210,13 @@
     },
     {
       key: "chudao_heimao", name: "初岛黑猫", enabled: true,
-      limits: { max_weight: 20, max_single_side: 160, max_sum_sides: 160, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
+      limits: { max_weight: null, max_single_side: 160, max_sum_sides: 160, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
       charge_weight: {
         vol_ratio: 6000, round_to: null, min_cw: null,
-        bands: [{ max_sum: 159, cmp: "lte", mode: "cond_vol_cap", ref_vol_ratio: 6000, cap: 120, if_true: "actual", if_false: "avg" }]
+        bands: [
+          { max_sum: 120, cmp: "lte", mode: "actual" },
+          { max_sum: 159, cmp: "lte", mode: "avg_actual_vol" }
+        ]
       },
       pricing: {
         type: "tiered_step", step_unit: 0.5,
@@ -229,14 +233,15 @@
     },
     {
       key: "air_post", name: "航空邮政大包", enabled: true,
-      limits: { max_weight: 30, max_single_side: 150, max_sum_sides: null, max_length: null, max_width: null, max_height: null, max_combined_girth: 330, max_cw: null, reject_both_over: [] },
+      limits: { max_weight: 30, max_single_side: 150, max_sum_sides: null, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
       charge_weight: { vol_ratio: null, round_to: 1, min_cw: null, bands: [{ max_sum: null, cmp: "lte", mode: "actual" }] },
       pricing: {
         type: "first_continue", step_unit: null, tiers: [],
-        first_weight_fee: 124.2, continue_per_kg: 29.6, extra_fee: 8.0, op_fee: 0, discount: null
+        first_weight_fee: 124.2, continue_per_kg: 29.6, extra_fee: 8.0, op_fee: 0, discount: null,
+        girth_discount: { threshold: 330, factor_above: 1.0, factor_below: 0.9 }
       },
       surcharges: [],
-      round_total: "round2"
+      round_total: "ceil2"
     }
   ];
 
@@ -250,7 +255,7 @@
 
   function volWeight(L, W, H, ratio) {
     if (!ratio) return null;
-    return Math.ceil((L * W * H / ratio) * 1000) / 1000;
+    return Math.ceil(Math.round((L * W * H / ratio) * 1000 * 1e6) / 1e6) / 1000;
   }
 
   // 按 bands (第一个满足三边和条件的段) 计算计费重; 无命中段返回 null
@@ -289,10 +294,10 @@
           return null;
       }
       var rt = cwCfg ? cwCfg.round_to : null;
-      if (rt === 0.5) raw = Math.ceil(raw / 0.5) * 0.5;
-      else if (rt === 1) raw = Math.ceil(raw);
-      else if (rt === 0.001) raw = Math.ceil(raw * 1000) / 1000;
-      else if (rt) raw = Math.ceil(raw / rt) * rt;
+      if (rt === 0.5) raw = Math.ceil(Math.round(raw / 0.5 * 1e6) / 1e6) * 0.5;
+      else if (rt === 1) raw = Math.ceil(Math.round(raw * 1e6) / 1e6);
+      else if (rt === 0.001) raw = Math.ceil(Math.round(raw * 1000 * 1e6) / 1e6) / 1000;
+      else if (rt) raw = Math.ceil(Math.round(raw / rt * 1e6) / 1e6) * rt;
       if (cwCfg && cwCfg.min_cw !== null && cwCfg.min_cw !== undefined && raw < cwCfg.min_cw) {
         raw = cwCfg.min_cw;
       }
@@ -314,6 +319,8 @@
         ((ctx.sumSides - ctx.maxSide) * 2 + ctx.maxSide) > lim.max_combined_girth) return false;
     if (cw === null) return false; // 计费重无法计算 → 不可用 (分段未命中)
     if (over(cw, lim.max_cw)) return false;
+    if (lim.max_cw_surplus_ratio !== null && lim.max_cw_surplus_ratio !== undefined &&
+        cw > ctx.actWt * lim.max_cw_surplus_ratio) return false; // 超3倍泡单询
     var rbo = lim.reject_both_over || [];
     for (var i = 0; i < rbo.length; i++) {
       var g = rbo[i] || {};
@@ -324,15 +331,15 @@
 
   function calcSurcharges(groups, cw, ctx) {
     var total = 0;
-    (groups || []).forEach(function (g) {
-      if (!g || !g.items || !g.items.length) return;
+    (Array.isArray(groups) ? groups : []).forEach(function (g) {
+      if (!g || !Array.isArray(g.items) || !g.items.length) return;
       var vals = [];
       g.items.forEach(function (item) {
         if (!item) return;
         if (item.cw_below !== null && item.cw_below !== undefined && !(cw < item.cw_below)) return;
         var baseVal = item.basis === "max_side" ? ctx.maxSide : (item.basis === "weight" ? ctx.actWt : ctx.sumSides);
         var best = null;
-        (item.tiers || []).forEach(function (t) {
+        (Array.isArray(item.tiers) ? item.tiers : []).forEach(function (t) {
           if (!t) return;
           if (baseVal > t.min && (best === null || t.min > best.min)) best = t;
         });
@@ -351,7 +358,13 @@
     var p = rule.pricing || {};
     var raw;
     if (p.type === "first_continue") {
-      raw = num(p.first_weight_fee) + (cw - 1) * num(p.continue_per_kg) + num(p.extra_fee);
+      var baseW = num(p.first_weight_fee) + (cw - 1) * num(p.continue_per_kg);
+      var gd = p.girth_discount;
+      if (gd && gd.threshold !== null && gd.threshold !== undefined) {
+        var girth = (ctx.sumSides - ctx.maxSide) * 2 + ctx.maxSide;
+        baseW = baseW * (girth > gd.threshold ? num(gd.factor_above, 1) : num(gd.factor_below, 1));
+      }
+      raw = baseW + num(p.extra_fee);
     } else {
       var tiers = p.tiers || [];
       var tier = null;
@@ -363,7 +376,7 @@
       }
       if (!tier) return null;
       if (tier.base !== null && tier.base !== undefined && tier.step !== null && tier.step !== undefined) {
-        var n = p.step_unit ? Math.ceil(cw / p.step_unit) : 1;
+        var n = p.step_unit ? Math.ceil(Math.round(cw / p.step_unit * 1e6) / 1e6) : 1;
         raw = tier.base + (n - 1) * tier.step;
       } else if (tier.rate !== null && tier.rate !== undefined) {
         var w = (tier.min_charge !== null && tier.min_charge !== undefined && cw < tier.min_charge) ? tier.min_charge : cw;
@@ -377,6 +390,7 @@
     var disc = (p.discount === null || p.discount === undefined) ? 1 : num(p.discount, 1);
     if (disc !== 1) raw = raw * disc;
     if (rule.round_total === "round2") raw = Math.round(raw * 100) / 100;
+    else if (rule.round_total === "ceil2") raw = Math.ceil(Math.round(raw * 100 * 1e6) / 1e6) / 100; // Excel ROUNDUP(x,2)
     else if (rule.round_total === "ceil") raw = Math.ceil(raw);
     return raw;
   }
