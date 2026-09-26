@@ -629,7 +629,7 @@
 
       var style = document.createElement("style");
       style.textContent = [
-        "#pricingToolModal{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;}",
+        "#pricingToolModal{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding-bottom:12vh;}",
         "#pricingToolModal .pt-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.6);backdrop-filter:blur(4px);}",
         "#pricingToolModal .pt-dialog{position:relative;background:#fff;width:94%;max-width:1040px;max-height:90vh;border-radius:12px;box-shadow:0 25px 50px -12px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;animation:ptSlideIn .2s cubic-bezier(.16,1,.3,1);}",
         "@keyframes ptSlideIn{from{opacity:0;transform:translateY(20px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}",

@@ -1,12 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- 高老大专属 favicon: 一笔连签 g (gx 隐字: 收笔与字身交叉藏 x) -->
+  <!-- 高老大专属 favicon: 品牌渐变底 + 金色皇冠 (老大) + 白色粗体「高」 -->
   <defs>
-    <linearGradient id="gbg" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#2563eb"/>
       <stop offset="1" stop-color="#8b5cf6"/>
     </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="14" fill="url(#gbg)"/>
-  <path d="M 32 22 A 8.5 8.5 0 1 0 34.5 28 C 34.5 36 33 41 29 44 C 26 46.5 22 45 24 41.5 C 27 40 33 38 38 33 C 42 29 44 27 46 25"
-        fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <polygon points="18,17 23,7 28,13 32,5 36,13 41,7 46,17" fill="url(#gold)"/>
+  <rect x="17" y="17" width="30" height="5" rx="2.5" fill="url(#gold)"/>
+  <text x="32" y="43" text-anchor="middle" dominant-baseline="central"
+        font-family="PingFang SC, Hiragino Sans GB, STHeiti, Microsoft YaHei, sans-serif"
+        font-weight="800" font-size="30" fill="#ffffff">高</text>
 </svg>
