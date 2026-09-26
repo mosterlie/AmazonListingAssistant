@@ -4,7 +4,7 @@
 
 {% block extra_head %}
 <style>
-  /* 链接胶囊 (货代网址 / 在线链接, 点击新页签打开) */
+  /* 链接胶囊 (货代官网 / 在线链接, 点击新页签打开) */
   .fwd-link { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; font-size:0.78rem;
     font-weight:600; color:#0369a1; background:#f0f9ff; border:1px solid #bae6fd;
     border-radius:9999px; text-decoration:none; max-width:100%; margin:2px 4px 2px 0; transition:all .15s; }
@@ -12,6 +12,10 @@
   .fwd-link.site { color:#15803d; background:#f0fdf4; border-color:#bbf7d0; }
   .fwd-link.site:hover { background:#dcfce7; border-color:#86efac; color:#14532d; }
   .fwd-link .lbl { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px; }
+  /* 点击复制单元格: 蓝色虚线下划线提示可点, 悬停浅蓝底 */
+  .copy-chip { cursor:pointer; display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; vertical-align:bottom; color:#1d4ed8; border-bottom:1px dashed #60a5fa; transition:all .15s; }
+  .copy-chip:hover { background:#eff6ff; color:#1e40af; }
   /* 注册凭据 (仅管理员可见): 密码密文展示 + 小眼睛切换 */
   .pwd-wrap { display:inline-flex; align-items:center; gap:4px; }
   .fwd-pwd-input { width:100px; border:1px solid #e2e8f0; border-radius:6px; background:#f8fafc;
@@ -68,21 +72,23 @@
       {% endif %}
     </div>
     <div class="table-wrapper" style="overflow-x:auto;">
-      <table class="matrix-table" style="min-width:900px; width:100%;">
+      <table class="matrix-table" style="min-width:1150px; width:100%;">
         <thead>
           <tr style="background:#f8fafc;">
             <th style="width:50px; text-align:center;">ID</th>
             <th style="min-width:150px;">货代名称</th>
-            <th style="width:90px; text-align:center;">联系人</th>
-            <th style="min-width:220px;">在线链接</th>
-            <th style="width:110px;">结算方式</th>
-            <th style="min-width:200px;">备注</th>
+            <th style="min-width:100px;">联系人</th>
+            <th style="min-width:130px;">联系电话</th>
+            <th style="min-width:200px;">收货地址</th>
+            <th style="min-width:200px;">在线链接</th>
+            <th style="min-width:170px;">货代官网</th>
+            <th style="min-width:160px;">备注</th>
             <th style="{{ 'width:290px' if current_user.role == 'admin' else 'width:180px' }}; text-align:center;">操作</th>
           </tr>
         </thead>
         <tbody id="fwdTableBody">
           <tr>
-            <td colspan="7" style="text-align:center; padding:40px; color:var(--text-muted);">
+            <td colspan="9" style="text-align:center; padding:40px; color:var(--text-muted);">
               ⏳ 正在加载货代数据...
             </td>
           </tr>
@@ -310,9 +316,33 @@
     });
   }
 
+  /* ───────── 一键复制 ───────── */
+  function copyText(text, label = "") {
+    if (!text) return;
+    const done = () => showToast((label ? label + "已复制: " : "已复制: ") + text);
+    const fallback = () => {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); done(); }
+      catch (e) { showToast("复制失败, 请手动复制", "error"); }
+      document.body.removeChild(ta);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done).catch(fallback);
+    } else fallback();
+  }
+
+  /* 列表点击复制单元格: 空值灰显 —, 有值蓝色虚线可点 */
+  function copyCell(text, placeholder = "—") {
+    if (!text) return `<span style="font-size:0.75rem; color:#cbd5e1;">${placeholder}</span>`;
+    return `<span class="copy-chip" title="点击复制: ${escapeHtml(text)}" data-v="${escapeHtml(text)}"
+              onclick="copyText(this.dataset.v)">${escapeHtml(text)}</span>`;
+  }
+
   async function loadForwarders() {
     const tbody = document.getElementById("fwdTableBody");
-    const colCount = 7;
+    const colCount = 9;
     try {
       const body = await api("/api/forwarders");
       fwdList = body.data || [];
@@ -336,13 +366,18 @@
           ? `<span class="fwd-tip" data-full="${escapeHtml(remark)}"
                style="display:inline-block; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; cursor:help; border-bottom:1px dashed #94a3b8;">${escapeHtml(remark)}</span>`
           : `<span style="font-size:0.75rem; color:#cbd5e1;">—</span>`}</td>`;
+        const websiteCell = `<td style="font-size:0.8rem; max-width:220px;">${f.website
+          ? linkChip(f.website, "", "", "🌐")
+          : `<span style="font-size:0.75rem; color:#cbd5e1;">—</span>`}</td>`;
         return `
         <tr>
           <td style="text-align:center; color:#94a3b8; font-size:0.8rem;">${f.id}</td>
           <td><b style="color:#0f172a;">🚢 ${escapeHtml(f.name)}</b></td>
-          <td style="text-align:center; font-size:0.82rem;">${f.contact ? escapeHtml(f.contact) : "—"}</td>
+          <td style="font-size:0.8rem; max-width:140px;">${copyCell(f.contact)}</td>
+          <td style="font-size:0.8rem; max-width:150px;">${copyCell(f.phone)}</td>
+          <td style="font-size:0.8rem; max-width:220px;">${copyCell(f.shipping_address)}</td>
           <td>${links || `<span style="font-size:0.75rem; color:#cbd5e1;">暂无</span>`}</td>
-          <td style="font-size:0.8rem; color:#64748b;">${f.settlement_method ? escapeHtml(f.settlement_method) : "—"}</td>
+          ${websiteCell}
           ${remarkCell}
           ${ops}
         </tr>`;
@@ -631,10 +666,15 @@
   }
 
   /* ───────── 货代详情弹框 (全员) ───────── */
-  function detailRow(label, valueHtml) {
+  function detailRow(label, valueHtml, copyVal) {
+    const btn = copyVal
+      ? `<button type="button" class="btn btn-outline btn-sm" title="点击复制"
+             style="padding:1px 8px; font-size:0.68rem; margin-left:8px; white-space:nowrap; color:#1d4ed8; border-color:#bfdbfe;"
+             data-v="${escapeHtml(copyVal)}" onclick="copyText(this.dataset.v)">📋 复制</button>`
+      : "";
     return `<div style="display:grid; grid-template-columns:100px 1fr; gap:8px; padding:7px 0; border-bottom:1px dashed #f1f5f9; align-items:start;">
       <div style="font-size:0.8rem; color:#94a3b8; padding-top:1px;">${label}</div>
-      <div style="font-size:0.85rem; color:#334155; min-width:0; word-break:break-all;">${valueHtml}</div>
+      <div style="font-size:0.85rem; color:#334155; min-width:0; word-break:break-all;">${valueHtml}${btn}</div>
     </div>`;
   }
 
@@ -645,20 +685,20 @@
     const links = (f.links || []).map(lk => linkChip(lk.url, lk.label, "site")).join("")
       || `<span style="font-size:0.78rem; color:#cbd5e1;">暂无</span>`;
     let html = "";
-    html += detailRow("货代名称", `<b>🚢 ${escapeHtml(f.name)}</b>`);
-    html += detailRow("联系人", v(f.contact));
-    html += detailRow("联系电话", v(f.phone));
-    html += detailRow("结算方式", v(f.settlement_method));
+    html += detailRow("货代名称", `<b>🚢 ${escapeHtml(f.name)}</b>`, f.name);
+    html += detailRow("联系人", v(f.contact), f.contact);
+    html += detailRow("联系电话", v(f.phone), f.phone);
+    html += detailRow("结算方式", v(f.settlement_method), f.settlement_method);
     html += detailRow("收货地址", f.shipping_address
-      ? `<span style="white-space:pre-wrap;">${escapeHtml(f.shipping_address)}</span>` : "—");
-    html += detailRow("货代网址", f.website ? linkChip(f.website, "", "", "🌐") : "—");
+      ? `<span style="white-space:pre-wrap;">${escapeHtml(f.shipping_address)}</span>` : "—", f.shipping_address);
+    html += detailRow("货代官网", f.website ? linkChip(f.website, "", "", "🌐") : "—", f.website);
     html += detailRow("在线链接", links);
     html += detailRow("备注", f.remark
-      ? `<span style="white-space:pre-wrap;">${escapeHtml(f.remark)}</span>` : "—");
+      ? `<span style="white-space:pre-wrap;">${escapeHtml(f.remark)}</span>` : "—", f.remark);
     if (IS_ADMIN) {
-      html += detailRow("注册用户", v(f.reg_user));
+      html += detailRow("注册用户", v(f.reg_user), f.reg_user);
       html += detailRow("密码", f.reg_password
-        ? `<span style="letter-spacing:2px;">${escapeHtml(f.reg_password)}</span>` : "—");
+        ? `<span style="letter-spacing:2px;">${escapeHtml(f.reg_password)}</span>` : "—", f.reg_password);
     }
     document.getElementById("fwdDetailBody").innerHTML = html;
     document.getElementById("fwdDetailModal").style.display = "flex";
