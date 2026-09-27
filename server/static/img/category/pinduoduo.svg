@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="pddBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FE2C55"/>
+      <stop offset="1" stop-color="#E02020"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="30" height="30" rx="7" fill="url(#pddBg)"/>
+  <text x="16" y="22" text-anchor="middle" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif" font-size="15" font-weight="bold" fill="#FFFFFF">拼</text>
+</svg>

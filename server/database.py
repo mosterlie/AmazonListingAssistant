@@ -424,6 +424,37 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_sort ON knowledge_sites(sort_order, id);")
 
+    # 10.0a knowledge_sites 增加"网址归属"列 (旧库自动迁移)
+    cursor.execute("PRAGMA table_info(knowledge_sites);")
+    _kb_cols = {r[1] for r in cursor.fetchall()}
+    if "category" not in _kb_cols:
+        cursor.execute("ALTER TABLE knowledge_sites ADD COLUMN category TEXT DEFAULT '';")
+        print("📚 knowledge_sites 已迁移新增 category (网址归属) 列")
+
+    # 10.0b 网址归属表 (归属名称唯一, 支持上传归属图标; list 页按归属分组排序)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS knowledge_categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        icon_path TEXT DEFAULT '',
+        sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    # 10.0c 预置 4 个归属与内置默认图标 (用户可后续自行上传图标覆盖)
+    default_categories = [
+        ("亚马逊", "/static/img/category/amazon.svg", 1),
+        ("拼多多", "/static/img/category/pinduoduo.svg", 2),
+        ("店小秘", "/static/img/category/dianxiaomi.svg", 3),
+        ("1688", "/static/img/category/1688.svg", 4),
+    ]
+    for _name, _icon, _sort in default_categories:
+        cursor.execute(
+            "INSERT OR IGNORE INTO knowledge_categories (name, icon_path, sort_order) VALUES (?, ?, ?);",
+            (_name, _icon, _sort)
+        )
+
     # 10.1 初始化默认知识库常用网址 (若表为空则自动写入初始条目)
     cursor.execute("SELECT count(*) FROM knowledge_sites;")
     if cursor.fetchone()[0] == 0:
@@ -457,6 +488,21 @@ def init_db():
     );
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_prompt_sort ON prompt_templates(sort_order, id);")
+
+    # 10.3 知识库文档表 (知识库子菜单: 上传各类文档, 所有用户可查阅下载, 管理员可上传/删除)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS knowledge_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        ext TEXT DEFAULT '',
+        size INTEGER DEFAULT 0,
+        description TEXT DEFAULT '',
+        uploaded_by VARCHAR(64) DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_kbdoc_time ON knowledge_documents(created_at);")
 
     # 11. 货代管理表 (货代基本信息 + 在线链接, 链接点击后新页签打开)
     #     website=货代网址; reg_user/reg_password=货代系统注册凭据 (仅管理员可见)

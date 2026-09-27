@@ -162,6 +162,19 @@
     from { opacity: 0; transform: translateY(-4px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  /* 文档库: 文档名链接 */
+  .doc-name-link {
+    color: #0369a1;
+    font-weight: 600;
+    font-size: 0.86rem;
+    text-decoration: none;
+    word-break: break-all;
+    line-height: 1.5;
+  }
+  .doc-name-link:hover {
+    color: #0284c7;
+    text-decoration: underline;
+  }
 </style>
 {% endblock %}
 
@@ -197,6 +210,7 @@
 <!-- 子菜单: 与网站导航并列 -->
 <div class="kb-subnav" id="kbSubnav">
   <button class="kb-subnav-item active" data-tab="sites" type="button">🔗 网站导航</button>
+  <button class="kb-subnav-item" data-tab="docs" type="button">📄 文档库</button>
   <button class="kb-subnav-item" data-tab="prompts" type="button">📝 提示词模板</button>
 </div>
 
@@ -211,6 +225,7 @@
 
     <div style="display:flex; gap:10px; align-items:center; margin-left:auto;">
       {% if current_user and current_user.role == 'admin' %}
+      <button class="btn btn-outline btn-sm" id="toggleCategoryBtn" type="button" style="font-weight:600;" title="维护网址归属与归属图标">🏷️ 归属图标</button>
       <button class="btn btn-primary btn-sm" id="openAddSiteBtn" type="button" style="background:#6366f1; border-color:#6366f1; font-weight:600;">
         ➕ 新增
       </button>
@@ -222,8 +237,11 @@
 
   <div class="card-body" style="padding:16px;">
     <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:14px; line-height:1.6;">
-      💡 <b>说明</b>：收录常用的电商前后台、产品查询及工具网站。在网址右侧输入框填入参数时，网址会<b>实时随输入替换</b>，点击右侧小图标即可一键直达！
+      💡 <b>说明</b>：收录常用的电商前后台、产品查询及工具网站，按<b>网址归属</b>分组排序。在网址右侧输入框填入参数时，网址会<b>实时随输入替换</b>，点击右侧小图标即可一键直达！
     </p>
+
+    <!-- 管理员归属图标管理面板 (点击「🏷️ 归属图标」展开) -->
+    <div id="categoryManagerContainer" style="display:none;"></div>
 
     <!-- 管理员新增/编辑工作区容器 (点击新增或编辑时展开) -->
     <div id="editorContainer" style="display:none;"></div>
@@ -233,15 +251,16 @@
       <table class="matrix-table" style="width:100%; font-size:0.88rem; margin-bottom:0;">
         <thead>
           <tr style="background:#f8fafc;">
-            <th style="width:170px; min-width:140px;">网站名称</th>
-            <th style="width:520px; min-width:440px;">网址</th>
-            <th style="width:240px; min-width:180px;">说明</th>
+            <th style="width:120px; min-width:100px;">归属</th>
+            <th style="width:170px; min-width:140px;">网址用途</th>
+            <th style="width:500px; min-width:420px;">网址</th>
+            <th style="width:220px; min-width:160px;">说明</th>
             <th style="width:190px; min-width:140px; text-align:center;">操作</th>
           </tr>
         </thead>
         <tbody id="knowledgeTableBody">
           <tr>
-            <td colspan="4" style="text-align:center; padding:36px; color:var(--text-muted);">
+            <td colspan="5" style="text-align:center; padding:36px; color:var(--text-muted);">
               ⏳ 正在加载知识库数据...
             </td>
           </tr>
@@ -300,9 +319,59 @@
   </div>
 </div><!-- /kb-panel prompts -->
 
+<!-- 文档库面板 (与网站导航/提示词模板并列的子菜单) -->
+<div class="kb-panel" data-panel="docs">
+  <div class="form-card">
+    <div class="card-header" style="flex-wrap:wrap; gap:12px;">
+      <div class="card-title" style="display:flex; align-items:center; gap:8px;">
+        <div class="card-title-icon" style="background:#0ea5e9;">📄</div>
+        <span>文档库</span>
+        <span class="tag-badge" id="docCountBadge" style="background:#e0f2fe; color:#0369a1; border-color:#bae6fd;">共 0 个文档</span>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center; margin-left:auto;">
+        {% if current_user and current_user.role == 'admin' %}
+        <button class="btn btn-primary btn-sm" id="toggleDocUploadBtn" type="button" style="background:#0ea5e9; border-color:#0ea5e9; font-weight:600;">⬆️ 上传文档</button>
+        {% else %}
+        <span class="tag-badge" style="background:#f8fafc; color:#64748b; border-color:#e2e8f0;">👤 查阅与下载模式</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card-body" style="padding:16px;">
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:14px; line-height:1.6;">
+        💡 <b>说明</b>：集中存放各类业务文档（PDF/Word/Excel/PPT/压缩包/图片等，单个 20MB 以内）。点击文件名或「⬇️ 下载」即可保存到本地。
+      </p>
+
+      <!-- 管理员上传工作区 (点击上传文档时展开) -->
+      <div id="docUploadContainer" style="display:none;"></div>
+
+      <div class="table-wrapper" style="border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden;">
+        <table class="matrix-table" style="width:100%; font-size:0.88rem; margin-bottom:0;">
+          <thead>
+            <tr style="background:#f8fafc;">
+              <th style="width:45px; text-align:center;">#</th>
+              <th style="min-width:260px;">文档名称</th>
+              <th style="width:100px;">类型</th>
+              <th style="width:90px;">大小</th>
+              <th style="width:200px; min-width:140px;">说明</th>
+              <th style="width:170px; min-width:130px;">上传人 / 时间</th>
+              <th style="width:150px; min-width:120px; text-align:center;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="docTableBody">
+            <tr>
+              <td colspan="7" style="text-align:center; padding:36px; color:var(--text-muted);">⏳ 正在加载文档列表...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div><!-- /kb-panel docs -->
+
 <script>
   window.IS_ADMIN = {{ 'true' if (current_user and current_user.role == 'admin') else 'false' }};
 </script>
-<script src="/static/js/knowledge.js?v=20260913_knowledge_v10"></script>
+<script src="/static/js/knowledge.js?v=20260927_kb_v11"></script>
 <script src="/static/js/prompts.js?v=20260919_prompt_v11"></script>
+<script src="/static/js/knowledge_docs.js?v=20260927_docs_v1"></script>
 {% endblock %}

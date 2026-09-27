@@ -5,6 +5,7 @@
 
 const knowledgeState = {
   sites: [],
+  categories: [],
   editingId: null,
   isAdding: false
 };
@@ -23,7 +24,10 @@ function showToast(msg, type = "success") {
 
 async function loadKnowledgeSites() {
   try {
-    const res = await fetch("/api/knowledge");
+    const [res, catRes] = await Promise.all([
+      fetch("/api/knowledge"),
+      fetch("/api/knowledge/categories").catch(() => null)
+    ]);
     const result = await res.json();
     if (result.code === 0) {
       knowledgeState.sites = result.data || [];
@@ -33,9 +37,32 @@ async function loadKnowledgeSites() {
     } else {
       showToast(`加载知识库失败: ${result.msg || result.detail}`, "error");
     }
+    if (catRes && catRes.ok) {
+      const catResult = await catRes.json();
+      if (catResult.code === 0) {
+        knowledgeState.categories = catResult.data || [];
+        // 若归属图标管理面板已展开, 同步刷新
+        const panel = document.getElementById("categoryManagerContainer");
+        if (panel && panel.style.display === "block") {
+          renderCategoryManager();
+        }
+      }
+    }
   } catch (err) {
     showToast(`网络请求异常: ${err.message}`, "error");
   }
+}
+
+// 归属图标渲染 (小尺寸, 带默认兜底)
+function renderCategoryIcon(iconPath, name, size = 22) {
+  const title = escapeHtml(name || "未分组");
+  if (iconPath) {
+    return `<img src="${escapeHtml(iconPath)}" alt="${title}" title="${title}" loading="lazy"
+                 style="width:${size}px; height:${size}px; border-radius:6px; object-fit:cover; flex-shrink:0;
+                        border:1px solid #e2e8f0; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,0.06);" />`;
+  }
+  return `<span title="${title}" style="width:${size}px; height:${size}px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center;
+               background:#f1f5f9; border:1px solid #e2e8f0; flex-shrink:0; font-size:${Math.round(size * 0.55)}px;">🏷️</span>`;
 }
 
 function formatUrlForHref(url) {
@@ -217,7 +244,7 @@ function renderKnowledgeTable() {
 
   const sites = knowledgeState.sites;
   const isAdmin = !!window.IS_ADMIN;
-  const colSpan = 4;
+  const colSpan = 5;
 
   if (sites.length === 0) {
     tbody.innerHTML = `
@@ -238,7 +265,16 @@ function renderKnowledgeTable() {
       highlightedUrl = highlightedUrl.replaceAll("{var}", '<span class="var-pill-red">{var}</span>');
     }
 
-    // 1. 网站名称列：仅展示网站名称，纯净清晰
+    // 0. 归属列：归属图标 + 归属名称
+    const categoryHtml = `
+      <div style="display:flex; align-items:center; gap:7px;">
+        ${renderCategoryIcon(item.category_icon, item.category)}
+        <span style="font-size:0.84rem; color:#475569; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80px;"
+              title="${escapeHtml(item.category || '未设置归属')}">${escapeHtml(item.category || '—')}</span>
+      </div>
+    `;
+
+    // 1. 网址用途列：仅展示用途名称，纯净清晰
     let siteTitleHtml = `
       <div class="site-title-cell">
         <div class="site-title-name" id="titleDisplay_${item.id}">${escapeHtml(item.title)}</div>
@@ -300,6 +336,7 @@ function renderKnowledgeTable() {
 
     return `
       <tr id="siteRow_${item.id}">
+        <td>${categoryHtml}</td>
         <td>${siteTitleHtml}</td>
         <td>${urlCellHtml}</td>
         <td title="${escapeHtml(item.description || '')}">${descHtml}</td>
@@ -470,6 +507,7 @@ function openAddSite() {
   knowledgeState.isAdding = true;
   knowledgeState.editingId = null;
   renderEditor({
+    category: "",
     title: "",
     url_parts: ["", "", "", "", ""],
     description: "",
@@ -504,18 +542,31 @@ function renderEditor(data) {
       </div>
 
       <div style="display:flex; flex-direction:column; gap:12px;">
-        <!-- 1. 网站名称 -->
+        <!-- 1. 网址归属 -->
         <div>
           <label class="form-label" style="font-weight:700; margin-bottom:4px;">
-            🌐 1. 网站名称 <span style="color:#ef4444;">*</span>
+            🏷️ 1. 网址归属 <span style="color:#ef4444;">*</span>
+            <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem; margin-left:8px;">如: 亚马逊 / 拼多多 / 店小秘 / 1688，输入新名称保存后自动建档</span>
           </label>
-          <input type="text" class="form-input" id="editorTitle" value="${escapeHtml(data.title || '')}" placeholder="如: 日本亚马逊商品搜索 / 1688以图搜款 / 店小秘商品" required style="width:100%;">
+          <input type="text" class="form-input" id="editorCategory" list="categoryDatalist" value="${escapeHtml(data.category || '')}"
+                 placeholder="请输入网址归属，如: 亚马逊" required style="width:100%; max-width:320px;">
+          <datalist id="categoryDatalist">
+            ${(knowledgeState.categories || []).map(c => `<option value="${escapeHtml(c.name)}"></option>`).join("")}
+          </datalist>
         </div>
 
-        <!-- 2. 网址 (固定 5 个输入框，按序拼接，允许不全输入，如需动态参数填写 {var}) -->
+        <!-- 2. 网址用途 -->
+        <div>
+          <label class="form-label" style="font-weight:700; margin-bottom:4px;">
+            🌐 2. 网址用途 <span style="color:#ef4444;">*</span>
+          </label>
+          <input type="text" class="form-input" id="editorTitle" value="${escapeHtml(data.title || '')}" placeholder="如: 以图搜图 / 用户端 / 销量榜 / 通过asin搜" required style="width:100%;">
+        </div>
+
+        <!-- 3. 网址 (固定 5 个输入框，按序拼接，允许不全输入，如需动态参数填写 {var}) -->
         <div>
           <label class="form-label" style="font-weight:700; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
-            <span>🔗 2. 网址 (固定 5 个分段输入框，按顺序首尾相连拼接；空框自动忽略；如需动态输入参数填 <code>{var}</code>)</span>
+            <span>🔗 3. 网址 (固定 5 个分段输入框，按顺序首尾相连拼接；空框自动忽略；如需动态输入参数填 <code>{var}</code>)</span>
             <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">允许不全填</span>
           </label>
 
@@ -548,10 +599,10 @@ function renderEditor(data) {
           </div>
         </div>
 
-        <!-- 3. 说明 -->
+        <!-- 4. 说明 -->
         <div>
           <label class="form-label" style="font-weight:700; margin-bottom:4px;">
-            📝 3. 说明备注
+            📝 4. 说明备注
           </label>
           <input type="text" class="form-input" id="editorDesc" value="${escapeHtml(data.description || '')}" placeholder="如: 亚马逊日亚前台商品搜词，输入 ASIN 或关键词后可直接跳转查品" style="width:100%;">
         </div>
@@ -608,9 +659,16 @@ function cancelEdit() {
 }
 
 async function saveSite() {
+  const category = (document.getElementById("editorCategory")?.value || "").trim();
+  if (!category) {
+    showToast("网址归属为必填项！", "error");
+    document.getElementById("editorCategory")?.focus();
+    return;
+  }
+
   const title = (document.getElementById("editorTitle")?.value || "").trim();
   if (!title) {
-    showToast("网站名称为必填项！", "error");
+    showToast("网址用途为必填项！", "error");
     document.getElementById("editorTitle")?.focus();
     return;
   }
@@ -633,6 +691,7 @@ async function saveSite() {
   const description = (document.getElementById("editorDesc")?.value || "").trim();
 
   const payload = {
+    category,
     title,
     url_parts: parts,
     description,
@@ -691,6 +750,148 @@ function escapeHtml(str) {
 }
 
 // ============================================================================
+// 归属图标管理面板 (管理员: 查看归属/上传更换图标/新建归属/删除未使用的归属)
+// ============================================================================
+
+function toggleCategoryManager() {
+  const container = document.getElementById("categoryManagerContainer");
+  if (!container) return;
+  if (container.style.display === "block") {
+    container.style.display = "none";
+    container.innerHTML = "";
+  } else {
+    renderCategoryManager();
+  }
+}
+
+function renderCategoryManager() {
+  const container = document.getElementById("categoryManagerContainer");
+  if (!container) return;
+
+  const cats = knowledgeState.categories || [];
+  const catCards = cats.map(c => `
+    <div style="display:flex; flex-direction:column; align-items:center; gap:6px; padding:12px 10px;
+                background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; min-width:104px;">
+      ${renderCategoryIcon(c.icon_path, c.name, 40)}
+      <div style="font-size:0.84rem; font-weight:700; color:#1e293b; max-width:90px;
+                  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</div>
+      <div style="font-size:0.72rem; color:#94a3b8;">${c.site_count || 0} 个网址</div>
+      <label class="btn btn-outline btn-sm" style="cursor:pointer; margin:0; padding:2px 8px; font-size:0.72rem;" title="上传或更换归属图标">
+        📤 ${c.icon_path ? '更换图标' : '上传图标'}
+        <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.ico" style="display:none;"
+               onchange="uploadCategoryIcon('${escapeHtml(c.name)}', this)" />
+      </label>
+      ${!(c.site_count) ? `
+        <button class="btn btn-danger btn-sm" type="button" onclick="deleteCategory(${c.id}, '${escapeHtml(c.name)}')"
+                style="padding:2px 8px; font-size:0.72rem;" title="该归属暂无网址条目, 可删除">🗑️ 删除</button>
+      ` : ''}
+    </div>
+  `).join("");
+
+  container.innerHTML = `
+    <div class="edit-row-card" style="border-color:#f59e0b; margin-bottom:14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid #e2e8f0; padding-bottom:8px;">
+        <div style="font-weight:700; color:#1e293b; font-size:0.95rem;">
+          🏷️ 网址归属与图标管理
+          <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem; margin-left:8px;">list 页按归属排序并展示图标；亚马逊/拼多多/店小秘/1688 已内置默认图标，上传后自动覆盖</span>
+        </div>
+        <button class="btn btn-outline btn-sm" type="button" onclick="toggleCategoryManager()" style="padding:2px 8px; font-size:0.75rem;">✕ 收起</button>
+      </div>
+
+      <div style="display:flex; flex-wrap:wrap; gap:10px;">
+        ${catCards || '<div style="color:#94a3b8; font-size:0.85rem;">暂无归属，请在下方新建或保存网址条目时自动创建</div>'}
+      </div>
+
+      <!-- 新建归属 -->
+      <div style="display:flex; gap:8px; align-items:center; margin-top:14px; padding-top:12px; border-top:1px dashed #e2e8f0; flex-wrap:wrap;">
+        <span style="font-size:0.84rem; font-weight:700; color:#475569;">➕ 新建归属:</span>
+        <input type="text" class="form-input" id="newCategoryName" placeholder="归属名称, 如: Temu"
+               style="width:180px; padding:5px 10px; font-size:0.84rem;">
+        <label class="btn btn-outline btn-sm" style="cursor:pointer; margin:0; padding:4px 10px; font-size:0.78rem;">
+          🖼️ 选择图标(可选)
+          <input type="file" id="newCategoryIconFile" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.ico" style="display:none;"
+                 onchange="document.getElementById('newCategoryIconLabel').innerText = this.files[0] ? this.files[0].name : '未选择';" />
+          <span id="newCategoryIconLabel" style="margin-left:4px; color:#94a3b8;">未选择</span>
+        </label>
+        <button class="btn btn-primary btn-sm" type="button" onclick="createNewCategory()"
+                style="padding:4px 14px; background:#f59e0b; border-color:#f59e0b; font-weight:600;">💾 保存新归属</button>
+      </div>
+    </div>
+  `;
+
+  container.style.display = "block";
+}
+
+async function uploadCategoryIcon(categoryName, inputEl) {
+  const file = inputEl && inputEl.files && inputEl.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append("name", categoryName);
+  formData.append("icon", file);
+
+  try {
+    const res = await fetch("/api/knowledge/categories", { method: "POST", body: formData });
+    const result = await res.json();
+    if (result.code === 0) {
+      showToast(`🎉 归属「${categoryName}」图标上传成功！`);
+      await loadKnowledgeSites();
+    } else {
+      showToast(`图标上传失败: ${result.detail || result.msg || "未知错误"}`, "error");
+    }
+  } catch (err) {
+    showToast(`图标上传异常: ${err.message}`, "error");
+  } finally {
+    inputEl.value = "";
+  }
+}
+
+async function createNewCategory() {
+  const nameEl = document.getElementById("newCategoryName");
+  const fileEl = document.getElementById("newCategoryIconFile");
+  const name = (nameEl?.value || "").trim();
+  if (!name) {
+    showToast("请先输入归属名称！", "error");
+    nameEl?.focus();
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("name", name);
+  if (fileEl && fileEl.files && fileEl.files[0]) {
+    formData.append("icon", fileEl.files[0]);
+  }
+
+  try {
+    const res = await fetch("/api/knowledge/categories", { method: "POST", body: formData });
+    const result = await res.json();
+    if (result.code === 0) {
+      showToast(`🎉 归属「${name}」保存成功！`);
+      await loadKnowledgeSites();
+    } else {
+      showToast(`保存失败: ${result.detail || result.msg || "未知错误"}`, "error");
+    }
+  } catch (err) {
+    showToast(`保存异常: ${err.message}`, "error");
+  }
+}
+
+async function deleteCategory(catId, name) {
+  if (!confirm(`确定要删除归属「${name}」吗？`)) return;
+  try {
+    const res = await fetch(`/api/knowledge/categories/${catId}`, { method: "DELETE" });
+    const result = await res.json();
+    if (result.code === 0) {
+      showToast(`已删除归属「${name}」`);
+      await loadKnowledgeSites();
+    } else {
+      showToast(`删除失败: ${result.detail || result.msg}`, "error");
+    }
+  } catch (err) {
+    showToast(`删除异常: ${err.message}`, "error");
+  }
+}
+
+// ============================================================================
 // 初始化
 // ============================================================================
 
@@ -700,5 +901,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const addBtn = document.getElementById("openAddSiteBtn");
   if (addBtn) {
     addBtn.addEventListener("click", openAddSite);
+  }
+
+  const catBtn = document.getElementById("toggleCategoryBtn");
+  if (catBtn) {
+    catBtn.addEventListener("click", toggleCategoryManager);
   }
 });
