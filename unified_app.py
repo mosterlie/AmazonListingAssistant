@@ -362,8 +362,9 @@ class PublishBridge:
 
     def _make_remote_image_resolver(self):
         """
-        与 desktop_app 等价: 远程模式图片解析 —— 本地/共享路径优先, 失败则从
-        主库服务器 (/file 接口) 下载到本地缓存 (%TEMP%\\erp_remote_images) 后返回缓存路径
+        与 desktop_app 等价: 远程模式图片解析 —— 一律从主库服务器 (/file 接口)
+        下载到本地缓存 (%TEMP%\\erp_remote_images) 后返回缓存路径;
+        不做本机查找, 避免本机其他商品文件夹的同名文件顶替远程真图 (跨商品混用)
         """
         import hashlib
         cache_dir = os.path.join(tempfile.gettempdir(), "erp_remote_images")
@@ -373,23 +374,24 @@ class PublishBridge:
         def resolve_image_path(path: str) -> str:
             if not path or not isinstance(path, str) or not path.strip():
                 return ""
-            from server.services import file_service as fs_module
-            local = fs_module.FileService._orig_resolve_image_path(path)
-            if local:
-                return local
+            clean = path.strip()
+            # 0) 本机绝对路径且真实存在 (应用自身生成的临时文件, 远程不可能有) → 直接用
+            if os.path.isabs(clean) and os.path.isfile(clean):
+                return os.path.abspath(clean)
+            # 1) 其余一律远程下载, 不做本机模糊查找
             try:
-                data = remote_conn.get_file(path.strip())
+                data = remote_conn.get_file(clean)
                 if not data:
                     return ""
-                filename = os.path.basename(path.strip().replace("\\", "/")) or "image.jpg"
-                key = hashlib.md5(path.strip().encode("utf-8")).hexdigest()[:16]
+                filename = os.path.basename(clean.replace("\\", "/")) or "image.jpg"
+                key = hashlib.md5(clean.encode("utf-8")).hexdigest()[:16]
                 cache_path = os.path.join(cache_dir, f"{key}_{filename}")
                 if not os.path.exists(cache_path) or os.path.getsize(cache_path) != len(data):
                     with open(cache_path, "wb") as f:
                         f.write(data)
                 return cache_path
             except Exception as e:
-                self._log(f"⚠️ 远程图片获取失败 [{path}]: {e}")
+                self._log(f"⚠️ 远程图片获取失败 [{clean}]: {e}")
                 return ""
 
         return resolve_image_path
