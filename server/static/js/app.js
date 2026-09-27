@@ -706,6 +706,26 @@ function generateSingleEAN13(country = "485") {
   return s12 + checkDigit;
 }
 
+// 单个子 SKU 重新生成: 按「父SKU-序号」规则重置编码并生成新 EAN-13 条码 (清除手工修改标记)
+function regenerateChildSku(idx) {
+  const v = state.variations[idx];
+  if (!v) return;
+  const baseSku = (document.getElementById("parentSkuInput")?.value || "SKU").trim();
+  const seqWidth = state.variations.length >= 100 ? 3 : 2;
+  const seq = String(idx + 1).padStart(seqWidth, "0");
+  v.sku = baseSku ? `${baseSku}-${seq}` : `-${seq}`;
+  v.sku_manual = false;
+  v.ean = generateSingleEAN13();
+  const tr = document.querySelector(`.sku-inp[data-idx="${idx}"]`)?.closest("tr");
+  if (tr) {
+    const skuInp = tr.querySelector(".sku-inp");
+    const eanInp = tr.querySelector(".ean-inp");
+    if (skuInp) skuInp.value = v.sku;
+    if (eanInp) eanInp.value = v.ean;
+  }
+  showToast(`✅ 子SKU #${idx + 1} 已重新生成: ${v.sku} / EAN ${v.ean}`, "success");
+}
+
 // ============================================================================
 // Calcfee 智能物流比价与日元售价推导引擎 (支持 10 大渠道比价、人工调换与实时联动)
 // ============================================================================
@@ -1224,7 +1244,10 @@ function renderMatrixTable() {
       <td><input type="text" readonly class="table-input price-inp" id="price_inp_${idx}" style="width:75px; text-align:center; font-weight:700; color:var(--primary);" value="${row.price_jpy || ""}" data-idx="${idx}" title="由尺寸、重量、采购价与所选物流自动推导计算，不可手工修改"></td>
       <td><input type="text" inputmode="numeric" class="table-input qty-inp" style="width:52px; text-align:center;" value="${row.quantity !== undefined ? row.quantity : 40}" data-idx="${idx}"></td>
       <td style="text-align:center;">
-        <input type="text" class="table-input ean-inp" placeholder="EAN条码" value="${row.ean || ""}" style="width:75px; font-size:0.8rem;" data-idx="${idx}" onmouseenter="showSkuTooltip(event, this.value)" onmouseleave="hideSkuTooltip()" onfocus="showSkuTooltip(event, this.value)" onblur="hideSkuTooltip()">
+        <div style="display:flex; align-items:center; gap:2px; justify-content:center;">
+          <input type="text" class="table-input ean-inp" placeholder="EAN条码" value="${row.ean || ""}" style="width:75px; font-size:0.8rem; flex-shrink:1; min-width:0;" data-idx="${idx}" onmouseenter="showSkuTooltip(event, this.value)" onmouseleave="hideSkuTooltip()" onfocus="showSkuTooltip(event, this.value)" onblur="hideSkuTooltip()">
+          <button type="button" tabindex="-1" onclick="regenerateChildSku(${idx})" title="重新生成该子SKU: 按「父SKU-序号」规则重置编码并生成新EAN条码" style="flex-shrink:0; width:22px; height:24px; padding:0; border:1px solid #cbd5e1; border-radius:4px; background:#f8fafc; color:#475569; font-size:0.7rem; cursor:pointer; line-height:1;">🔄</button>
+        </div>
       </td>
       <td style="text-align:center;">
         <input type="text" class="table-input sku-inp" value="${row.sku || ""}" style="width:75px; font-size:0.8rem;" data-idx="${idx}" onmouseenter="showSkuTooltip(event, this.value)" onmouseleave="hideSkuTooltip()" onfocus="showSkuTooltip(event, this.value)" onblur="hideSkuTooltip()">
@@ -1663,7 +1686,7 @@ async function saveProduct() {
   const product_identifier = document.getElementById("productIdentifierInput")?.value.trim() || "";
   const identifier_translation = document.getElementById("identifierTranslationInput")?.value.trim() || "";
   const sale_type = document.querySelector("input[name='saleTypeRadio']:checked")?.value || document.getElementById("saleTypeSelect")?.value || "variation";
-  const variation_theme = document.getElementById("variationThemeSelect")?.value || "カラー/サイズ(颜色/尺寸)";
+  const variation_theme = document.getElementById("variationThemeSelect")?.value || "カラー/サイズ";
 
   // 产品属性
   const category_name = document.getElementById("categoryNameInput")?.value.trim() || "";

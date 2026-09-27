@@ -554,6 +554,21 @@ async function viewProductDetail(productId) {
         </div>
       </div>
 
+      <!-- 商品链接信息 (Amazon 前台链接与采购来源链接) -->
+      <div class="detail-section">
+        <div class="detail-section-title">🌐 商品链接信息</div>
+        <div class="detail-grid">
+          <div style="grid-column:1/-1;">
+            <div class="detail-field-label">Amazon 商品链接</div>
+            <div class="detail-field-value">${p.amazon_link ? `<a href="${escapeHtmlStr(p.amazon_link)}" target="_blank" rel="noopener" style="color:#2563eb; font-weight:600; text-decoration:none; word-break:break-all;" title="点击打开 Amazon 商品链接">🔗 ${escapeHtmlStr(p.amazon_link)}</a>` : '<span style="color:#94a3b8;">-</span>'}</div>
+          </div>
+          <div style="grid-column:1/-1;">
+            <div class="detail-field-label">采购来源链接</div>
+            <div class="detail-field-value">${renderSourceLinkCell(p.source_link || '')}</div>
+          </div>
+        </div>
+      </div>
+
       <!-- 1.5 关联任务信息 -->
       <div class="detail-section">
         <div class="detail-section-title">🔗 关联任务 (${(p.linked_tasks && p.linked_tasks.length) || 0} 个)</div>

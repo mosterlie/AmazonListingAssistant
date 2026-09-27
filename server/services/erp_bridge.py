@@ -204,7 +204,7 @@ class ERPBridgeService:
             # 阶段 4：变体主题选择、属性标签添加与变体矩阵展开
             # =========================================================================
             if is_variation:
-                v_theme = product.get("variation_theme") or "カラー/サイズ(颜色/尺寸)"
+                v_theme = product.get("variation_theme") or "カラー/サイズ"
                 emit_log(f"⏳ [阶段 4/7] 正在选择【变种主题】 ➔ 【{v_theme}】...")
                 engine.select("变种主题", v_theme)
                 time.sleep(1.0)
@@ -600,6 +600,17 @@ class ERPBridgeService:
                 engine.fill("品番", product["model_number"]) or engine.fill("型番", product["model_number"])
             if product.get("model_name"):
                 engine.fill("モデル名", product["model_name"])
+                # メーカー型番(零件编号)同步填入商品的モデル名(型号名称)
+                engine.fill("メーカー型番", product["model_name"])
+
+            # 7.5 店小秘信息: 来源URL 填入采购来源链接
+            source_link = (product.get("source_link") or "").strip()
+            if source_link:
+                if engine.fill("来源URL", source_link):
+                    emit_log(f"✅ 店小秘信息-来源URL 已填入采购来源链接")
+                else:
+                    emit_log("⚠️ 店小秘信息-来源URL 字段未找到，请人工核查")
+                time.sleep(0.3)
 
             # 8. 厂商建议零售价(税抜)货币选择 JPY；税込み参考价格填入子 SKU 最高价
             try:
