@@ -872,10 +872,10 @@
         return '<div><div class="pt-k">' + k + '</div><div class="pt-v">' + v + "</div></div>";
       }
       function fmt2(v) { return String(Math.round(v * 100) / 100); }
-      // 利润率配色 (百分数值): ≥50 绿色 / [30,50) 橘黄含30 / [10,30) 红色含10 / <10 灰色
+      // 利润率配色 (百分数值): ≥50 绿色 / [30,50) 蓝色含30 / [10,30) 红色含10 / <10 灰色
       function rateTone(r) {
         if (r >= 50) return "#15803d";
-        if (r >= 30) return "#ea580c";
+        if (r >= 30) return "#2563eb";
         if (r >= 10) return "#dc2626";
         return "#94a3b8";
       }
