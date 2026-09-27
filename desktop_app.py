@@ -867,12 +867,22 @@ class DesktopApp:
         except Exception as e:
             self._log(f"⚠️ 终止模块加载失败: {e}")
             return
+        try:
+            from core.driver_guard import kill_drivers as scan_kill_drivers
+        except Exception:
+            scan_kill_drivers = None  # 兜底扫描不可用时仅依赖登记表
         killed_total = 0
         deadline = time.time() + 60
         while time.time() < deadline:
             if not self.publishing:  # 任务已结束 (终止生效或自然完成)
                 break
             killed = cleanup_stale_drivers()
+            if not killed and scan_kill_drivers is not None:
+                # 登记表兜底: 扫描本进程名下的 Playwright 驱动进程强杀 (防登记失效/版本差异)
+                try:
+                    killed = len(scan_kill_drivers())
+                except Exception:
+                    killed = 0
             if killed:
                 killed_total += killed
                 self._log(f"🛑 已强制停止自动化驱动进程 ({killed} 个)")

@@ -38,11 +38,16 @@ _DRIVER_LOCK = threading.Lock()
 
 
 def _get_driver_pid(playwright) -> Optional[int]:
-    """从 playwright 实例提取底层 Node 驱动进程 PID"""
-    try:
-        return playwright._connection._transport._proc.pid
-    except Exception:
-        return None
+    """从 playwright 实例提取底层 Node 驱动进程 PID (兼容新旧版本内部结构)"""
+    # 旧版: pw._connection...; 新版 (>=1.6x): 包装层移到 pw._impl_obj._connection...
+    for obj in (playwright, getattr(playwright, "_impl_obj", None)):
+        if obj is None:
+            continue
+        try:
+            return obj._connection._transport._proc.pid
+        except Exception:
+            continue
+    return None
 
 
 def _register_driver_pid(playwright):

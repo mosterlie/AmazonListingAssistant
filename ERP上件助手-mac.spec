@@ -16,6 +16,7 @@ a = Analysis(
     ],
     hiddenimports=[
         'core.browser_manager',
+        'core.driver_guard',
         'core.tab_matcher',
         'core.form_operator',
         'parsers.dom_precision_parser',

@@ -16,19 +16,11 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-# 原生启动画面: 覆盖 onefile 解压阶段 (Python 启动前), 应用启动后由 pyi_splash.close() 关闭
-splash = Splash(
-    'assets/splash.png',
-    binaries=a.binaries,
-    datas=a.datas,
-    always_on_top=False,
-)
+# Splash screen 已移除: PyInstaller 不支持 macOS (pyi_splash.close() 调用侧有 try/except 保护)
 
 exe = EXE(
     pyz,
     a.scripts,
-    splash,
-    splash.binaries,
     a.binaries,
     a.datas,
     [],
