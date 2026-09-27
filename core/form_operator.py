@@ -99,6 +99,8 @@ class FormOperator:
         }
         """
         start_time = time.time()
+        # 核心词: 去括号后缀 (店小秘改版后选项不再带 "(颜色/尺寸)" 类后缀, 按核心词兼容匹配)
+        core_text = option_text.split('(')[0].strip() or option_text
         while (time.time() - start_time) * 1000 < 4000:
             try:
                 res = self.page.evaluate(js_code, {"identifier": field_label_or_selector, "optionText": option_text})
@@ -106,7 +108,47 @@ class FormOperator:
                     return True
                 if res and res.get("success"):
                     self.page.wait_for_timeout(300)
-                    
+
+                    def _verify_selected() -> bool:
+                        """点击后回读选中值: 包含核心词才算真选中 (消除误报)"""
+                        try:
+                            return bool(self.page.evaluate("""
+                            (args) => {
+                                const { identifier, core } = args;
+                                function norm(t){return (t||'').trim();}
+                                const formItems = Array.from(document.querySelectorAll('.ant-form-item, .el-form-item, .arco-form-item, .form-group, .form-item'));
+                                let selEl = null;
+                                for (const fi of formItems) {
+                                    const label = fi.querySelector('.ant-form-item-label, .el-form-item__label, label, .label');
+                                    const txt = norm(label ? (label.getAttribute('title') || label.innerText || '') : '');
+                                    if (txt && (txt === identifier || txt.includes(identifier))) {
+                                        selEl = fi.querySelector('.ant-select, .el-select, select'); break;
+                                    }
+                                }
+                                if (!selEl) {
+                                    const all = Array.from(document.querySelectorAll('label, h3, h4, .title, span, div'));
+                                    for (const el of all) {
+                                        if (el.children.length > 0) continue;
+                                        const txt = norm(el.innerText || el.textContent || '');
+                                        if (txt && (txt === identifier || txt.includes(identifier))) {
+                                            const container = el.closest('.flex, .form-card-content, .d-selector, .form-group') || el.parentElement;
+                                            if (container) {
+                                                const sel = container.querySelector('.ant-select, .el-select, select, .d-selector');
+                                                if (sel) { selEl = sel.querySelector('.ant-select') || sel; break; }
+                                            }
+                                        }
+                                    }
+                                }
+                                if (!selEl) return false;
+                                const item = selEl.querySelector('.ant-select-selection-item, .el-select__selected-item, .arco-select-view-value');
+                                if (!item) return false;
+                                const cur = norm(item.innerText).split('\\n')[0].trim();
+                                return !!cur && (cur === core || cur.includes(core) || core.includes(cur));
+                            }
+                            """, {"identifier": field_label_or_selector, "core": core_text}))
+                        except Exception:
+                            return False
+
                     # 1. 优先使用 Playwright 原生物理鼠标点击（确保 AntDesign 触发完整的 onChange 与网络请求）
                     try:
                         # 如果是搜索下拉框，先输入关键词过滤
@@ -131,30 +173,36 @@ class FormOperator:
                             ".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option, "
                             ".add-theme-select__amazon .ant-select-item-option, "
                             "[role='option'], .el-select-dropdown__item"
-                        ).filter(has_text=option_text).first
+                        ).filter(has_text=core_text).first
                         if opt_loc.count() > 0:
                             opt_loc.click(timeout=1500, force=True)
                             self.page.wait_for_timeout(350)
-                            return True
+                            if _verify_selected():
+                                return True
+                            # 点击未生效 (如点到隐藏层) → 不返回, 继续循环重试
                     except Exception:
                         pass
 
                     # 2. 兜底执行浏览器级事件派发
                     click_opt_js = """
-                    (optionText) => {
+                    (args) => {
+                        const { optionText, core } = args;
                         const isDefault = ['default', '默认', '默认选项', '第一个', 'first'].includes(optionText);
                         const dropdowns = Array.from(document.querySelectorAll('.add-theme-select__amazon, .ant-select-dropdown:not(.ant-select-dropdown-hidden), .el-select-dropdown, .arco-select-dropdown, [role="listbox"]'));
-                        
+
                         return new Promise(resolve => {
                             setTimeout(() => {
                                 for (const dd of dropdowns) {
                                     const options = Array.from(dd.querySelectorAll('.ant-select-item-option, .el-select-dropdown__item, .arco-select-option, [role="option"], li'));
-                                    
+
                                     let match = options.find(o => {
+                                        if (o.offsetHeight <= 0) return false;  // 只点可见选项, 避免点到已关闭/隐藏的下拉层
                                         const txt = (o.innerText || o.textContent || o.getAttribute('title') || '').trim();
                                         const firstLine = txt.split('\\n')[0].trim();
                                         if (isDefault && txt && !txt.includes('暂无数据')) return true;
-                                        return firstLine === optionText || txt === optionText || firstLine.includes(optionText) || optionText.includes(firstLine);
+                                        // 核心词双向匹配: 兼容选项带/不带括号后缀两种文本
+                                        return firstLine === core || txt === core || firstLine.includes(core) || core.includes(firstLine)
+                                            || firstLine === optionText || txt === optionText;
                                     });
 
                                     if (match) {
@@ -173,10 +221,12 @@ class FormOperator:
                         });
                     }
                     """
-                    opt_res = self.page.evaluate(click_opt_js, option_text)
+                    opt_res = self.page.evaluate(click_opt_js, {"optionText": option_text, "core": core_text})
                     if opt_res and opt_res.get("clicked"):
                         self.page.wait_for_timeout(350)
-                        return True
+                        if _verify_selected():
+                            return True
+                        # 兜底点击后仍未选中 → 继续循环重试 (不误报成功)
             except Exception as e:
                 pass
             self.page.wait_for_timeout(250)

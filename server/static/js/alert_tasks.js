@@ -10,10 +10,13 @@ const ALERT_TASK_PRESENTATION = {
       <a href="/forwarder" style="color:var(--primary);">货代管理</a> 中各货代的「在线链接」。`,
     badges(t) {
       const st = t.status || {}, n = st.today_alert_count || 0;
-      return [
+      const badges = [];
+      if (t.enabled === false) badges.push({ text: "🚫 定时已停用", tone: "muted" });
+      badges.push(
         { text: runBadgeText(st.running, st.running_trigger), tone: st.running ? "run" : "idle" },
         { text: `今日告警 ${n} 行`, tone: n > 0 ? "danger" : "ok" }
-      ];
+      );
+      return badges;
     },
     logMetrics(last) {
       return `文档 ${last.docs_total ?? 0} 个 (成功 ${last.docs_ok ?? 0} / 失败 ${last.docs_failed ?? 0}) · ` +
@@ -23,12 +26,15 @@ const ALERT_TASK_PRESENTATION = {
   dxm_order: {
     badges(t) {
       const st = t.status || {}, c = st.counts || {};
-      return [
+      const badges = [];
+      if (t.enabled === false) badges.push({ text: "🚫 定时已停用", tone: "muted" });
+      badges.push(
         { text: runBadgeText(st.running, st.running_trigger), tone: st.running ? "run" : "idle" },
         { text: `🟡 黄 ${c.yellow || 0}`, tone: "warn" },
         { text: `🔴 红/超时 ${(c.red || 0) + (c.expired || 0)}`, tone: "danger" },
         { text: `已取消 ${c.cancelled || 0}`, tone: "muted" }
-      ];
+      );
+      return badges;
     },
     logMetrics(last) {
       return `订单 ${last.orders_total ?? 0} 单 · 黄 <b style="color:#d97706;">${last.alert_yellow ?? 0}</b> · ` +

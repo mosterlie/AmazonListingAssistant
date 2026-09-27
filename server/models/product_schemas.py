@@ -64,7 +64,7 @@ class ProductCreateSchema(BaseModel):
     main_image: Optional[str] = Field("", description="产品主图相对路径")
     extra_images: Optional[List[str]] = Field(default_factory=list, description="产品附图列表相对路径")
     sale_type: str = Field("variation", description="售卖形式: variation / single")
-    variation_theme: str = Field("カラー/サイズ(颜色/尺寸)", description="变种主题")
+    variation_theme: str = Field("カラー/サイズ", description="变种主题")
     color_options: Optional[List[str]] = Field(default_factory=list, description="颜色选项清单 (父节点)")
     size_options: Optional[List[str]] = Field(default_factory=list, description="尺寸选项清单 (父节点)")
     variant_image_dimension: Optional[str] = Field("color", description="变体图片录入维度: color / size")

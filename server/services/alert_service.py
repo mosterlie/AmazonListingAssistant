@@ -28,7 +28,12 @@ from server.services.dxm_order_service import DxmOrderService
 TASK_FORMS = {
     "forwarder_doc": {
         "sections": [
-            {"title": "⏱️ 轮询规则", "cols": 3, "fields": [
+            {"title": "⏱️ 轮询规则", "fields": [
+                {"key": "scan_enabled", "type": "switch", "label": "定时采集开启", "def": True,
+                 "title": "关闭后停止定时采集 (仍可手动执行)",
+                 "hint": "关闭后调度心跳不再触发采集批次; 需要数据时可在本卡点「立即执行」手动采集"},
+            ]},
+            {"title": "📅 调度模式", "cols": 3, "fields": [
                 {"key": "sync_mode", "type": "select", "label": "调度模式", "def": "daily",
                  "options": [["daily", "每天定时"], ["interval", "间隔轮询"]]},
                 {"key": "sync_time", "type": "time", "label": "每日采集时间 (daily)", "def": "08:00"},
@@ -148,14 +153,14 @@ class AlertService:
         dxm_cfg = DxmOrderService.get_config()
         tasks = []
 
-        # 任务1: 货代文档采集 (邮件走每日汇总, 无独立启用开关 → 按轮询规则常开)
+        # 任务1: 货代文档采集 (scan_enabled 总开关, 关闭后调度心跳停用, 仍可手动执行)
         tasks.append({
             "key": "forwarder_doc",
             "name": "货代文档采集",
             "icon": "🚢",
             "desc": "轮询采集全部货代「在线链接」登记文档, 分析「发货数据」sheet 中未发货超期记录并落库告警",
-            "has_switch": False,
-            "enabled": True,
+            "has_switch": True,
+            "enabled": bool(fwd_cfg.get("scan_enabled", True)),
             "poll_desc": "daily=每日定时 / interval=按小时间隔轮询",
             "form": TASK_FORMS["forwarder_doc"],
             "config": {k: fwd_cfg.get(k) for k in TASK_WHITELIST["forwarder_doc"]},

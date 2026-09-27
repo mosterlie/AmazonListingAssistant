@@ -23,6 +23,7 @@ from server.services.forwarder_service import ForwarderService
 from server.services.tencent_doc_extractor import TencentDocExtractor, parse_doc_url
 
 _DEFAULT_CONFIG = {
+    "scan_enabled": True,        # 定时采集总开关 (False=停用定时调度, 仍可手动执行)
     "sync_mode": "daily",        # daily=每天定时 / interval=间隔轮询
     "sync_time": "08:00",
     "interval_hours": 24,
@@ -121,6 +122,7 @@ class ForwarderDocService:
             cfg["mail_to"] = [x.strip() for x in cfg["mail_to"].split(",") if x.strip()]
         cfg["email_enabled"] = bool(cfg["email_enabled"])
         cfg["smtp_ssl"] = bool(cfg["smtp_ssl"])
+        cfg["scan_enabled"] = bool(cfg.get("scan_enabled", True))
         return cfg
 
     @staticmethod
@@ -346,10 +348,12 @@ class ForwarderDocService:
     # ───────────────── 调度 ─────────────────
     @staticmethod
     def maybe_trigger_scheduled() -> bool:
-        """调度心跳 (每 60s 调用): 到期且空闲则后台线程触发批次"""
+        """调度心跳 (每 60s 调用): 到期且空闲则后台线程触发批次 (scan_enabled=False 时停用)"""
         if _RUN_LOCK.locked() or _RUNNING["running"]:
             return False
         cfg = ForwarderDocService.get_config()
+        if not cfg.get("scan_enabled", True):
+            return False  # 已停用: 调度心跳不触发 (仍可手动执行)
         conn = get_db_connection()
         try:
             row = conn.execute(
