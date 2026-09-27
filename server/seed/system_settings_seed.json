@@ -1,14 +1,8 @@
 {
-  "_comment": "生产铺底配置快照 (2026-09-25): 计价系数 / 物流渠道(每渠道独立键) / 告警任务轮询规则 / 提醒任务",
+  "_comment": "生产铺底配置快照 (2026-09-27刷新渠道配置): 计价系数 / 物流渠道(每渠道独立键) / 告警任务轮询规则 / 提醒任务",
   "_usage": "python3 server/tools/apply_seed_settings.py server/seed/system_settings_seed.json",
   "_warn": "邮件通知SMTP配置与店小秘账号密码不在本文件 (涉密不入库), 部署后在「系统管理→邮件通知」与「告警任务→店小秘」手工填写",
   "settings": {
-    "pricing_config": {
-      "tax_rate": 0.17,
-      "exchange_rate": 22.0,
-      "price_coefficient": 28.0,
-      "default_profit_coeff": 1.0
-    },
     "channel_rules_order": [
       "sf_small",
       "sf_large",
@@ -21,24 +15,6 @@
       "chudao_heimao",
       "air_post"
     ],
-    "fwd_doc_sync_mode": "daily",
-    "fwd_doc_sync_time": "08:00",
-    "fwd_doc_interval_hours": 24,
-    "fwd_doc_alert_days": 5,
-    "fwd_doc_date_column": "采购日期",
-    "fwd_doc_ship_column": "仓库发货日期",
-    "fwd_doc_sheet_name": "发货数据",
-    "dxm_order_scan_enabled": true,
-    "dxm_order_warn_hours": 12.0,
-    "dxm_order_danger_hours": 3.0,
-    "fwd_doc_email_enabled": true,
-    "fwd_doc_digest_time": "08:15",
-    "fwd_doc_digest_mail_to": "gx5478882@163.com",
-    "fwd_doc_subject_prefix": "[货代发货提醒]",
-    "dxm_order_alert_email_enabled": true,
-    "dxm_order_repeat_red_alert": true,
-    "dxm_order_alert_mail_to": "gx5478882@163.com",
-    "dxm_order_subject_prefix": "[店小秘发货预警]",
     "channel_rule:air_post": {
       "key": "air_post",
       "name": "航空邮政大包",
@@ -940,6 +916,30 @@
         }
       ],
       "round_total": "ceil"
-    }
+    },
+    "pricing_config": {
+      "tax_rate": 0.17,
+      "exchange_rate": 22.0,
+      "price_coefficient": 28.0,
+      "default_profit_coeff": 1.0
+    },
+    "fwd_doc_sync_mode": "daily",
+    "fwd_doc_sync_time": "08:00",
+    "fwd_doc_interval_hours": 24,
+    "fwd_doc_alert_days": 5,
+    "fwd_doc_date_column": "采购日期",
+    "fwd_doc_ship_column": "仓库发货日期",
+    "fwd_doc_sheet_name": "发货数据",
+    "dxm_order_scan_enabled": true,
+    "dxm_order_warn_hours": 12.0,
+    "dxm_order_danger_hours": 3.0,
+    "fwd_doc_email_enabled": true,
+    "fwd_doc_digest_time": "08:15",
+    "fwd_doc_digest_mail_to": "gx5478882@163.com",
+    "fwd_doc_subject_prefix": "[货代发货提醒]",
+    "dxm_order_alert_email_enabled": true,
+    "dxm_order_repeat_red_alert": true,
+    "dxm_order_alert_mail_to": "gx5478882@163.com",
+    "dxm_order_subject_prefix": "[店小秘发货预警]"
   }
 }
