@@ -3,6 +3,32 @@
 {% block title %}商品列表{% endblock %}
 
 {% block content %}
+{% macro source_link_cell(url) %}
+  {% if url %}
+    {% set u = url | lower %}
+    {% set is_http = u.startswith('http://') or u.startswith('https://') %}
+    {% if '1688.com' in u %}
+      {% set badge %}<span title="1688 阿里巴巴采购平台" style="display:inline-flex; flex-shrink:0; line-height:0;"><svg width="18" height="18" viewBox="0 0 48 48" aria-label="1688"><defs><linearGradient id="plfG1688" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff8a00"/><stop offset="1" stop-color="#ff4a00"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="url(#plfG1688)"/><path d="M11 20c4.5 7.5 21.5 7.5 26 0" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/><circle cx="15" cy="13.5" r="2.6" fill="#fff"/><circle cx="33" cy="13.5" r="2.6" fill="#fff"/><text x="24" y="40" font-size="13.5" font-weight="800" fill="#fff" text-anchor="middle" font-family="Arial,'PingFang SC',sans-serif">1688</text></svg></span>{% endset %}
+    {% elif 'pinduoduo.com' in u or 'yangkeduo.com' in u or 'pdd.com' in u or 'mobilepdd.com' in u %}
+      {% set badge %}<span title="拼多多采购平台" style="display:inline-flex; flex-shrink:0; line-height:0;"><svg width="18" height="18" viewBox="0 0 48 48" aria-label="拼多多"><defs><linearGradient id="plfGpdd" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f0412f"/><stop offset="1" stop-color="#d9251d"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="url(#plfGpdd)"/><text x="24" y="34" font-size="26" font-weight="800" fill="#fff" text-anchor="middle" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif">拼</text></svg></span>{% endset %}
+    {% else %}
+      {% set badge %}<span title="其他来源链接" style="display:inline-flex; flex-shrink:0; line-height:0;"><svg width="18" height="18" viewBox="0 0 48 48" aria-label="链接"><rect width="48" height="48" rx="11" fill="#94a3b8"/><path d="M20 28l8-8M18.5 24.5l-3.2 3.2a4.8 4.8 0 0 0 6.8 6.8l3.2-3.2M29.5 23.5l3.2-3.2a4.8 4.8 0 0 0-6.8-6.8l-3.2 3.2" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round"/></svg></span>{% endset %}
+    {% endif %}
+    {% if is_http %}
+      <a href="{{ url }}" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:6px; max-width:150px; text-decoration:none; font-size:0.78rem; color:#2563eb; font-weight:600;" title="点击打开源链接: {{ url }}">
+        {{ badge | safe }}
+        <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:110px;">{{ url }}</span>
+      </a>
+    {% else %}
+      <span style="display:inline-flex; align-items:center; gap:6px; max-width:150px; font-size:0.78rem; color:#475569;" title="{{ url }}">
+        {{ badge | safe }}
+        <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:110px;">{{ url }}</span>
+      </span>
+    {% endif %}
+  {% else %}
+    <span style="color:#94a3b8; font-size:0.8rem;">-</span>
+  {% endif %}
+{% endmacro %}
 <script>
   // 当前登录用户 (供列表渲染判断编辑按钮可见性: 仅本人或管理员可编辑)
   window.__CURRENT_USER__ = {
@@ -112,7 +138,7 @@
             <th style="width:150px;">Parent SKU</th>
             <th>商品标题</th>
             <th style="width:110px;">商品标识</th>
-            <th style="width:130px;">品番/型番</th>
+            <th style="width:150px;">源链接</th>
             <th style="width:90px; text-align:center;">变体数</th>
             <th style="width:120px;">关联任务</th>
             <th style="width:80px; text-align:center;">维护人</th>
@@ -153,9 +179,8 @@
                   <span style="color:#94a3b8; font-size:0.8rem;">-</span>
                 {% endif %}
               </td>
-              <td style="font-size:0.85rem; color:#475569;">
-                <div><strong>{{ p.model_number or '-' }}</strong></div>
-                <div style="font-size:0.75rem; color:#94a3b8;">{{ p.model_name or '' }}</div>
+              <td style="font-size:0.85rem;">
+                {{ source_link_cell(p.source_link) }}
               </td>
               <td style="text-align:center;">
                 <span class="tag-badge" style="background:#eff6ff; color:#2563eb; font-weight:600;">
@@ -1148,6 +1173,26 @@ async function fetchAndRenderProducts() {
   }
 }
 
+// HTML 转义 (供动态渲染源链接使用, 防止 URL 中特殊字符破坏结构)
+function escapeHtmlStr(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// 源链接单元格: 平台专属图标 (1688 橙 / 拼多多红) + 省略展示 + 点击新窗口跳转
+function renderSourceLinkCell(url) {
+  if (!url) return '<span style="color:#94a3b8; font-size:0.8rem;">-</span>';
+  const safeUrl = escapeHtmlStr(url);
+  const badge = getSourcePlatformBadgeHtml(url);
+  const truncated = `<span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100px;">${safeUrl}</span>`;
+  const isHttp = /^https?:\/\//i.test(url.trim());
+  if (!isHttp) {
+    return `<span style="display:inline-flex; align-items:center; gap:5px; max-width:150px; font-size:0.78rem; color:#475569;" title="${safeUrl}">${badge}${truncated}</span>`;
+  }
+  return `<a href="${safeUrl}" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:5px; max-width:150px; text-decoration:none; font-size:0.78rem; color:#2563eb; font-weight:600;" title="点击打开源链接: ${safeUrl}">${badge}${truncated}</a>`;
+}
+
 function renderProductTableRows(products) {
   const tbody = document.getElementById("productListTableBody");
   if (!tbody) return;
@@ -1195,9 +1240,8 @@ function renderProductTableRows(products) {
             ? `<span class="tag-badge" style="background:#f5f3ff; color:#7c3aed; font-weight:600;" title="英文: ${p.identifier_translation || '-'}">🤖 ${p.product_identifier}</span>`
             : '<span style="color:#94a3b8; font-size:0.8rem;">-</span>'}
         </td>
-        <td style="font-size:0.85rem; color:#475569;">
-          <div><strong>${p.model_number || '-'}</strong></div>
-          <div style="font-size:0.75rem; color:#94a3b8;">${p.model_name || ''}</div>
+        <td style="font-size:0.85rem;">
+          ${renderSourceLinkCell(p.source_link || '')}
         </td>
         <td style="text-align:center;">
           <span class="tag-badge" style="background:#eff6ff; color:#2563eb; font-weight:600;">

@@ -77,6 +77,8 @@ class ProductCreateSchema(BaseModel):
     chinese_translations: Optional[List[str]] = Field(default_factory=list, description="五点描述中文翻译参考")
     description: Optional[str] = Field("", description="商品描述")
     search_terms: Optional[str] = Field("", description="搜索关键词 (Search Terms)")
+    amazon_link: Optional[str] = Field("", description="Amazon 链接 (商品在 Amazon 的前台链接)")
+    source_link: Optional[str] = Field("", description="源链接 (1688 / 拼多多等采购来源链接)")
     fulfillment_channel: Optional[str] = Field("FBM", description="配送渠道 (默认 FBM)")
     created_by: Optional[str] = Field("admin", description="添加人/操作用户")
     variations: List[VariationItemSchema] = Field(default_factory=list, description="变体矩阵列表")

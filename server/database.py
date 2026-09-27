@@ -86,6 +86,8 @@ def init_db():
         chinese_translations_json TEXT DEFAULT '[]',
         fulfillment_channel TEXT DEFAULT 'FBM',
         search_terms TEXT DEFAULT '',
+        amazon_link TEXT DEFAULT '',
+        source_link TEXT DEFAULT '',
         status TEXT DEFAULT 'draft',
         created_by TEXT DEFAULT '',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -110,6 +112,10 @@ def init_db():
         cursor.execute("ALTER TABLE product_items ADD COLUMN category_name TEXT DEFAULT '';")
     if "category_type" not in existing_items_cols:
         cursor.execute("ALTER TABLE product_items ADD COLUMN category_type TEXT DEFAULT '';")
+    if "amazon_link" not in existing_items_cols:
+        cursor.execute("ALTER TABLE product_items ADD COLUMN amazon_link TEXT DEFAULT '';")
+    if "source_link" not in existing_items_cols:
+        cursor.execute("ALTER TABLE product_items ADD COLUMN source_link TEXT DEFAULT '';")
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_items_brand ON product_items(brand);")
 

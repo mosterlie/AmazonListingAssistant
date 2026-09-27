@@ -430,8 +430,9 @@ class ProductService:
                 variant_image_dimension, variant_dimension_images_json,
                 description, bullet_points_json, chinese_translations_json,
                 fulfillment_channel, search_terms,
+                amazon_link, source_link,
                 status, created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """, (
                 1, parent_sku, parent_sku,
                 data.store_account or "", data.brand or "", data.title or "", data.sale_type or "variation",
@@ -445,6 +446,7 @@ class ProductService:
                 var_dim, json.dumps(saved_dim_images, ensure_ascii=False),
                 data.description or "", json.dumps(data.bullet_points or [], ensure_ascii=False), json.dumps(data.chinese_translations or [], ensure_ascii=False),
                 data.fulfillment_channel or "FBM", data.search_terms or "",
+                (data.amazon_link or "").strip(), (data.source_link or "").strip(),
                 "ready", creator
             ))
             parent_item_id = cursor.lastrowid
@@ -619,6 +621,8 @@ class ProductService:
                     chinese_translations_json = ?,
                     fulfillment_channel = ?,
                     search_terms = ?,
+                    amazon_link = ?,
+                    source_link = ?,
                     created_by = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
@@ -635,6 +639,7 @@ class ProductService:
                     var_dim, json.dumps(saved_dim_images, ensure_ascii=False),
                     data.description or "", json.dumps(data.bullet_points or [], ensure_ascii=False), json.dumps(data.chinese_translations or [], ensure_ascii=False),
                     data.fulfillment_channel or "FBM", data.search_terms or "",
+                    (data.amazon_link or "").strip(), (data.source_link or "").strip(),
                     # 维护人锁定: 编辑不允许变更 created_by (含管理员), 始终沿用原维护人
                     old_parent.get("created_by") or "admin",
                     product_id
@@ -654,8 +659,9 @@ class ProductService:
                     variant_image_dimension, variant_dimension_images_json,
                     description, bullet_points_json, chinese_translations_json,
                     fulfillment_channel, search_terms,
+                    amazon_link, source_link,
                     status, created_by, created_at, updated_at
-                ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """, (
                     product_id, parent_sku, parent_sku,
                     data.store_account or "", data.brand or "", data.title or "", data.sale_type or "variation",
@@ -669,6 +675,7 @@ class ProductService:
                     var_dim, json.dumps(saved_dim_images, ensure_ascii=False),
                     data.description or "", json.dumps(data.bullet_points or [], ensure_ascii=False), json.dumps(data.chinese_translations or [], ensure_ascii=False),
                     data.fulfillment_channel or "FBM", data.search_terms or "",
+                    (data.amazon_link or "").strip(), (data.source_link or "").strip(),
                     old_parent.get("created_by") or "admin"
                 ))
 
@@ -919,6 +926,7 @@ class ProductService:
                 p.sale_type, p.model_number, p.model_name, p.main_image,
                 p.product_identifier, p.title_translation, p.identifier_translation,
                 p.variation_theme, p.fulfillment_channel, p.search_terms,
+                p.amazon_link, p.source_link,
                 p.status, p.created_by, p.created_at, p.updated_at,
                 (SELECT COUNT(*) FROM product_items WHERE is_parent = 0 AND parent_sku = p.sku) as variation_count,
                 (SELECT MIN(price_jpy) FROM product_items WHERE is_parent = 0 AND parent_sku = p.sku) as min_price,

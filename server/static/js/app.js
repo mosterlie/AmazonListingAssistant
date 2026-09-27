@@ -39,6 +39,92 @@ function showToast(msg, type = "success") {
   setTimeout(() => toast.remove(), 3500);
 }
 
+// ============================================================================
+// 商品链接辅助: 1688 / 拼多多平台自动识别与专属图标徽章
+// ============================================================================
+function detectLinkPlatform(url) {
+  const u = (url || "").trim().toLowerCase();
+  if (!u) return "";
+  if (u.includes("1688.com")) return "p1688";
+  if (u.includes("pinduoduo.com") || u.includes("yangkeduo.com") || u.includes("pdd.com") || u.includes("mobilepdd.com")) return "pdd";
+  return "";
+}
+
+/**
+ * 平台专属图标 (仿 App 图标风格紧凑方形 SVG)
+ * 1688: 橙色渐变圆角方块 + 白色笑脸 + 1688 字样
+ * 拼多多: 红色圆角方块 + 白色「拼」字
+ */
+function getSourcePlatformIconSvg(platform, size = 18) {
+  const s = size || 18;
+  if (platform === "p1688") {
+    return `<span title="1688 阿里巴巴采购平台" style="display:inline-flex; flex-shrink:0; line-height:0;"><svg width="${s}" height="${s}" viewBox="0 0 48 48" aria-label="1688"><defs><linearGradient id="plfG1688" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff8a00"/><stop offset="1" stop-color="#ff4a00"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="url(#plfG1688)"/><path d="M11 20c4.5 7.5 21.5 7.5 26 0" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/><circle cx="15" cy="13.5" r="2.6" fill="#fff"/><circle cx="33" cy="13.5" r="2.6" fill="#fff"/><text x="24" y="40" font-size="13.5" font-weight="800" fill="#fff" text-anchor="middle" font-family="Arial,'PingFang SC',sans-serif">1688</text></svg></span>`;
+  }
+  if (platform === "pdd") {
+    return `<span title="拼多多采购平台" style="display:inline-flex; flex-shrink:0; line-height:0;"><svg width="${s}" height="${s}" viewBox="0 0 48 48" aria-label="拼多多"><defs><linearGradient id="plfGpdd" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f0412f"/><stop offset="1" stop-color="#d9251d"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="url(#plfGpdd)"/><text x="24" y="34" font-size="26" font-weight="800" fill="#fff" text-anchor="middle" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif">拼</text></svg></span>`;
+  }
+  return `<span title="其他来源链接" style="display:inline-flex; flex-shrink:0; line-height:0;"><svg width="${s}" height="${s}" viewBox="0 0 48 48" aria-label="链接"><rect width="48" height="48" rx="11" fill="#94a3b8"/><path d="M20 28l8-8M18.5 24.5l-3.2 3.2a4.8 4.8 0 0 0 6.8 6.8l3.2-3.2M29.5 23.5l3.2-3.2a4.8 4.8 0 0 0-6.8-6.8l-3.2 3.2" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round"/></svg></span>`;
+}
+
+/**
+ * 平台专属图标 HTML (兼容旧接口: 传入 URL 自动识别平台)
+ */
+function getSourcePlatformBadgeHtml(url, platform, size) {
+  return getSourcePlatformIconSvg(platform || detectLinkPlatform(url), size);
+}
+
+/**
+ * 源链接输入框联动: 实时刷新平台识别徽章与跳转按钮 (录入页)
+ */
+function updateSourceLinkBadge() {
+  const inp = document.getElementById("sourceLinkInput");
+  const badge = document.getElementById("sourceLinkPlatformBadge");
+  const openBtn = document.getElementById("sourceLinkOpenBtn");
+  if (badge && inp) {
+    const url = (inp.value || "").trim();
+    if (url) {
+      badge.innerHTML = getSourcePlatformIconSvg(detectLinkPlatform(url), 20);
+      badge.style.display = "inline-flex";
+    } else {
+      badge.style.display = "none";
+    }
+  }
+  if (openBtn && inp) {
+    const url = (inp.value || "").trim();
+    const valid = /^https?:\/\//i.test(url);
+    openBtn.style.display = valid ? "inline" : "none";
+    openBtn.href = valid ? url : "javascript:void(0);";
+  }
+  updateAmazonLinkBadge();
+}
+
+/**
+ * Amazon 链接跳转按钮显隐控制 (录入页)
+ */
+function updateAmazonLinkBadge() {
+  const inp = document.getElementById("amazonLinkInput");
+  const openBtn = document.getElementById("amazonLinkOpenBtn");
+  if (!inp || !openBtn) return;
+  const url = (inp.value || "").trim();
+  const valid = /^https?:\/\//i.test(url);
+  openBtn.style.display = valid ? "inline" : "none";
+  openBtn.href = valid ? url : "javascript:void(0);";
+}
+
+/**
+ * 点击 🔗 按钮打开链接 (校验 http/https 前缀，非法则提示)
+ */
+function openProductLink(evt, inputId) {
+  const inp = document.getElementById(inputId);
+  const url = ((inp && inp.value) || "").trim();
+  if (!url || !/^https?:\/\//i.test(url)) {
+    if (evt) evt.preventDefault();
+    showToast("链接无效，请填写以 http:// 或 https:// 开头的完整链接！", "error");
+    return false;
+  }
+  return true;
+}
+
 /**
  * 动态加载系统配置（店铺账号下拉列表与 Calcfee 核心参数）
  */
@@ -1618,6 +1704,10 @@ async function saveProduct() {
   const search_terms = document.getElementById("searchTermsInput")?.value.trim() || title;
   const fulfillment_channel = document.getElementById("fulfillmentChannelSelect")?.value || "FBM";
 
+  // 商品链接 (Amazon 前台链接 / 采购源链接)
+  const amazon_link = document.getElementById("amazonLinkInput")?.value.trim() || "";
+  const source_link = document.getElementById("sourceLinkInput")?.value.trim() || "";
+
   if (!store_account || !title) {
     showToast("请填写必填项：店铺账号与商品标题！", "error");
     return;
@@ -1732,6 +1822,8 @@ async function saveProduct() {
     chinese_translations,
     description,
     search_terms,
+    amazon_link,
+    source_link,
     fulfillment_channel,
     variations: state.variations
   };
@@ -1872,6 +1964,13 @@ async function loadProductForEdit(productId) {
     }
     const baseSkuInp = document.getElementById("baseSkuInput");
     if (baseSkuInp) baseSkuInp.value = p.parent_sku || p.sku || "";
+
+    // 2.1 商品链接回填 (Amazon 链接 / 采购源链接) 并刷新平台识别徽章
+    const amazonLinkInp = document.getElementById("amazonLinkInput");
+    if (amazonLinkInp) amazonLinkInp.value = p.amazon_link || "";
+    const sourceLinkInp = document.getElementById("sourceLinkInput");
+    if (sourceLinkInp) sourceLinkInp.value = p.source_link || "";
+    updateSourceLinkBadge();
 
     // 3. 产品属性
     const categoryNameInp = document.getElementById("categoryNameInput");
@@ -2631,6 +2730,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const saveBtn = document.getElementById("saveProductBtn");
   if (saveBtn) saveBtn.addEventListener("click", () => saveProduct());
+
+  // 商品链接输入联动: Amazon 链接跳转按钮显隐 (源链接由模板 oninput 直接绑定)
+  const amazonLinkInp = document.getElementById("amazonLinkInput");
+  if (amazonLinkInp) amazonLinkInp.addEventListener("input", updateAmazonLinkBadge);
 });
 
 /**

@@ -107,11 +107,46 @@
   </div>
 </div>
 
-<!-- 2. 产品信息卡片 -->
+<!-- 2. 商品链接卡片 (Amazon 链接与采购源链接, 一行一个, 自动识别 1688/拼多多) -->
 <div class="form-card">
   <div class="card-header">
     <div class="card-title">
       <div class="card-title-icon">2</div>
+      <span>商品链接</span>
+    </div>
+    <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">粘贴源链接自动识别 1688 / 拼多多</span>
+  </div>
+  <div class="card-body">
+    <div class="form-group" style="margin-bottom:0;">
+      <label class="form-label">
+        Amazon 链接
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(商品在 Amazon 前台的链接)</span>
+      </label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="text" class="form-input" id="amazonLinkInput" value="" placeholder="如: https://www.amazon.co.jp/dp/XXXXXXX" style="flex:1; min-width:0;">
+        <a id="amazonLinkOpenBtn" href="javascript:void(0);" target="_blank" rel="noopener" title="打开 Amazon 链接" style="display:none; flex-shrink:0; font-size:1rem; text-decoration:none;" onclick="return openProductLink(event, 'amazonLinkInput')">🔗</a>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-top:14px; margin-bottom:0;">
+      <label class="form-label">
+        源链接 (采购来源)
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(粘贴 1688 / 拼多多链接，自动识别平台并显示专属图标)</span>
+      </label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span id="sourceLinkPlatformBadge" title="自动识别平台" style="flex-shrink:0; display:none;"></span>
+        <input type="text" class="form-input" id="sourceLinkInput" value="" placeholder="如: https://detail.1688.com/offer/xxxxx.html 或 拼多多商品链接" style="flex:1; min-width:0;" oninput="updateSourceLinkBadge()">
+        <a id="sourceLinkOpenBtn" href="javascript:void(0);" target="_blank" rel="noopener" title="打开源链接" style="display:none; flex-shrink:0; font-size:1rem; text-decoration:none;" onclick="return openProductLink(event, 'sourceLinkInput')">🔗</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 3. 产品信息卡片 -->
+<div class="form-card">
+  <div class="card-header">
+    <div class="card-title">
+      <div class="card-title-icon">3</div>
       <span>产品信息</span>
     </div>
     <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">对标店小秘产品信息规范</span>
@@ -131,7 +166,7 @@
 <div class="form-card">
   <div class="card-header">
     <div class="card-title">
-      <div class="card-title-icon">3</div>
+      <div class="card-title-icon">4</div>
       <span>产品属性 (Amazon 核心属性)</span>
     </div>
     <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">对标店小秘 Amazon 属性规范</span>
@@ -228,7 +263,7 @@
 <div class="form-card">
   <div class="card-header">
     <div class="card-title">
-      <div class="card-title-icon">4</div>
+      <div class="card-title-icon">5</div>
       <span>产品图片 (主图与附图)</span>
     </div>
     <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">对标 Amazon 图库标准</span>
@@ -275,7 +310,7 @@
 <div class="form-card">
   <div class="card-header">
     <div class="card-title">
-      <div class="card-title-icon">5</div>
+      <div class="card-title-icon">6</div>
       <span>变体属性设定 (颜色 & 尺寸)</span>
     </div>
     <span style="font-size:0.85rem; color:var(--text-muted);">每项默认展示 5 个输入框，不足可点击右侧 ➕ 新增，空值自动忽略，提交以 “-” 拼接</span>
@@ -325,7 +360,7 @@
 <div class="form-card">
   <div class="card-header">
     <div class="card-title">
-      <div class="card-title-icon">6</div>
+      <div class="card-title-icon">7</div>
       <span>变体 SKU 图片录入 (按属性维度快捷配置)</span>
     </div>
     <!-- 维度切换开关 -->
@@ -354,7 +389,7 @@
 <div class="form-card">
   <div class="card-header">
     <div class="card-title">
-      <div class="card-title-icon">7</div>
+      <div class="card-title-icon">8</div>
       <span>变体明细表格与精准配置</span>
       <span class="tag-badge" id="variationCountBadge" style="background:#f1f5f9; color:#475569; border:none; margin-left:8px;">0 个组合</span>
     </div>
@@ -449,7 +484,7 @@
 <div class="form-card">
   <div class="card-header">
     <div class="card-title" style="display:flex; align-items:center; gap:8px;">
-      <div class="card-title-icon">8</div>
+      <div class="card-title-icon">9</div>
       <span>描述信息 (商品描述 / 五点描述)</span>
       <button class="btn btn-outline btn-sm js-view-prompt" data-mode="bullets" type="button" style="flex-shrink:0; padding:2px 8px; font-size:0.72rem; color:#475569; border-color:#cbd5e1; background:#f8fafc;" title="查看五点描述生成使用的大模型提示词">📝</button>
     </div>
@@ -544,7 +579,7 @@
 <div class="form-card">
   <div class="card-header">
     <div class="card-title">
-      <div class="card-title-icon">9</div>
+      <div class="card-title-icon">10</div>
       <span>运输信息 (Shipping Information)</span>
     </div>
     <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">对标店小秘 Amazon 运输标准</span>
@@ -563,7 +598,7 @@
 <div class="form-card">
   <div class="card-header">
     <div class="card-title">
-      <div class="card-title-icon">10</div>
+      <div class="card-title-icon">11</div>
       <span>关键词信息 (Keywords)</span>
     </div>
     <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">对标店小秘 Amazon 关键词标准</span>
