@@ -37,6 +37,7 @@ from server.routers import (
     prompt_router,
     forwarder_router,
     forwarder_doc_router,
+    chudao_router,
     alert_router,
     jp_holiday_router,
     db_agent_router
@@ -120,6 +121,7 @@ app.include_router(knowledge_router.router)
 app.include_router(prompt_router.router)
 app.include_router(forwarder_router.router)
 app.include_router(forwarder_doc_router.router)
+app.include_router(chudao_router.router)
 app.include_router(alert_router.router)
 app.include_router(jp_holiday_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
@@ -262,6 +264,19 @@ async def render_forwarder_page(request: Request):
 
     return templates.TemplateResponse(request=request, name="forwarder.html", context={
         "active_page": "forwarder",
+        "current_user": user
+    })
+
+
+@app.get("/forwarder-integration", response_class=HTMLResponse, summary="运单管理页面 (运单查询/轨迹跟踪)")
+async def render_forwarder_integration_page(request: Request):
+    """渲染运单管理页面 (需登录; 子菜单样式与系统管理一致, 初岛国际物流 API 对接)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
+    if redirect_resp:
+        return redirect_resp
+
+    return templates.TemplateResponse(request=request, name="forwarder_integration.html", context={
+        "active_page": "forwarder_integration",
         "current_user": user
     })
 

@@ -33,6 +33,8 @@ const settingsState = {
   },
   // 桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token, 原 db_agent 8765)
   db_agent_token: "",
+  // 妙手 ERP 开放平台凭证 (运单管理·妙手同步)
+  miaoshou_config: { app_id: "", app_secret: "" },
   // 邮件配置 (仅 SMTP 发信通道基础参数 + 默认收件人; 存 fwd_doc_* 扁平键)
   email_notify: {
     smtp_host: "smtp.qq.com", smtp_port: 465, smtp_ssl: true,
@@ -90,6 +92,9 @@ async function loadSettings() {
       }
       if (result.data.db_agent_token !== undefined) {
         settingsState.db_agent_token = result.data.db_agent_token || "";
+      }
+      if (result.data.miaoshou_config) {
+        settingsState.miaoshou_config = { ...settingsState.miaoshou_config, ...result.data.miaoshou_config };
       }
       if (result.data.email_notify) {
         settingsState.email_notify = { ...settingsState.email_notify, ...result.data.email_notify };
@@ -149,6 +154,12 @@ function populateForm() {
 
   const dbAgentTokenInp = document.getElementById("dbAgentTokenInput");
   if (dbAgentTokenInp) dbAgentTokenInp.value = settingsState.db_agent_token || "";
+
+  // 妙手 ERP 凭证回填
+  const msAppIdInp = document.getElementById("miaoshouAppIdInput");
+  const msSecretInp = document.getElementById("miaoshouAppSecretInput");
+  if (msAppIdInp) msAppIdInp.value = settingsState.miaoshou_config.app_id || "";
+  if (msSecretInp) msSecretInp.value = settingsState.miaoshou_config.app_secret || "";
 
   // 邮件配置回填 (SMTP 通道 + 默认收件人)
   const en = settingsState.email_notify;
@@ -415,6 +426,11 @@ async function saveSettings() {
       api_key: (document.getElementById("aiApiKeyInput")?.value || "").trim()
     },
     db_agent_token: (document.getElementById("dbAgentTokenInput")?.value || "").trim(),
+    // 妙手 ERP 开放平台凭证 (留空后端回退内置默认)
+    miaoshou_config: {
+      app_id: (document.getElementById("miaoshouAppIdInput")?.value || "").trim(),
+      app_secret: (document.getElementById("miaoshouAppSecretInput")?.value || "").trim()
+    },
     // 邮件配置 (SMTP 发信通道 + 默认收件人)
     email_notify: {
       smtp_host: (document.getElementById("docSmtpHostInput")?.value || "smtp.qq.com").trim(),
@@ -455,6 +471,9 @@ async function saveSettings() {
       }
       if (result.data.db_agent_token !== undefined) {
         settingsState.db_agent_token = result.data.db_agent_token || "";
+      }
+      if (result.data.miaoshou_config !== undefined) {
+        settingsState.miaoshou_config = { ...settingsState.miaoshou_config, ...result.data.miaoshou_config };
       }
       if (result.data.email_notify !== undefined) {
         settingsState.email_notify = { ...settingsState.email_notify, ...result.data.email_notify };

@@ -620,6 +620,31 @@ def init_db():
     );
     """)
 
+    # 12c. 初道物流运单库 (运单管理: 运单查询/轨迹跟踪页面数据源)
+    #      tracking_number=初道运单号(shipper_hawbcode, 查轨迹用); 参考号/尾程/渠道单号独立存储
+    #      tracking_number 唯一索引 (NULL 可重复, 空值用 NULL 不用 '')
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS forwarder_waybills (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference_no TEXT,
+        tracking_number TEXT,
+        server_hawbcode TEXT DEFAULT '',
+        channel_hawbcode TEXT DEFAULT '',
+        dest_country TEXT DEFAULT '',
+        track_status TEXT DEFAULT '',
+        track_status_name TEXT DEFAULT '',
+        last_track_desc TEXT DEFAULT '',
+        last_track_time TEXT DEFAULT '',
+        source TEXT DEFAULT 'paste',
+        note TEXT DEFAULT '',
+        created_by TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_waybill_track ON forwarder_waybills(tracking_number) WHERE tracking_number IS NOT NULL;")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_waybill_ref ON forwarder_waybills(reference_no);")
+
     # 13. 店小秘订单剩余发货时间采集 (临期预警: 黄=剩余<warn_hours / 红=剩余<danger_hours / 超时=剩余<=0)
     #     快照幂等: 每轮 UPSERT (按 order_no); 消失/已发货订单保留最近快照 (last_seen_at 判定)
     cursor.execute("""

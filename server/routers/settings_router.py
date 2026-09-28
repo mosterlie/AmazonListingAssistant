@@ -53,6 +53,12 @@ class EmailNotifySchema(BaseModel):
     mail_to: str = Field("", description="默认收件人 (逗号分隔; 各提醒任务未配置独立收件人时使用)")
 
 
+class MiaoshouConfigSchema(BaseModel):
+    """妙手 ERP 开放平台凭证 (运单管理·妙手同步的运单号数据源)"""
+    app_id: str = Field("", description="妙手开放平台 APP ID (ak_ 开头; 留空使用内置默认)")
+    app_secret: str = Field("", description="妙手开放平台 App Secret (留空使用内置默认)")
+
+
 class StoreBrandItemSchema(BaseModel):
     store_name: str = Field(..., min_length=1, description="店铺账号名称")
     brand_name: str = Field(..., min_length=1, description="对应品牌名称 (1对1必填)")
@@ -69,6 +75,7 @@ class SystemSettingsSchema(BaseModel):
     ai_config: AiConfigSchema = Field(default_factory=AiConfigSchema, description="AI 大模型配置 (自动生成五点描述)")
     db_agent_token: Optional[str] = Field("", description="桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token 校验, 留空使用默认 erp2024)")
     email_notify: EmailNotifySchema = Field(default_factory=EmailNotifySchema, description="邮件配置 (SMTP 发信通道基础参数 + 默认收件人)")
+    miaoshou_config: MiaoshouConfigSchema = Field(default_factory=MiaoshouConfigSchema, description="妙手 ERP 开放平台凭证 (运单管理·妙手同步)")
 
 
 def normalize_store_accounts(raw_stores: Any) -> List[Dict[str, Any]]:
@@ -175,6 +182,13 @@ async def get_system_settings():
                         ("smtp_host", "smtp_port", "smtp_ssl", "smtp_user", "smtp_password", "mail_from")}
         email_notify["mail_to"] = ", ".join(_en.get("mail_to") or [])
 
+        # 妙手 ERP 开放平台凭证 (运单管理·妙手同步; 留空回退内置默认)
+        from server.services.miaoshou_service import DEFAULT_APP_ID as _MS_ID, DEFAULT_APP_SECRET as _MS_SECRET
+        miaoshou_config = {
+            "app_id": (get_setting("miaoshou_app_id", "") or "").strip() or _MS_ID,
+            "app_secret": (get_setting("miaoshou_app_secret", "") or "").strip() or _MS_SECRET
+        }
+
         return {
             "code": 0,
             "msg": "success",
@@ -198,7 +212,8 @@ async def get_system_settings():
                 "submit_ad_enabled": submit_ad_enabled,
                 "ai_config": ai_config,
                 "db_agent_token": db_agent_token,
-                "email_notify": email_notify
+                "email_notify": email_notify,
+                "miaoshou_config": miaoshou_config
             }
         }
     except Exception as e:
@@ -286,7 +301,16 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         email_notify = _FDS.save_config(_en_payload)
         email_notify["mail_to"] = ", ".join(email_notify.get("mail_to") or [])
 
-        # 10. 物流渠道计费规则已改为每渠道独立存储键 (channel_rule:{key}), 由渠道级接口单独读写;
+        # 10. 保存妙手 ERP 开放平台凭证 (运单管理·妙手同步; 留空回退内置默认)
+        from server.services.miaoshou_service import DEFAULT_APP_ID as _MS_ID, DEFAULT_APP_SECRET as _MS_SECRET
+        ms = payload.miaoshou_config
+        miaoshou_app_id = (ms.app_id or "").strip() or _MS_ID
+        miaoshou_app_secret = (ms.app_secret or "").strip() or _MS_SECRET
+        set_setting("miaoshou_app_id", miaoshou_app_id)
+        set_setting("miaoshou_app_secret", miaoshou_app_secret)
+        miaoshou_config = {"app_id": miaoshou_app_id, "app_secret": miaoshou_app_secret}
+
+        # 11. 物流渠道计费规则已改为每渠道独立存储键 (channel_rule:{key}), 由渠道级接口单独读写;
         #     此处不再接收整表覆盖, 防止整批写回波及其他渠道
 
         # 同步刷新内存全局参数
@@ -310,7 +334,8 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
                 "submit_ad_enabled": submit_ad_enabled,
                 "ai_config": ai_config,
                 "db_agent_token": db_agent_token,
-                "email_notify": email_notify
+                "email_notify": email_notify,
+                "miaoshou_config": miaoshou_config
             }
         }
     except Exception as e:

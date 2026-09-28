@@ -369,6 +369,34 @@
         </div>
       </div>
 
+      <div class="form-card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="card-title-icon">🤝</div>
+            <span>妙手 ERP 开放平台凭证 (运单管理·妙手同步)</span>
+          </div>
+          <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">运单号自动同步数据源</span>
+        </div>
+        <div class="card-body">
+          <div class="grid-2">
+            <div class="form-group">
+              <label class="form-label required">APP ID <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(ak_ 开头)</span></label>
+              <input type="text" class="form-input" id="miaoshouAppIdInput" placeholder="如: ak_xxxxxxxxxxxx" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="form-group">
+              <label class="form-label required">App Secret</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <input type="password" class="form-input" id="miaoshouAppSecretInput" placeholder="妙手开放平台 App Secret" autocomplete="new-password" style="flex:1;">
+                <button type="button" class="btn btn-outline btn-sm" onclick="toggleTokenVisibility(this, 'miaoshouAppSecretInput')" title="显示/隐藏密钥" style="padding:6px 10px;">👁</button>
+              </div>
+            </div>
+          </div>
+          <small style="color:var(--text-muted); font-size:0.78rem;">
+            「🚚 运单管理 → 📦 运单查询 → 📥 妙手同步」按此凭证调用妙手开放平台，拉取已发货/已完成包裹的运单号自动入库；修改后点击右上角「💾 保存配置」，下次同步即用新凭证。
+          </small>
+        </div>
+      </div>
+
     </div>
 
     <!-- 8. 邮件配置 (仅 SMTP 发信通道基础参数, 非通知页面) -->
@@ -458,5 +486,5 @@
 <script src="/static/js/task_cards.js?v=20260925_merge1"></script>
 <script src="/static/js/alert_tasks.js?v=20260927_at1"></script>
 <script src="/static/js/reminders.js?v=20260925_jpr2"></script>
-<script src="/static/js/settings.js?v=20260925_jpr2"></script>
+<script src="/static/js/settings.js?v=20260929_miaoshou1"></script>
 {% endblock %}

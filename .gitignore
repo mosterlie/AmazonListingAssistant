@@ -70,3 +70,6 @@ desktop_config.json
 
 # Packaging archives
 *.zip
+
+# 初道API测试demo (含真实凭证, 禁止入库)
+chudao_api_demo.py
