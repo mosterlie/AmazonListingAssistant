@@ -1103,10 +1103,34 @@ async function autoGenerateMatrix() {
     const result = await res.json();
     if (result.code === 0) {
       const oldMap = {};
+      // 属性重命名迁移: 若旧集合与新建集合恰有 1:1 的删/增差异, 视为改名, 保留该维度所有变体的图片与参数
+      const oldColors = [...new Set(state.variations.map(v => (v.color || "").trim()))].filter(Boolean);
+      const removedColors = oldColors.filter(c => !validColors.includes(c));
+      const addedColors = validColors.filter(c => !oldColors.includes(c));
+      const colorRename = (removedColors.length === 1 && addedColors.length === 1)
+        ? { from: removedColors[0], to: addedColors[0] } : null;
+      const oldSizes = [...new Set(state.variations.map(v => (v.size || "").trim()))].filter(Boolean);
+      const removedSizes = oldSizes.filter(s => !validSizes.includes(s));
+      const addedSizes = validSizes.filter(s => !oldSizes.includes(s));
+      const sizeRename = (removedSizes.length === 1 && addedSizes.length === 1)
+        ? { from: removedSizes[0], to: addedSizes[0] } : null;
       state.variations.forEach(v => {
-        const key = `${v.color}-${v.size}`;
+        let color = (v.color || "").trim();
+        let size = (v.size || "").trim();
+        if (colorRename && color === colorRename.from) color = colorRename.to;
+        if (sizeRename && size === sizeRename.from) size = sizeRename.to;
+        const key = `${color}-${size}`;
         oldMap[key] = { ...v };
       });
+      // 按维度录入的图片映射同步改名, 使图片跟随新属性名
+      if (colorRename && state.colorImages[colorRename.from] !== undefined) {
+        state.colorImages[colorRename.to] = state.colorImages[colorRename.from];
+        delete state.colorImages[colorRename.from];
+      }
+      if (sizeRename && state.sizeImages[sizeRename.from] !== undefined) {
+        state.sizeImages[sizeRename.to] = state.sizeImages[sizeRename.from];
+        delete state.sizeImages[sizeRename.from];
+      }
 
       state.variations = result.data.map(item => {
         const key = `${item.color}-${item.size}`;
