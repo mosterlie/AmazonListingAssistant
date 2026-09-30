@@ -4,46 +4,13 @@
 
 {% block extra_head %}
 <style>
-  /* 子菜单样式与系统管理页 (settings-nav) 保持一致: 顶部横向胶囊切换 */
   .fwd-layout { min-width: 0; }
-  .fwd-nav {
-    display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;
-    background: var(--bg-card, #fff); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: 6px; box-shadow: 0 2px 8px rgba(15,23,42,0.05);
-    width: fit-content;
-  }
-  .fwd-nav-item {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 9px 20px; border: none; border-radius: 8px;
-    background: transparent; cursor: pointer; font-size: 0.92rem;
-    color: var(--text-main); font-weight: 600; transition: all 0.15s;
-  }
-  .fwd-nav-item:hover { background: #f1f5f9; }
-  .fwd-nav-item.active { background: #6366f1; color: #fff; box-shadow: 0 2px 6px rgba(99,102,241,0.35); }
-  .fwd-panel { display: none; flex: 1; min-width: 0; }
-  .fwd-panel.active { display: block; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; position:sticky; top:64px; z-index:90; background:var(--bg-main); padding:10px 12px; margin-left:-12px; margin-right:-12px; border-radius:0 0 var(--radius-sm) var(--radius-sm); box-shadow:0 2px 8px rgba(15,23,42,0.06);">
-  <div>
-    <h1 style="font-size:1.4rem; font-weight:700; color:var(--text-main); margin:0;">🚚 运单管理 <span style="font-size:0.78rem; color:#94a3b8; font-weight:500; margin-left:8px;">初岛国际物流 API 对接</span></h1>
-  </div>
-  <div style="display:flex; gap:10px; flex-shrink:0; align-items:center;">
-    <span style="font-size:0.76rem; color:#94a3b8;">共 <b id="wbTotal">0</b> 票运单</span>
-    <button class="btn btn-outline" onclick="loadWaybills()" type="button">🔄 刷新</button>
-  </div>
-</div>
-
 <div class="fwd-layout">
-  <!-- 子菜单 (与系统管理一致) -->
-  <nav class="fwd-nav" id="fwdNav">
-    <button class="fwd-nav-item active" data-tab="waybills" type="button">📦 运单查询</button>
-    <button class="fwd-nav-item" data-tab="tracking" type="button">📍 轨迹跟踪</button>
-  </nav>
-
-  <!-- ═══════════ 面板1: 运单查询 ═══════════ -->
+  <!-- ═══════════ 运单查询 ═══════════ -->
   <div class="fwd-panel active" id="panel-waybills">
     <div class="form-card">
       <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
@@ -63,7 +30,7 @@
         <div style="padding:14px 18px; background:#f8fafc; border-bottom:1px solid #e2e8f0;">
           <div style="display:flex; gap:10px; align-items:flex-start;">
             <textarea id="wbPasteInput" class="form-input" rows="2"
-              placeholder="粘贴单号入库：支持每行一个 / 逗号分隔 / 行尾逗号，混贴初道运单号或参考号，自动识别并查询运输状态"
+              placeholder="粘贴单号入库：支持每行一个 / 逗号分隔 / 行尾逗号，混贴货代单号或参考号，自动识别并查询运输状态"
               style="flex:1; resize:vertical; min-height:56px; font-size:0.84rem;"></textarea>
             <div style="display:flex; flex-direction:column; gap:8px;">
               <button class="btn btn-primary btn-sm" id="wbAddBtn" onclick="addWaybills()" type="button" style="padding:7px 14px; white-space:nowrap;">
@@ -85,7 +52,7 @@
 
         <!-- 搜索栏 -->
         <div style="display:flex; gap:10px; align-items:center; padding:10px 18px; border-bottom:1px solid #e2e8f0;">
-          <input type="text" id="wbSearchInput" class="form-input" placeholder="🔍 搜索单号（运单号 / 参考号 / 尾程 / 渠道）"
+          <input type="text" id="wbSearchInput" class="form-input" placeholder="🔍 搜索单号（货代单号 / 参考号 / 跨境 / 尾程）"
             style="max-width:340px; padding:6px 12px; font-size:0.82rem;" onkeydown="if(event.key==='Enter') loadWaybills();">
           <button class="btn btn-outline btn-sm" onclick="loadWaybills()" type="button" style="padding:5px 12px;">搜索</button>
           <button class="btn btn-outline btn-sm" onclick="document.getElementById('wbSearchInput').value=''; loadWaybills();" type="button" style="padding:5px 12px;">重置</button>
@@ -96,9 +63,9 @@
             <thead>
               <tr style="background:#f8fafc;">
                 <th style="width:50px; text-align:center;">#</th>
-                <th style="min-width:160px;">初道运单号</th>
-                <th style="min-width:140px;">尾程单号</th>
-                <th style="min-width:140px;">渠道单号</th>
+                <th style="min-width:160px;">货代单号</th>
+                <th style="min-width:180px;">跨境运单号</th>
+                <th style="min-width:180px;">尾程单号</th>
                 <th style="width:70px; text-align:center;">目的国</th>
                 <th style="width:110px; text-align:center;">运输状态</th>
                 <th style="min-width:240px;">最新轨迹</th>
@@ -118,54 +85,9 @@
       </div>
     </div>
   </div>
-
-  <!-- ═══════════ 面板2: 轨迹跟踪 ═══════════ -->
-  <div class="fwd-panel" id="panel-tracking">
-    <div class="form-card">
-      <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-        <div class="card-title" style="margin:0;">
-          <div class="card-title-icon">📍</div>
-          <span>轨迹跟踪</span>
-        </div>
-      </div>
-
-      <div class="card-body" style="padding:0;">
-        <!-- 任意单号即时查询 -->
-        <div style="display:flex; gap:10px; align-items:center; padding:14px 18px; background:#f8fafc; border-bottom:1px solid #e2e8f0;">
-          <input type="text" id="quickTrackInput" class="form-input" placeholder="输入任意单号直接查轨迹（无需入库，如 XM2GUJ7010001）"
-            style="flex:1; max-width:420px; padding:7px 12px; font-size:0.84rem;" onkeydown="if(event.key==='Enter') quickTrack();">
-          <button class="btn btn-primary btn-sm" onclick="quickTrack()" type="button" style="padding:7px 14px; white-space:nowrap;">🔍 查询轨迹</button>
-        </div>
-
-        <div class="table-wrapper" style="overflow-x:auto;">
-          <table class="matrix-table" style="min-width:1050px; width:100%;">
-            <thead>
-              <tr style="background:#f8fafc;">
-                <th style="width:50px; text-align:center;">#</th>
-                <th style="min-width:160px;">初道运单号</th>
-                <th style="min-width:140px;">尾程单号</th>
-                <th style="width:70px; text-align:center;">目的国</th>
-                <th style="width:110px; text-align:center;">运输状态</th>
-                <th style="min-width:280px;">最新轨迹</th>
-                <th style="width:150px;">更新时间</th>
-                <th style="text-align:center; width:130px;">操作</th>
-              </tr>
-            </thead>
-            <tbody id="trackTableBody">
-              <tr>
-                <td colspan="8" style="text-align:center; padding:40px; color:var(--text-muted);">
-                  ⏳ 正在加载订单数据...
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
 </div>
 
-<!-- 轨迹时间线弹窗 (两个面板共用) -->
+<!-- 轨迹时间线弹窗 (运单查询点「📍 轨迹」查看单票轨迹) -->
 <div id="trackModal" class="custom-modal" style="display:none;">
   <div class="custom-modal-backdrop" onclick="closeTrackModal()"></div>
   <div class="custom-modal-dialog" style="max-width:640px; max-height:86vh; display:flex; flex-direction:column;">
@@ -233,6 +155,21 @@
               onclick="copyText(this.dataset.v)">${escapeHtml(text)}</span>`;
   }
 
+  /* 单号单元格: 点击复制 + 右侧跳转外链查询按钮 (sagawa=佐川急便官网 / track17=17TRACK) */
+  const SAGAWA_URL = "https://k2k.sagawa-exp.co.jp/p/sagawa/web/okurijoinput.jsp";
+  function jumpCell(text, type, placeholder = "—") {
+    if (!text) return `<span style="font-size:0.75rem; color:#cbd5e1;">${placeholder}</span>`;
+    const openAttr = type === "sagawa"
+      ? `window.open('${SAGAWA_URL}', '_blank')`
+      : `window.open('https://t.17track.net/zh-cn#nums=' + encodeURIComponent(this.dataset.v), '_blank')`;
+    const btnTitle = type === "sagawa" ? "到佐川急便官网查询" : "到 17TRACK 查询";
+    return `<span class="copy-chip" title="点击复制: ${escapeHtml(text)}" data-v="${escapeHtml(text)}"
+              onclick="copyText(this.dataset.v)">${escapeHtml(text)}</span>
+      <button class="btn btn-outline btn-sm" type="button"
+        style="padding:1px 7px; font-size:0.7rem; margin-left:5px; color:#2563eb; border-color:#bfdbfe;"
+        title="${btnTitle}" data-v="${escapeHtml(text)}" onclick="${openAttr}">↗</button>`;
+  }
+
   function statusBadgeCls(statusName) {
     const n = String(statusName || "");
     if (n.includes("签收") || n.includes("妥投") || n.includes("成功投递")) return "wb-status-signed";
@@ -259,17 +196,6 @@
     return `<td style="font-size:0.74rem; color:#94a3b8;">${escapeHtml((w.updated_at || "").replace("T", " ").slice(0, 16))}</td>`;
   }
 
-  /* ───────── 子菜单切换 (与系统管理一致) ───────── */
-  function switchTab(tab) {
-    document.querySelectorAll("#fwdNav .fwd-nav-item").forEach(btn =>
-      btn.classList.toggle("active", btn.dataset.tab === tab));
-    document.querySelectorAll(".fwd-panel").forEach(p =>
-      p.classList.toggle("active", p.id === `panel-${tab}`));
-    if (tab === "tracking") renderTrackList();  // 轨迹面板按全部订单渲染
-  }
-  document.querySelectorAll("#fwdNav .fwd-nav-item").forEach(btn =>
-    btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
-
   /* ───────── 数据加载与统计 ───────── */
   async function loadWaybills() {
     const tbody = document.getElementById("wbTableBody");
@@ -277,10 +203,8 @@
     try {
       const body = await api("/api/chudao/waybills" + (kw ? `?keyword=${encodeURIComponent(kw)}` : ""));
       waybills = body.data || [];
-      document.getElementById("wbTotal").innerText = waybills.length;
       renderStats();
       renderWaybills(tbody, kw);
-      renderTrackList();
     } catch (e) {
       if (e.message !== "未登录") {
         tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:40px; color:var(--text-muted);">
@@ -314,8 +238,8 @@
       <tr>
         <td style="text-align:center; color:#94a3b8; font-size:0.8rem;">${i + 1}</td>
         <td><b style="color:#0f172a;">${copyCell(w.tracking_number)}</b></td>
-        <td style="font-size:0.8rem;">${copyCell(w.server_hawbcode)}</td>
-        <td style="font-size:0.8rem;">${copyCell(w.channel_hawbcode)}</td>
+        <td style="font-size:0.8rem;">${jumpCell(w.channel_hawbcode, "track17")}</td>
+        <td style="font-size:0.8rem;">${jumpCell(w.server_hawbcode, "sagawa")}</td>
         <td style="text-align:center; font-size:0.8rem; font-weight:600;">${escapeHtml(w.dest_country || "—")}</td>
         <td style="text-align:center;">${statusBadge(w)}</td>
         <td>${lastTrackCell(w, 260)}</td>
@@ -324,29 +248,6 @@
           <button class="btn btn-outline btn-sm" style="padding:2px 8px; font-size:0.72rem;" onclick="showTrack('${escapeHtml(w.tracking_number)}')">📍 轨迹</button>
           <button class="btn btn-outline btn-sm" style="padding:2px 8px; font-size:0.72rem;" onclick="refreshWaybill(${w.id}, '${escapeHtml(w.tracking_number)}')">🔄</button>
           ${IS_ADMIN ? `<button class="btn btn-outline btn-sm" style="padding:2px 8px; font-size:0.72rem; color:#ef4444; border-color:#fecaca;" onclick="deleteWaybill(${w.id}, '${escapeHtml(w.tracking_number)}')">🗑️</button>` : ""}
-        </td>
-      </tr>`).join("");
-  }
-
-  /* ───────── 轨迹跟踪面板: 按全部订单渲染 ───────── */
-  function renderTrackList() {
-    const tbody = document.getElementById("trackTableBody");
-    if (!waybills.length) {
-      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:40px; color:var(--text-muted);">
-        📦 暂无订单，请先到「📦 运单查询」面板粘贴单号入库，或直接在上方输入单号查询</td></tr>`;
-      return;
-    }
-    tbody.innerHTML = waybills.map((w, i) => `
-      <tr>
-        <td style="text-align:center; color:#94a3b8; font-size:0.8rem;">${i + 1}</td>
-        <td><b style="color:#0f172a;">${escapeHtml(w.tracking_number || "—")}</b></td>
-        <td style="font-size:0.8rem;">${escapeHtml(w.server_hawbcode || "—")}</td>
-        <td style="text-align:center; font-size:0.8rem; font-weight:600;">${escapeHtml(w.dest_country || "—")}</td>
-        <td style="text-align:center;">${statusBadge(w)}</td>
-        <td>${lastTrackCell(w, 300)}</td>
-        ${updatedCell(w)}
-        <td style="text-align:center; white-space:nowrap;">
-          <button class="btn btn-primary btn-sm" style="padding:3px 10px; font-size:0.72rem;" onclick="showTrack('${escapeHtml(w.tracking_number)}')">📍 查询轨迹</button>
         </td>
       </tr>`).join("");
   }
@@ -442,12 +343,6 @@
     } catch (e) {
       if (e.message !== "未登录") showToast("删除失败: " + e.message, "error");
     }
-  }
-
-  function quickTrack() {
-    const no = document.getElementById("quickTrackInput").value.trim();
-    if (!no) { showToast("请输入单号", "error"); return; }
-    showTrack(no);
   }
 
   /* ───────── 轨迹时间线弹窗 ───────── */
