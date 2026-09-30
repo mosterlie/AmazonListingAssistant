@@ -1,0 +1,405 @@
+/* ============================================================
+   手机版 UI 样式 (mobile.css)
+   在 app.css 基础上覆盖: 顶部精简栏 + 底部 Tab 导航 + 卡片式布局
+   桌面版 (base.html) 不引用本文件, 互不影响
+   ============================================================ */
+
+:root {
+  --m-tabbar-h: 56px;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  padding-bottom: calc(var(--m-tabbar-h) + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+/* 覆盖 PC 版主区域留白, 手机收紧 */
+.main-wrapper {
+  padding: 12px 10px 24px !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+}
+
+/* ---------- 顶部精简栏 ---------- */
+.m-header {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.m-header .m-brand {
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--text-main, #1e293b);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.m-header .m-brand .brand-badge {
+  font-size: 0.72rem;
+  padding: 2px 7px;
+}
+.m-header .m-spacer { flex: 1; }
+
+/* 告警铃铛 (手机版) */
+.m-bell {
+  position: relative;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  text-decoration: none;
+  font-size: 1.05rem;
+}
+.m-bell.show { display: inline-flex; }
+.m-bell .m-bell-num {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(239, 68, 68, 0.45);
+}
+
+.m-user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 40vw;
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #1e293b;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.m-user-chip .m-admin-tag {
+  flex-shrink: 0;
+  background: #fdf4ff;
+  color: #9333ea;
+  border: 1px solid #f0abfc;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+}
+.m-logout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #fecaca;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+/* ---------- 底部 Tab 导航 ---------- */
+.m-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 300;
+  display: flex;
+  height: calc(var(--m-tabbar-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border, #e2e8f0);
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.06);
+}
+.m-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-decoration: none;
+  color: #94a3b8;
+  font-size: 0.68rem;
+  font-weight: 600;
+  min-height: 44px;
+}
+.m-tab .m-tab-ico { font-size: 1.3rem; line-height: 1; }
+.m-tab.active { color: var(--primary, #6366f1); }
+.m-tab.active .m-tab-ico { transform: scale(1.08); }
+
+/* 相对定位锚点: 让"更多"弹层有活动感 */
+.m-tab:active { opacity: 0.7; }
+
+/* ---------- "更多"底部弹出菜单 ---------- */
+.m-sheet-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  background: rgba(15, 23, 42, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.m-sheet-mask.open { opacity: 1; pointer-events: auto; }
+
+.m-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 401;
+  background: #fff;
+  border-radius: 18px 18px 0 0;
+  transform: translateY(102%);
+  transition: transform 0.25s ease-out;
+  padding: 10px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+  max-height: 72vh;
+  overflow-y: auto;
+}
+.m-sheet.open { transform: translateY(0); }
+.m-sheet-grab {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  margin: 4px auto 12px;
+}
+.m-sheet-title {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #64748b;
+  margin: 0 0 10px 4px;
+}
+.m-sheet-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.m-sheet-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 72px;
+  padding: 8px 4px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  text-decoration: none;
+  color: #1e293b;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: center;
+}
+.m-sheet-item .m-sheet-ico { font-size: 1.5rem; line-height: 1; }
+.m-sheet-item:active { background: #eef2ff; }
+.m-sheet-item.m-danger { color: #dc2626; }
+
+/* ---------- 卡片式列表 (运单等) ---------- */
+.m-card-list { display: flex; flex-direction: column; gap: 10px; }
+
+.m-card {
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+}
+.m-card .m-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.m-card .m-card-no {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #1e293b;
+  word-break: break-all;
+  cursor: pointer;
+}
+.m-card .m-card-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #475569;
+  padding: 3px 0;
+  word-break: break-all;
+}
+.m-card .m-card-row .m-row-label {
+  flex-shrink: 0;
+  color: #94a3b8;
+  font-size: 0.72rem;
+}
+.m-card .m-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+/* 单号复制热区 (与 PC 版 copy-chip 行为一致) */
+.m-copy-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+  color: #0f172a;
+  word-break: break-all;
+}
+.m-copy-chip:active { background: #e0e7ff; }
+
+/* ↗ 外链跳转按钮 */
+.m-jump-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 7px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+.m-jump-btn:active { background: #e0e7ff; }
+
+/* 手机版工具栏按钮: 触控加大 */
+.m-toolbar { display: flex; flex-direction: column; gap: 8px; }
+.m-toolbar .btn { min-height: 44px; font-size: 0.95rem; }
+.m-toolbar .form-input { min-height: 44px; font-size: 1rem; }
+
+.m-chip-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+.m-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #475569;
+  white-space: nowrap;
+}
+
+/* 轨迹弹窗 (手机版宽度适配, 复用 PC 版 custom-modal 基础样式) */
+.m-track-modal .custom-modal-card {
+  width: 94vw !important;
+  max-width: 94vw !important;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+/* ---------- 登录页 (手机版独立页, 不含 Tab 导航) ---------- */
+.m-login-body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 24px 20px calc(24px + env(safe-area-inset-bottom, 0px));
+  background: radial-gradient(circle at 50% 15%, #1e293b 0%, #0f172a 100%);
+  box-sizing: border-box;
+}
+.m-login-card {
+  background: rgba(30, 41, 59, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 28px 22px;
+  color: #f8fafc;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+.m-login-input {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid #334155;
+  color: #f8fafc;
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 1.05rem;
+  box-sizing: border-box;
+  outline: none;
+}
+.m-login-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); }
+.m-login-btn {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border: none;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+}
+.m-login-btn:disabled { opacity: 0.6; }
+.m-login-error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  margin-bottom: 16px;
+  display: none;
+}
+
+/* 小屏窄幅下表格兜底: 横向滚动而非撑破 */
+@media (max-width: 480px) {
+  .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}

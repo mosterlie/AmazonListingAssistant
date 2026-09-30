@@ -1,7 +1,7 @@
 """
 初道物流 API 路由层 (运单管理模块: 运单查询 / 轨迹跟踪)
 
-权限: 查询/入库/刷新/查轨迹 全员 (登录即可), 删除运单仅管理员。
+权限: 查询/入库/单票刷新/查轨迹 登录即可; 全量刷新/妙手同步/删除运单为按钮权限点控制 (RBAC)。
 初道 API 无订单列表接口 → 数据源为本地运单库 (waybill_service.py)。
 """
 from typing import List, Optional
@@ -9,10 +9,11 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from server.dependencies import get_current_user, require_admin_user
+from server.dependencies import get_current_user
 from server.services.chudao_service import ChudaoService, ChudaoApiError
 from server.services.miaoshou_service import MiaoshouService, MiaoshouApiError
 from server.services.waybill_service import WaybillService
+from server.services.rbac_service import RbacService, require_perm
 
 router = APIRouter(prefix="/api/chudao", tags=["运单管理·初道物流"])
 
@@ -43,14 +44,17 @@ def add_waybills(payload: WaybillAddSchema, user: dict = Depends(get_current_use
     return {"code": 0, "msg": "入库完成", "data": result}
 
 
-@router.post("/waybills/refresh", summary="批量刷新运输状态 (ids为空刷全部)")
+@router.post("/waybills/refresh", summary="批量刷新运输状态 (ids为空刷全部, 需「全部刷新」按钮权限)")
 def refresh_waybills(payload: WaybillRefreshSchema, user: dict = Depends(get_current_user)):
+    # 全量刷新 (ids 为空) 需要独立按钮权限; 单票刷新登录即可
+    if not payload.ids and not RbacService.user_has_perm(user, "waybill:refresh_all"):
+        raise HTTPException(status_code=403, detail="无操作权限: 全部刷新")
     data = WaybillService.refresh_waybills(payload.ids)
     return {"code": 0, "msg": "刷新完成", "data": data}
 
 
-@router.post("/waybills/sync-miaoshou", summary="从妙手ERP同步已发货包裹运单号入库 (尾程号反查初岛号)")
-def sync_miaoshou(user: dict = Depends(get_current_user)):
+@router.post("/waybills/sync-miaoshou", summary="从妙手ERP同步已发货包裹运单号入库 (需「妙手同步」按钮权限)")
+def sync_miaoshou(user: dict = Depends(require_perm("waybill:sync"))):
     try:
         packages = MiaoshouService.fetch_shipped_packages()
     except MiaoshouApiError as exc:
@@ -62,8 +66,8 @@ def sync_miaoshou(user: dict = Depends(get_current_user)):
     return {"code": 0, "msg": msg, "data": result}
 
 
-@router.delete("/waybills/{waybill_id}", summary="删除运单 (仅管理员)")
-def delete_waybill(waybill_id: int, user: dict = Depends(require_admin_user)):
+@router.delete("/waybills/{waybill_id}", summary="删除运单 (需「运单删除」按钮权限)")
+def delete_waybill(waybill_id: int, user: dict = Depends(require_perm("waybill:delete"))):
     try:
         WaybillService.delete_waybill(waybill_id)
     except ValueError as ve:

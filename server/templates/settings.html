@@ -49,6 +49,7 @@
     <button class="settings-nav-item" data-tab="email" type="button">📧 邮件配置</button>
     <button class="settings-nav-item" data-tab="alert_tasks" type="button">🔔 告警任务</button>
     <button class="settings-nav-item" data-tab="reminders" type="button">📨 提醒任务</button>
+    <button class="settings-nav-item" data-tab="rbac" type="button">🛡️ 角色权限</button>
   </nav>
 
   <!-- 右侧配置面板 -->
@@ -480,8 +481,167 @@
       <div id="remindersWrap"></div>
     </div>
 
+    <!-- 11. 角色权限 (RBAC: 角色↔菜单 / 角色↔按钮权限点 / 用户↔角色在用户管理页配置) -->
+    <div class="settings-panel" data-panel="rbac">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; gap:10px; flex-wrap:wrap;">
+        <div style="font-weight:700; color:var(--text-main); font-size:1.05rem;">🛡️ 角色权限 <span style="font-weight:400; font-size:0.82rem; color:var(--text-muted);">配置角色可见菜单与按钮权限 (用户绑角色在用户管理页)</span></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-outline btn-sm" id="rbacRefreshBtn" type="button">🔄 刷新</button>
+          <button class="btn btn-primary btn-sm" id="rbacAddRoleBtn" type="button">➕ 新建角色</button>
+        </div>
+      </div>
+      <div id="rbacRolesWrap" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:14px;"></div>
+    </div>
+
   </div>
 </div>
+
+<!-- 新建角色弹窗 -->
+<div id="rbacRoleModal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:420px;">
+    <div class="custom-modal-header" style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #e2e8f0;">
+      <div style="font-weight:700; font-size:1.05rem; color:#1e293b;">➕ 新建角色</div>
+      <button type="button" onclick="rbacCloseRoleModal()" style="border:none; background:none; font-size:1.2rem; cursor:pointer; color:#64748b;">✕</button>
+    </div>
+    <div style="padding:18px;">
+      <div class="form-group" style="margin-bottom:12px;">
+        <label class="form-label required">角色标识 (英文, 唯一, 如 operator)</label>
+        <input type="text" class="form-input" id="rbacNewRoleCode" placeholder="operator">
+      </div>
+      <div class="form-group" style="margin-bottom:12px;">
+        <label class="form-label required">角色名称 (如 运营专员)</label>
+        <input type="text" class="form-input" id="rbacNewRoleName" placeholder="运营专员">
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">角色说明</label>
+        <input type="text" class="form-input" id="rbacNewRoleDesc" placeholder="可选">
+      </div>
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:10px; padding:14px 18px; border-top:1px solid #e2e8f0;">
+      <button class="btn btn-outline" type="button" onclick="rbacCloseRoleModal()">取消</button>
+      <button class="btn btn-primary" type="button" onclick="rbacCreateRole()">创建</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════ 🛡️ 角色权限面板 (RBAC) ═══════════
+let RBAC_DATA = { roles: [], menu_registry: [], permission_registry: [] };
+
+// RBAC 接口专用请求封装 (返回体无 code 字段, 400 的 detail 需要弹窗提示用户)
+async function rbacApi(url, method = "GET", data = null) {
+  const resp = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: data ? JSON.stringify(data) : undefined
+  });
+  if (resp.status === 401) { window.location.href = "/login"; return null; }
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) { alert("❌ " + (body.detail || body.msg || "请求失败 (HTTP " + resp.status + ")")); return null; }
+  return body;
+}
+
+function rbacEscape(s) {
+  return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+async function rbacLoad() {
+  const res = await rbacApi("/api/rbac/roles");
+  if (!res || !res.roles) return;
+  RBAC_DATA = res;
+  rbacRenderRoles();
+}
+
+function rbacRenderRoles() {
+  const wrap = document.getElementById("rbacRolesWrap");
+  if (!wrap) return;
+  const menus = RBAC_DATA.menu_registry || [];
+  const perms = RBAC_DATA.permission_registry || [];
+  const permsByMenu = {};
+  (perms || []).forEach(p => { (permsByMenu[p.menu] = permsByMenu[p.menu] || []).push(p); });
+
+  wrap.innerHTML = (RBAC_DATA.roles || []).map(role => {
+    const isAdminRole = role.code === "admin";
+    const menuChecks = menus.map(m => `
+      <label style="display:inline-flex; align-items:center; gap:4px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:3px 8px; font-size:0.78rem; cursor:${isAdminRole ? "not-allowed" : "pointer"};">
+        <input type="checkbox" class="rbac-menu-cb" data-role="${role.id}" value="${m.key}"
+          ${role.menus.includes(m.key) ? "checked" : ""} ${isAdminRole ? "disabled" : ""}> ${m.icon} ${rbacEscape(m.name)}
+      </label>`).join("");
+    const permGroups = menus.map(m => {
+      const group = (permsByMenu[m.key] || []);
+      if (!group.length) return "";
+      const items = group.map(p => `
+        <label style="display:inline-flex; align-items:center; gap:4px; font-size:0.76rem; cursor:${isAdminRole ? "not-allowed" : "pointer"};" title="${rbacEscape(p.desc)}">
+          <input type="checkbox" class="rbac-perm-cb" data-role="${role.id}" value="${p.key}"
+            ${role.permissions.includes(p.key) ? "checked" : ""} ${isAdminRole ? "disabled" : ""}> ${rbacEscape(p.name)}
+        </label>`).join("");
+      return `<div style="margin-top:6px;"><span style="font-size:0.72rem; color:#94a3b8;">${rbacEscape(m.name)}:</span> ${items}</div>`;
+    }).join("");
+    return `
+    <div class="form-card" style="margin:0;" data-role-card="${role.id}">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px;">
+        <div style="font-weight:700; color:#1e293b;">
+          ${isAdminRole ? "👑" : "🛡️"} ${rbacEscape(role.name)}
+          <span style="font-weight:400; font-size:0.72rem; color:#94a3b8; margin-left:4px;">${rbacEscape(role.code)}${role.is_builtin ? " · 内置" : ""}</span>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe;">${role.user_count || 0} 用户</span>
+          ${isAdminRole ? "" : `<button class="btn btn-outline btn-sm" type="button" onclick="rbacDeleteRole(${role.id}, '${rbacEscape(role.name).replace(/'/g, "\\'")}')">🗑️</button>`}
+        </div>
+      </div>
+      <div style="font-size:0.74rem; color:#64748b; margin-bottom:8px;">${rbacEscape(role.description || "")}</div>
+      <div style="font-size:0.78rem; font-weight:600; color:#334155; margin-bottom:6px;">📋 可见菜单</div>
+      <div style="display:flex; flex-wrap:wrap; gap:6px;">${menuChecks}</div>
+      <div style="font-size:0.78rem; font-weight:600; color:#334155; margin:10px 0 0;">🔘 按钮权限</div>
+      ${permGroups || '<div style="font-size:0.74rem; color:#94a3b8; margin-top:6px;">(无按钮权限点)</div>'}
+      ${isAdminRole
+        ? '<div style="margin-top:12px; font-size:0.76rem; color:#b45309; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:8px;">管理员角色固定拥有全部权限, 不可修改 (防自锁)</div>'
+        : `<button class="btn btn-primary btn-sm" type="button" style="margin-top:12px;" onclick="rbacSaveRole(${role.id})">💾 保存该角色</button>`}
+    </div>`;
+  }).join("");
+}
+
+async function rbacSaveRole(roleId) {
+  const card = document.querySelector(`[data-role-card="${roleId}"]`);
+  if (!card) return;
+  const menus = Array.from(card.querySelectorAll(".rbac-menu-cb:checked")).map(cb => cb.value);
+  const permissions = Array.from(card.querySelectorAll(".rbac-perm-cb:checked")).map(cb => cb.value);
+  const res = await rbacApi(`/api/rbac/roles/${roleId}/config`, "POST", { menus, permissions });
+  if (res && res.ok) { alert("✅ 角色权限已保存 (对绑定用户即时生效)"); rbacLoad(); }
+}
+
+async function rbacDeleteRole(roleId, roleName) {
+  if (!confirm(`确定删除角色「${roleName}」?`)) return;
+  const res = await rbacApi(`/api/rbac/roles/${roleId}/delete`, "POST", {});
+  if (res && res.ok) rbacLoad();
+}
+
+function rbacOpenRoleModal() {
+  document.getElementById("rbacRoleModal").style.display = "flex";
+  document.getElementById("rbacNewRoleCode").value = "";
+  document.getElementById("rbacNewRoleName").value = "";
+  document.getElementById("rbacNewRoleDesc").value = "";
+}
+function rbacCloseRoleModal() { document.getElementById("rbacRoleModal").style.display = "none"; }
+
+async function rbacCreateRole() {
+  const code = document.getElementById("rbacNewRoleCode").value.trim();
+  const name = document.getElementById("rbacNewRoleName").value.trim();
+  const description = document.getElementById("rbacNewRoleDesc").value.trim();
+  if (!code || !name) { alert("角色标识与名称均必填"); return; }
+  const res = await rbacApi("/api/rbac/roles", "POST", { code, name, description });
+  if (res && res.role) { rbacCloseRoleModal(); rbacLoad(); }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const refreshBtn = document.getElementById("rbacRefreshBtn");
+  if (refreshBtn) refreshBtn.addEventListener("click", rbacLoad);
+  const addBtn = document.getElementById("rbacAddRoleBtn");
+  if (addBtn) addBtn.addEventListener("click", rbacOpenRoleModal);
+  const rbacTab = document.querySelector('.settings-nav-item[data-tab="rbac"]');
+  if (rbacTab) rbacTab.addEventListener("click", () => { if (!RBAC_DATA.roles.length) rbacLoad(); });
+});
+</script>
 
 <script src="/static/js/task_cards.js?v=20260925_merge1"></script>
 <script src="/static/js/alert_tasks.js?v=20260927_at1"></script>

@@ -7,7 +7,7 @@
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="alternate icon" href="/static/favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=20260928_fwd2">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260930_m3">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -19,24 +19,22 @@
         <span>跨境电商运维中台</span>
       </a>
       <nav class="nav-links">
-        <a href="/list" class="nav-item {% if active_page == 'list' %}active{% endif %}">📋 商品管理</a>
-        <a href="/tasks" class="nav-item {% if active_page == 'tasks' %}active{% endif %}">📌 任务管理</a>
-        {% if current_user and current_user.role == 'admin' %}
-        <a href="/ads" class="nav-item {% if active_page == 'ads' %}active{% endif %}">📢 广告管理</a>
-        {% endif %}
-        <a href="/knowledge" class="nav-item {% if active_page == 'knowledge' %}active{% endif %}">📚 知识库</a>
-        <a href="/forwarder-integration" class="nav-item {% if active_page == 'forwarder_integration' %}active{% endif %}">🚚 运单管理</a>
-        <a href="/forwarder" class="nav-item {% if active_page == 'forwarder' %}active{% endif %}">🚢 货代管理</a>
-        <a href="/japan-calendar" class="nav-item {% if active_page == 'japan_calendar' %}active{% endif %}">🇯🇵 日本日历</a>
-        <a href="/alerts" class="nav-item {% if active_page == 'alert_center' %}active{% endif %}">🚨 告警中心</a>
-        {% if current_user and current_user.role == 'admin' %}
-        <a href="/settings" class="nav-item {% if active_page == 'settings' %}active{% endif %}">⚙️ 系统管理</a>
-        <a href="/users" class="nav-item {% if active_page == 'users' %}active{% endif %}">👥 用户管理</a>
-        {% endif %}
+        {% if 'list' in user_menus %}<a href="/list" class="nav-item {% if active_page == 'list' %}active{% endif %}">📋 商品管理</a>{% endif %}
+        {% if 'tasks' in user_menus %}<a href="/tasks" class="nav-item {% if active_page == 'tasks' %}active{% endif %}">📌 任务管理</a>{% endif %}
+        {% if 'ads' in user_menus %}<a href="/ads" class="nav-item {% if active_page == 'ads' %}active{% endif %}">📢 广告管理</a>{% endif %}
+        {% if 'knowledge' in user_menus %}<a href="/knowledge" class="nav-item {% if active_page == 'knowledge' %}active{% endif %}">📚 知识库</a>{% endif %}
+        {% if 'forwarder_integration' in user_menus %}<a href="/forwarder-integration" class="nav-item {% if active_page == 'forwarder_integration' %}active{% endif %}">🚚 运单管理</a>{% endif %}
+        {% if 'forwarder' in user_menus %}<a href="/forwarder" class="nav-item {% if active_page == 'forwarder' %}active{% endif %}">🚢 货代管理</a>{% endif %}
+        {% if 'japan_calendar' in user_menus %}<a href="/japan-calendar" class="nav-item {% if active_page == 'japan_calendar' %}active{% endif %}">🇯🇵 日本日历</a>{% endif %}
+        {% if 'alert_center' in user_menus %}<a href="/alerts" class="nav-item {% if active_page == 'alert_center' %}active{% endif %}">🚨 告警中心</a>{% endif %}
+        {% if 'settings' in user_menus %}<a href="/settings" class="nav-item {% if active_page == 'settings' %}active{% endif %}">⚙️ 系统管理</a>{% endif %}
+        {% if 'users' in user_menus %}<a href="/users" class="nav-item {% if active_page == 'users' %}active{% endif %}">👥 用户管理</a>{% endif %}
       </nav>
 
       {% if current_user %}
       <div style="display:flex; align-items:center; gap:8px; margin-left:auto;">
+        <!-- 📱 手机版切换入口: UA 被浏览器"桌面版网站"开关伪装时可手动切回手机版 -->
+        <a href="/ui-mode/mobile" class="btn btn-outline btn-sm" style="padding:4px 8px; font-size:0.75rem; background:#fff;" title="切换到手机版界面">📱</a>
         <!-- 🔴 全局红色告警角标: 货代今日超期 + 店小秘红/超时未发货, 有告警才显示 -->
         <a href="/alerts" class="alert-bell" id="alertBell" style="display:none;">
           <span class="alert-bell-icon">🔔</span>
@@ -54,7 +52,8 @@
             {% if current_user.role == 'admin' %}
             <span style="background:#fdf4ff; color:#9333ea; border:1px solid #f0abfc; padding:1px 6px; border-radius:9999px; font-size:0.7rem; font-weight:700;">👑 管理员</span>
             {% else %}
-            <span style="background:#f8fafc; color:#64748b; border:1px solid #cbd5e1; padding:1px 6px; border-radius:9999px; font-size:0.7rem;">👤 普通用户</span>
+            {% for rn in (user_role_names or []) %}<span style="background:#f8fafc; color:#64748b; border:1px solid #cbd5e1; padding:1px 6px; border-radius:9999px; font-size:0.7rem;">🛡️ {{ rn }}</span>{% endfor %}
+            {% if not (user_role_names or []) %}<span style="background:#f8fafc; color:#64748b; border:1px solid #cbd5e1; padding:1px 6px; border-radius:9999px; font-size:0.7rem;">👤 普通用户</span>{% endif %}
             {% endif %}
           </div>
 
@@ -69,7 +68,7 @@
                 {% if current_user.role == 'admin' %}
                 👑 系统管理员
                 {% else %}
-                👤 普通用户
+                {% if user_role_names %}🛡️ {{ user_role_names | join(' · ') }}{% else %}👤 普通用户{% endif %}
                 {% endif %}
               </div>
             </div>
@@ -104,6 +103,11 @@
   <main class="main-wrapper">
     {% block content %}{% endblock %}
   </main>
+
+  {% if ui_mobile_fallback %}
+  <!-- 手机访问但本页暂无手机版 (回退PC版): 右下角悬浮引导按钮 (跳到已有手机版页面) -->
+  <a href="/forwarder-integration" style="position:fixed; right:16px; bottom:calc(20px + env(safe-area-inset-bottom, 0px)); z-index:99999; display:inline-flex; align-items:center; gap:6px; padding:11px 16px; border-radius:9999px; background:linear-gradient(135deg,#6366f1,#4f46e5); color:#fff; font-size:0.85rem; font-weight:700; text-decoration:none; box-shadow:0 6px 20px rgba(79,70,229,0.45);">📱 手机版</a>
+  {% endif %}
 
   <!-- 全局高清大图放大浮层弹窗 (Image Lightbox Modal) -->
   <div id="imageLightboxModal" class="custom-modal" style="display:none; z-index:999999;">

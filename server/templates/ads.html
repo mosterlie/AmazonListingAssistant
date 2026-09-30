@@ -33,9 +33,11 @@
       <button class="btn btn-outline btn-sm" onclick="openAsinPoolModal('import')" style="display:inline-flex; align-items:center; gap:4px;">
         <span>🎯</span> 生成ASIN
       </button>
+      {% if 'ads:create' in user_perms %}
       <button class="btn btn-primary btn-sm" onclick="openAdTaskModal(null)" style="display:inline-flex; align-items:center; gap:4px;">
         <span>➕</span> 新建
       </button>
+      {% endif %}
     </div>
   </div>
 
@@ -468,6 +470,9 @@ document.addEventListener('click', function (e) {
 
 /* 当前登录用户角色 (由服务端模板渲染注入) */
 const CURRENT_USER_ROLE = "{{ current_user.role if current_user else '' }}";
+// RBAC 按钮权限点 (后端注入, admin 为全量)
+const USER_PERMS = {{ user_perms | tojson }};
+function hasPerm(key) { return CURRENT_USER_ROLE === "admin" || USER_PERMS.includes(key); }
 
 /* ===================== 全局状态 ===================== */
 const adState = {
@@ -685,9 +690,12 @@ function renderAdTable(tasks) {
     return;
   }
   const isAdmin = (CURRENT_USER_ROLE === 'admin');
-  const runBtn = (t) => t.running
+  const runBtn = (t) => {
+    if (!hasPerm('ads:operate')) return '<span style="color:#cbd5e1; font-size:0.7rem;">-</span>';
+    return t.running
     ? '<button class="btn btn-outline btn-sm" onclick="stopAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem; color:#dc2626; border-color:#fecaca;" title="请求终止执行">⏹ 终止</button>'
     : '<button class="btn btn-primary btn-sm" onclick="runAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="执行自动投放">▶</button>';
+  };
   tbody.innerHTML = tasks.map(t => {
     const asins = t.asins || [];
     const period = (t.start_date || '-') + ' ~ ' + (t.end_date || '不限');
@@ -712,9 +720,9 @@ function renderAdTable(tasks) {
       '<td>' + lastRun + '</td>' +
       '<td style="text-align:center;"><div style="display:inline-flex; gap:3px; align-items:center; justify-content:center; white-space:nowrap;">' +
         runBtn(t) +
-        '<button class="btn btn-outline btn-sm" onclick="openAdTaskModal(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="编辑">✏️</button>' +
+        (hasPerm('ads:operate') ? '<button class="btn btn-outline btn-sm" onclick="openAdTaskModal(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="编辑">✏️</button>' : '') +
         '<button class="btn btn-outline btn-sm" onclick="openHistoryModal(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="执行记录">🗂️</button>' +
-        (isAdmin ? '<button class="btn btn-outline btn-sm" onclick="deleteAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem; color:#ef4444;" title="删除">🗑️</button>' : '') +
+        (hasPerm('ads:operate') ? '<button class="btn btn-outline btn-sm" onclick="deleteAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem; color:#ef4444;" title="删除">🗑️</button>' : '') +
       '</div></td></tr>';
   }).join('');
 }

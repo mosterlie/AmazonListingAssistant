@@ -1,10 +1,11 @@
 import threading
 import time
 from typing import Optional
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from server.services.erp_bridge import ERPBridgeService
 from server.services.deepseek_service import DeepSeekService
+from server.services.rbac_service import require_perm
 
 router = APIRouter(prefix="/api/automation", tags=["店小秘自动化上件与 AI 辅助"])
 
@@ -61,8 +62,8 @@ def _run_publish_in_thread(product_id: int):
             state["logs"].append(f"❌ 上件异常: {e}")
 
 
-@router.post("/publish/{product_id}", summary="触发商品全自动上件到店小秘 ERP（异步后台执行）")
-def publish_product(product_id: int):
+@router.post("/publish/{product_id}", summary="触发商品全自动上件到店小秘 ERP（异步后台执行, 需「商品上件」按钮权限）")
+def publish_product(product_id: int, user: dict = Depends(require_perm("publish:run"))):
     """
     立即返回任务已受理，在后台线程执行真实自动化上件。
     前端通过 GET /api/automation/publish-status/{product_id} 轮询进度。

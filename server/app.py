@@ -21,6 +21,7 @@ from server.config import BASE_DIR, DATA_DIR, UPLOADS_DIR, SERVER_HOST, SERVER_P
 from server.database import init_db
 from server.services.product_service import ProductService
 from server.services.auth_service import AuthService
+from server.services.rbac_service import RbacService
 from server.dependencies import get_current_user_from_request
 from server.routers import (
     product_router,
@@ -38,6 +39,7 @@ from server.routers import (
     forwarder_router,
     forwarder_doc_router,
     chudao_router,
+    rbac_router,
     alert_router,
     jp_holiday_router,
     db_agent_router
@@ -92,6 +94,47 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
 # ──────────────────────────────────────────────────────────────
+# 手机版 UI 自动分流:
+# 手机 UA (或 cookie ui_mode=mobile) 优先渲染 mobile/{页面名}.html 手机版模板;
+# 该页未提供手机版时自动回退 PC 版模板, 支持逐页铺设互不影响;
+# cookie ui_mode=pc 可在手机上手动切换回桌面版 (页面底部 Tab -> 更多 -> 切换)
+# ──────────────────────────────────────────────────────────────
+import re as _re
+
+# 宽松匹配: 所有 Android/iPad/鸿蒙一律按手机版处理 (手机浏览器开过"桌面版网站"开关后 UA 会伪装成桌面,
+# 此时 UA 无法识别, 需靠页面上的「📱 手机版」入口手动切换)
+_MOBILE_UA_RE = _re.compile(r"iPhone|iPod|iPad|Android|Windows Phone|BlackBerry|Opera Mini|IEMobile|HarmonyOS|OpenHarmony|Mobile Safari", _re.I)
+
+
+def _is_mobile_request(request: Request) -> bool:
+    """判断请求是否来自手机: cookie ui_mode 手动指定优先, 否则按 User-Agent 识别"""
+    mode = request.cookies.get("ui_mode", "")
+    if mode == "mobile":
+        return True
+    if mode == "pc":
+        return False
+    return bool(_MOBILE_UA_RE.search(request.headers.get("user-agent", "")))
+
+
+def render_page(request: Request, name: str, context: dict):
+    """统一页面渲染入口: 手机访问优先用 mobile/ 手机版模板, 不存在自动回退 PC 版 (并标记 fallback 供模板提示)"""
+    # RBAC: 将用户菜单/按钮权限集注入所有页面模板 (导航按授权渲染 + JS 按钮权限)
+    if context is None:
+        context = {}
+    context = dict(context)
+    context.setdefault("user_menus", getattr(request.state, "user_menus", None) or [])
+    context.setdefault("user_perms", getattr(request.state, "user_perms", None) or [])
+    context.setdefault("user_role_names", getattr(request.state, "user_role_names", None) or [])
+    if _is_mobile_request(request):
+        mobile_name = f"mobile/{name}"
+        if os.path.exists(os.path.join(TEMPLATES_DIR, *mobile_name.split("/"))):
+            return templates.TemplateResponse(request=request, name=mobile_name, context=context)
+        # 该页暂无手机版: 回退 PC 版并注入标记, base.html 据此显示右下角「手机版首页」悬浮按钮
+        context["ui_mobile_fallback"] = True
+    return templates.TemplateResponse(request=request, name=name, context=context)
+
+
+# ──────────────────────────────────────────────────────────────
 # HTML 页面禁用浏览器缓存: 防止模板页(引用旧版本号 JS)被缓存,
 # 导致前端旧逻辑提交缺失新字段 (如系统设置新增项保存不上)
 # ──────────────────────────────────────────────────────────────
@@ -122,6 +165,7 @@ app.include_router(prompt_router.router)
 app.include_router(forwarder_router.router)
 app.include_router(forwarder_doc_router.router)
 app.include_router(chudao_router.router)
+app.include_router(rbac_router.router)
 app.include_router(alert_router.router)
 app.include_router(jp_holiday_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
@@ -164,8 +208,20 @@ def get_page_auth_user(request: Request, require_admin: bool = False):
             next_url += f"?{request.url.query}"
         return None, RedirectResponse(url=f"/login?next={next_url}", status_code=status.HTTP_302_FOUND)
 
-    if require_admin and user.get("role") != "admin":
-        html_403 = """
+    # ── RBAC: 注入用户菜单/按钮权限集/角色名, 并按菜单授权拦截页面访问 ──
+    request.state.user_menus = RbacService.get_user_menus(user)
+    request.state.user_perms = RbacService.get_user_perms(user)
+    request.state.user_role_names = RbacService.get_user_role_names(user)
+    require_admin_page = require_admin
+    if not require_admin_page and not RbacService.check_page_allowed(user, request.url.path):
+        require_admin_page = True  # 未授权菜单 → 走同一 403 提示页
+
+    if require_admin_page and user.get("role") != "admin":
+        target = request.url.path
+        hint = "您当前的账号角色无权访问该页面, 请联系管理员开通对应菜单权限。" \
+            if RbacService.check_page_allowed(user, "/settings") or user.get("role") == "admin" \
+            else "您当前的账号角色为普通用户, 无权访问管理员专属页面 (系统配置/用户管理)。"
+        html_403 = f"""
         <!DOCTYPE html>
         <html lang="zh-CN">
         <head><meta charset="UTF-8"><title>403 权限不足</title><link rel="stylesheet" href="/static/css/app.css"></head>
@@ -173,7 +229,7 @@ def get_page_auth_user(request: Request, require_admin: bool = False):
           <div style="text-align:center; background:#fff; padding:40px; border-radius:12px; border:1px solid #e2e8f0; box-shadow:0 10px 30px rgba(0,0,0,0.05); max-width:460px;">
             <div style="font-size:3rem; margin-bottom:12px;">🚫</div>
             <h2 style="color:#1e293b; margin-bottom:8px;">403 访问受限</h2>
-            <p style="color:#64748b; font-size:0.9rem; margin-bottom:24px;">您当前的账号角色为普通用户，无权访问管理员专属页面（系统配置/用户管理）。</p>
+            <p style="color:#64748b; font-size:0.9rem; margin-bottom:24px;">您无权访问 <b>{target}</b>。{hint}</p>
             <a href="/list" class="btn btn-primary" style="display:inline-block; text-decoration:none;">返回商品管理</a>
           </div>
         </body>
@@ -192,13 +248,26 @@ async def render_login_page(request: Request):
     user = get_current_user_from_request(request)
     if user:
         return RedirectResponse(url="/list", status_code=status.HTTP_302_FOUND)
-    return templates.TemplateResponse(request=request, name="login.html", context={})
+    return render_page(request, "login.html", context={})
 
 
 @app.get("/", summary="默认根路由 (输入地址不带路径默认跳转至商品管理)")
 async def root_redirect(request: Request):
     """输入地址不带路径后，默认登录/进入 list 页面"""
     return RedirectResponse(url="/list", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/ui-mode/{mode}", summary="切换界面版本 (mobile 手机版 / pc 桌面版), 覆盖 UA 自动分流")
+async def switch_ui_mode(request: Request, mode: str):
+    """手动指定界面版本并写 cookie (1年有效), 之后从来源页返回"""
+    if mode not in ("mobile", "pc"):
+        mode = "mobile"
+    back = request.query_params.get("next") or request.headers.get("referer") or "/list"
+    if not back.startswith("/") and not back.startswith(str(request.base_url)):
+        back = "/list"
+    resp = RedirectResponse(url=back, status_code=status.HTTP_302_FOUND)
+    resp.set_cookie("ui_mode", mode, max_age=365 * 24 * 3600, samesite="lax")
+    return resp
 
 
 @app.get("/entry", response_class=HTMLResponse, summary="商品录入工作台页面")
@@ -208,7 +277,7 @@ async def render_entry_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse(request=request, name="entry.html", context={
+    return render_page(request, "entry.html", context={
         "active_page": "entry",
         "current_user": user
     })
@@ -222,7 +291,7 @@ async def render_list_page(request: Request):
         return redirect_resp
 
     products = ProductService.list_products(limit=50, offset=0)
-    return templates.TemplateResponse(request=request, name="list.html", context={
+    return render_page(request, "list.html", context={
         "active_page": "list",
         "products": products,
         "current_user": user
@@ -236,7 +305,7 @@ async def render_settings_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse(request=request, name="settings.html", context={
+    return render_page(request, "settings.html", context={
         "active_page": "settings",
         "current_user": user
     })
@@ -249,7 +318,7 @@ async def render_users_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse(request=request, name="users.html", context={
+    return render_page(request, "users.html", context={
         "active_page": "users",
         "current_user": user
     })
@@ -262,7 +331,7 @@ async def render_forwarder_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse(request=request, name="forwarder.html", context={
+    return render_page(request, "forwarder.html", context={
         "active_page": "forwarder",
         "current_user": user
     })
@@ -275,7 +344,7 @@ async def render_forwarder_integration_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse(request=request, name="forwarder_integration.html", context={
+    return render_page(request, "forwarder_integration.html", context={
         "active_page": "forwarder_integration",
         "current_user": user
     })
@@ -288,7 +357,7 @@ async def render_japan_calendar_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse(request=request, name="japan_calendar.html", context={
+    return render_page(request, "japan_calendar.html", context={
         "active_page": "japan_calendar",
         "current_user": user
     })
@@ -313,7 +382,7 @@ async def render_alert_center_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse(request=request, name="alert_center.html", context={
+    return render_page(request, "alert_center.html", context={
         "active_page": "alert_center",
         "current_user": user
     })
@@ -326,7 +395,7 @@ async def render_tasks_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse(request=request, name="tasks.html", context={
+    return render_page(request, "tasks.html", context={
         "active_page": "tasks",
         "current_user": user
     })
@@ -339,7 +408,7 @@ async def render_knowledge_page(request: Request):
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse(request=request, name="knowledge.html", context={
+    return render_page(request, "knowledge.html", context={
         "active_page": "knowledge",
         "current_user": user
     })
@@ -347,12 +416,12 @@ async def render_knowledge_page(request: Request):
 
 @app.get("/ads", response_class=HTMLResponse, summary="赛狐广告投放任务管理页面")
 async def render_ads_page(request: Request):
-    """渲染广告管理页面 (仅管理员)"""
-    user, redirect_resp = get_page_auth_user(request, require_admin=True)
+    """渲染广告管理页面 (需登录; 菜单/按钮级权限由 RBAC 角色配置控制)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
     if redirect_resp:
         return redirect_resp
 
-    return templates.TemplateResponse(request=request, name="ads.html", context={
+    return render_page(request, "ads.html", context={
         "active_page": "ads",
         "current_user": user
     })

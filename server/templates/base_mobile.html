@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>{% block title %}商品录入与维护中台{% endblock %} - ERP 自动化上件系统</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="/static/favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="stylesheet" href="/static/css/app.css?v=20260928_fwd2">
+  <link rel="stylesheet" href="/static/css/mobile.css?v=20260930_m1">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <!-- 手机版顶部精简栏 -->
+  <header class="m-header">
+    <a href="/list" class="m-brand">
+      <span class="brand-badge">ERP HUB</span>
+      <span>跨境运维中台</span>
+    </a>
+    <div class="m-spacer"></div>
+    {% if current_user %}
+    <a href="/alerts" class="m-bell" id="mAlertBell">
+      <span>🔔</span>
+      <span class="m-bell-num" id="mAlertBellNum">0</span>
+    </a>
+    <div class="m-user-chip" title="{{ current_user.username }}">
+      <span>👤 {{ current_user.display_name if current_user.display_name else current_user.username }}</span>
+      {% if current_user.role == 'admin' %}<span class="m-admin-tag">👑</span>{% endif %}
+    </div>
+    <button class="m-logout-btn" onclick="handleSystemLogout()" title="退出登录">🚪</button>
+    {% endif %}
+  </header>
+
+  <!-- 主体工作区 -->
+  <main class="main-wrapper">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% if current_user %}
+  <!-- 手机版底部 Tab 导航 -->
+  <nav class="m-tabbar">
+    {% if 'list' in user_menus %}
+    <a href="/list" class="m-tab {% if active_page == 'list' %}active{% endif %}">
+      <span class="m-tab-ico">📦</span><span>商品</span>
+    </a>
+    {% endif %}
+    {% if 'forwarder_integration' in user_menus %}
+    <a href="/forwarder-integration" class="m-tab {% if active_page == 'forwarder_integration' %}active{% endif %}">
+      <span class="m-tab-ico">🚚</span><span>运单</span>
+    </a>
+    {% endif %}
+    {% if 'alert_center' in user_menus %}
+    <a href="/alerts" class="m-tab {% if active_page == 'alert_center' %}active{% endif %}">
+      <span class="m-tab-ico">🚨</span><span>告警</span>
+    </a>
+    {% endif %}
+    <a href="javascript:void(0)" class="m-tab" id="mMoreTab">
+      <span class="m-tab-ico">☰</span><span>更多</span>
+    </a>
+  </nav>
+
+  <!-- "更多"底部弹出菜单 -->
+  <div class="m-sheet-mask" id="mSheetMask"></div>
+  <div class="m-sheet" id="mSheet">
+    <div class="m-sheet-grab"></div>
+    <div class="m-sheet-title">全部功能</div>
+    <div class="m-sheet-grid">
+      {% if 'list' in user_menus %}<a href="/list" class="m-sheet-item"><span class="m-sheet-ico">📦</span>商品管理</a>{% endif %}
+      {% if 'tasks' in user_menus %}<a href="/tasks" class="m-sheet-item"><span class="m-sheet-ico">📌</span>任务管理</a>{% endif %}
+      {% if 'ads' in user_menus %}<a href="/ads" class="m-sheet-item"><span class="m-sheet-ico">📢</span>广告管理</a>{% endif %}
+      {% if 'knowledge' in user_menus %}<a href="/knowledge" class="m-sheet-item"><span class="m-sheet-ico">📚</span>知识库</a>{% endif %}
+      {% if 'forwarder_integration' in user_menus %}<a href="/forwarder-integration" class="m-sheet-item"><span class="m-sheet-ico">🚚</span>运单管理</a>{% endif %}
+      {% if 'forwarder' in user_menus %}<a href="/forwarder" class="m-sheet-item"><span class="m-sheet-ico">🚢</span>货代管理</a>{% endif %}
+      {% if 'japan_calendar' in user_menus %}<a href="/japan-calendar" class="m-sheet-item"><span class="m-sheet-ico">🇯🇵</span>日本日历</a>{% endif %}
+      {% if 'alert_center' in user_menus %}<a href="/alerts" class="m-sheet-item"><span class="m-sheet-ico">🚨</span>告警中心</a>{% endif %}
+      {% if 'settings' in user_menus %}<a href="/settings" class="m-sheet-item"><span class="m-sheet-ico">⚙️</span>系统管理</a>{% endif %}
+      {% if 'users' in user_menus %}<a href="/users" class="m-sheet-item"><span class="m-sheet-ico">👥</span>用户管理</a>{% endif %}
+      <a href="/ui-mode/pc" class="m-sheet-item"><span class="m-sheet-ico">🌐</span>桌面版</a>
+      <a href="javascript:void(0)" class="m-sheet-item m-danger" onclick="handleSystemLogout()"><span class="m-sheet-ico">🚪</span>退出登录</a>
+    </div>
+  </div>
+  {% endif %}
+
+  <script>
+    async function handleSystemLogout() {
+      try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) {}
+      window.location.href = "/login";
+    }
+
+    // "更多"弹出菜单开关
+    (function () {
+      const moreTab = document.getElementById("mMoreTab");
+      const sheet = document.getElementById("mSheet");
+      const mask = document.getElementById("mSheetMask");
+      if (!moreTab || !sheet || !mask) return;
+      function closeSheet() {
+        sheet.classList.remove("open");
+        mask.classList.remove("open");
+      }
+      moreTab.addEventListener("click", () => {
+        sheet.classList.add("open");
+        mask.classList.add("open");
+      });
+      mask.addEventListener("click", closeSheet);
+    })();
+
+    // 🔴 全局告警角标: 每5分钟轮询一次
+    (function () {
+      const bell = document.getElementById("mAlertBell");
+      if (!bell) return;
+      async function refreshAlertBell() {
+        try {
+          const res = await fetch("/api/alerts/badge");
+          const j = await res.json();
+          if (j && j.code === 0 && j.data && j.data.total > 0) {
+            const numEl = document.getElementById("mAlertBellNum");
+            if (numEl) numEl.innerText = j.data.total > 99 ? "99+" : j.data.total;
+            bell.classList.add("show");
+          }
+        } catch (e) { /* 静默 */ }
+      }
+      refreshAlertBell();
+      setInterval(refreshAlertBell, 5 * 60 * 1000);
+    })();
+  </script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

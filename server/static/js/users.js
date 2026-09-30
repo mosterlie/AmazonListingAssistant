@@ -3,6 +3,46 @@
  */
 
 let allUsersCache = [];
+let rbacRolesCache = [];      // 全部角色列表 (RBAC)
+let userRolesMapCache = {};   // {user_id: [{role_id, role_name}]} (RBAC)
+
+// ───── RBAC: 角色数据加载 ─────
+async function loadRbacRoles() {
+  try {
+    const res = await fetch("/api/rbac/roles");
+    const result = await res.json();
+    if (result.roles) rbacRolesCache = result.roles;
+    const res2 = await fetch("/api/rbac/user-roles-map");
+    const result2 = await res2.json();
+    if (result2.map) userRolesMapCache = result2.map;
+  } catch (err) { /* 角色数据加载失败不阻塞用户列表 */ }
+}
+
+function renderRolesChecks(containerId, checkedIds) {
+  const box = document.getElementById(containerId);
+  if (!box) return;
+  box.innerHTML = (rbacRolesCache.length ? rbacRolesCache : [])
+    .filter(r => r.code !== "admin") // admin 超管由「角色权限」下拉控制, 不重复勾
+    .map(r => `
+      <label style="display:inline-flex; align-items:center; gap:4px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:4px 10px; font-size:0.8rem; cursor:pointer;">
+        <input type="checkbox" class="rbac-user-role-cb" value="${r.id}"
+          ${checkedIds.includes(r.id) ? "checked" : ""}> 🛡️ ${escapeHtml(r.name)}
+      </label>`).join("") || '<span style="font-size:0.8rem; color:#94a3b8;">角色加载失败或暂无角色</span>';
+}
+
+function collectRolesChecks(containerId) {
+  return Array.from(document.querySelectorAll(`#${containerId} .rbac-user-role-cb:checked`)).map(cb => parseInt(cb.value, 10));
+}
+
+async function saveUserRoles(userId, roleIds) {
+  try {
+    await fetch(`/api/rbac/users/${userId}/roles`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role_ids: roleIds })
+    });
+  } catch (err) { /* 角色保存失败不阻塞主流程 */ }
+}
 
 async function loadUserList() {
   const tbody = document.getElementById("userTableBody");
@@ -16,6 +56,7 @@ async function loadUserList() {
     if (result.code === 0) {
       allUsersCache = result.data || [];
       if (countBadge) countBadge.textContent = `共 ${allUsersCache.length} 个用户`;
+      await loadRbacRoles();
       renderUserTable(allUsersCache);
     } else {
       tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--danger);">加载失败: ${result.msg}</td></tr>`;
@@ -38,6 +79,7 @@ function renderUserTable(users) {
     const isAdmin = (u.role === "admin");
     const isActive = (u.status === "active");
     const isProtected = (u.username === "admin");
+    const boundRoles = (userRolesMapCache[String(u.id)] || []).map(r => `🛡️ ${escapeHtml(r.role_name)}`).join(" ");
 
     return `
       <tr>
@@ -48,9 +90,9 @@ function renderUserTable(users) {
         </td>
         <td>${escapeHtml(u.display_name || "-")}</td>
         <td style="text-align:center;">
-          ${isAdmin 
-            ? '<span class="role-badge-admin">👑 系统管理员</span>' 
-            : '<span class="role-badge-user">👤 普通用户</span>'}
+          ${isAdmin
+            ? '<span class="role-badge-admin">👑 系统管理员</span>'
+            : `<span class="role-badge-user">👤 普通用户</span>${boundRoles ? `<div style="font-size:0.72rem; color:#6366f1; margin-top:2px;">${boundRoles}</div>` : ''}`}
         </td>
         <td style="text-align:center;">
           ${isActive 
@@ -81,6 +123,7 @@ function renderUserTable(users) {
 
 function openAddUserModal() {
   document.getElementById("addUserForm").reset();
+  renderRolesChecks("newRolesChecks", []);
   document.getElementById("addUserModal").style.display = "flex";
   document.getElementById("newUsernameInput").focus();
 }
@@ -115,6 +158,8 @@ async function handleAddUserSubmit(e) {
     const result = await res.json();
 
     if (result.code === 0) {
+      // RBAC: 新建用户绑定功能角色 (未勾选则后端兜底「普通用户」角色)
+      await saveUserRoles(result.data.id, collectRolesChecks("newRolesChecks"));
       showToast(`🎉 用户【${username}】创建成功！`);
       closeAddUserModal();
       loadUserList();
@@ -129,7 +174,7 @@ async function handleAddUserSubmit(e) {
   }
 }
 
-function openEditUserModal(userId) {
+async function openEditUserModal(userId) {
   const user = allUsersCache.find(u => u.id === userId);
   if (!user) return;
 
@@ -139,6 +184,10 @@ function openEditUserModal(userId) {
   document.getElementById("editPasswordInput").value = "";
   document.getElementById("editRoleSelect").value = user.role || "user";
   document.getElementById("editStatusSelect").value = user.status || "active";
+
+  // RBAC: 回填已绑定功能角色
+  let boundIds = (userRolesMapCache[String(user.id)] || []).map(r => r.role_id);
+  renderRolesChecks("editRolesChecks", boundIds);
 
   // 如果是 admin 用户，禁止修改角色为 user 或禁用
   const isProtected = (user.username === "admin");
@@ -178,6 +227,9 @@ async function handleEditUserSubmit(e) {
     const result = await res.json();
 
     if (result.code === 0) {
+      // RBAC: 同步保存功能角色绑定
+      const roleIds = collectRolesChecks("editRolesChecks");
+      if (!isProtectedUser(userId)) await saveUserRoles(userId, roleIds);
       showToast("✅ 用户信息已成功更新！");
       closeEditUserModal();
       loadUserList();
@@ -190,6 +242,11 @@ async function handleEditUserSubmit(e) {
     saveBtn.disabled = false;
     saveBtn.textContent = "保存修改";
   }
+}
+
+function isProtectedUser(userId) {
+  const user = allUsersCache.find(u => u.id === parseInt(userId, 10));
+  return user && user.username === "admin";
 }
 
 async function confirmDeleteUser(userId, username) {

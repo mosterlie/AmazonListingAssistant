@@ -5,7 +5,8 @@ from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Request, Depends
 from server.models.product_schemas import ProductCreateSchema, GenerateMatrixRequest
 from server.services.product_service import ProductService
-from server.dependencies import get_current_user_from_request, require_admin_user
+from server.dependencies import get_current_user_from_request
+from server.services.rbac_service import require_perm
 
 router = APIRouter(prefix="/api/products", tags=["商品维护"])
 
@@ -371,10 +372,10 @@ async def generate_bullets_ai(request: Request):
     return {"code": 0, "msg": "生成成功", "data": {"raw": raw, "model": model_used, "source": source}}
 
 
-@router.post("", summary="保存/创建商品与变体信息")
-async def create_product(data: ProductCreateSchema, request: Request):
+@router.post("", summary="保存/创建商品与变体信息 (需「商品新建」按钮权限)")
+async def create_product(data: ProductCreateSchema, request: Request,
+                         user: Dict[str, Any] = Depends(require_perm("product:create"))):
     """保存商品完整信息至本地数据库，维护人取当前登录账号"""
-    user = get_current_user_from_request(request)
     username = user.get("username", "admin") if user else "admin"
     try:
         product = ProductService.create_product(data, created_by=username)
@@ -386,10 +387,11 @@ async def create_product(data: ProductCreateSchema, request: Request):
     return {"code": 0, "msg": "商品录入成功", "data": product}
 
 
-@router.put("/{product_id}", summary="更新修改商品与变体信息 (普通用户仅可修改自己的品)")
-async def update_product(product_id: int, data: ProductCreateSchema, request: Request):
+@router.put("/{product_id}", summary="更新修改商品与变体信息 (需「商品编辑」按钮权限, 普通用户仅可修改自己的品)")
+async def update_product(product_id: int, data: ProductCreateSchema, request: Request,
+                         perm_user: Dict[str, Any] = Depends(require_perm("product:edit"))):
     """更新修改已有商品及变体完整信息 (维护人不可修改, 归属校验: 普通用户仅能改自己的品)"""
-    user = get_current_user_from_request(request)
+    user = perm_user
     if user and user.get("role") != "admin":
         existing = ProductService.get_product_by_id(product_id)
         if not existing or (existing.get("created_by") or "") != user.get("username", ""):
@@ -407,9 +409,9 @@ async def update_product(product_id: int, data: ProductCreateSchema, request: Re
     return {"code": 0, "msg": "商品更新成功", "data": product}
 
 
-@router.delete("/{product_id}", summary="彻底删除商品及本地图片 (仅限管理员)")
-async def delete_product(product_id: int, admin: Dict[str, Any] = Depends(require_admin_user)):
-    """彻底删除指定商品，级联删除所有变体、条码映射、日志、任务以及本地图片文件夹 (仅限管理员)"""
+@router.delete("/{product_id}", summary="彻底删除商品及本地图片 (需「商品删除」按钮权限)")
+async def delete_product(product_id: int, admin: Dict[str, Any] = Depends(require_perm("product:delete"))):
+    """彻底删除指定商品，级联删除所有变体、条码映射、日志、任务以及本地图片文件夹"""
     ok, msg = ProductService.delete_product(product_id)
     if not ok:
         raise HTTPException(status_code=404, detail=msg)

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends, Query, status
 from server.routers.auth_router import get_current_user_from_request
 from server.services.ad_service import AdTaskService
 from server.models.ad_schemas import AdTaskCreateSchema, AdTaskUpdateSchema
+from server.services.rbac_service import require_perm, RbacService
 
 router = APIRouter(prefix="/api/ads", tags=["赛狐广告投放任务模块"])
 
@@ -21,19 +22,8 @@ def require_auth(request: Request):
     return user
 
 
-def require_admin(request: Request):
-    """管理员权限专属依赖"""
-    user = require_auth(request)
-    if user.get("role") != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="该操作需要管理员权限！"
-        )
-    return user
-
-
 @router.get("/options", summary="获取广告任务录入表单的下拉选项")
-async def get_ad_options(user: dict = Depends(require_admin)):
+async def get_ad_options(user: dict = Depends(require_auth)):
     return {"code": 0, "msg": "获取成功", "data": AdTaskService.get_options()}
 
 
@@ -42,14 +32,14 @@ async def list_ad_tasks(
     status: Optional[str] = Query(None, description="状态过滤 (all/pending/running/success/partial/failed)"),
     search: Optional[str] = Query(None, description="搜索关键词 (任务名/店铺/ASIN)"),
     shop_name: Optional[str] = Query(None, description="店铺筛选"),
-    user: dict = Depends(require_admin)
+    user: dict = Depends(require_auth)
 ):
     tasks = AdTaskService.list_tasks(status=status, search=search, shop_name=shop_name)
     return {"code": 0, "msg": "查询成功", "data": tasks, "total": len(tasks)}
 
 
 @router.post("/tasks", summary="新增广告投放任务")
-async def create_ad_task(data: AdTaskCreateSchema, user: dict = Depends(require_admin)):
+async def create_ad_task(data: AdTaskCreateSchema, user: dict = Depends(require_perm("ads:create"))):
     try:
         task = AdTaskService.create_task(data, current_user=user)
         return {"code": 0, "msg": "广告任务创建成功！", "data": task}
@@ -60,7 +50,7 @@ async def create_ad_task(data: AdTaskCreateSchema, user: dict = Depends(require_
 
 
 @router.get("/tasks/{task_id}", summary="获取广告任务详情")
-async def get_ad_task(task_id: int, user: dict = Depends(require_admin)):
+async def get_ad_task(task_id: int, user: dict = Depends(require_auth)):
     task = AdTaskService.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="广告任务不存在！")
@@ -68,7 +58,7 @@ async def get_ad_task(task_id: int, user: dict = Depends(require_admin)):
 
 
 @router.put("/tasks/{task_id}", summary="编辑广告投放任务")
-async def update_ad_task(task_id: int, data: AdTaskUpdateSchema, user: dict = Depends(require_admin)):
+async def update_ad_task(task_id: int, data: AdTaskUpdateSchema, user: dict = Depends(require_perm("ads:operate"))):
     try:
         task = AdTaskService.update_task(task_id, data)
         return {"code": 0, "msg": "广告任务更新成功！", "data": task}
@@ -79,7 +69,7 @@ async def update_ad_task(task_id: int, data: AdTaskUpdateSchema, user: dict = De
 
 
 @router.delete("/tasks/{task_id}", summary="删除广告投放任务")
-async def delete_ad_task(task_id: int, admin: dict = Depends(require_admin)):
+async def delete_ad_task(task_id: int, user: dict = Depends(require_perm("ads:operate"))):
     ok = AdTaskService.delete_task(task_id)
     if not ok:
         raise HTTPException(status_code=404, detail="指定广告任务不存在或已删除！")
@@ -87,7 +77,7 @@ async def delete_ad_task(task_id: int, admin: dict = Depends(require_admin)):
 
 
 @router.post("/tasks/{task_id}/run", summary="执行自动投放（调用赛狐自动化，暂不提交）")
-def run_ad_task(task_id: int, user: dict = Depends(require_admin)):
+def run_ad_task(task_id: int, user: dict = Depends(require_perm("ads:operate"))):
     try:
         res = AdTaskService.start_run(task_id, operator=user)
         return {"code": 0, "msg": "自动投放任务已启动，请轮询执行状态获取进度", "data": res}
@@ -101,7 +91,7 @@ def run_ad_task(task_id: int, user: dict = Depends(require_admin)):
 
 
 @router.post("/tasks/{task_id}/stop", summary="请求终止正在执行的自动投放任务")
-async def stop_ad_task(task_id: int, user: dict = Depends(require_admin)):
+async def stop_ad_task(task_id: int, user: dict = Depends(require_perm("ads:operate"))):
     accepted = AdTaskService.request_stop(task_id)
     if not accepted:
         raise HTTPException(status_code=409, detail="该任务当前未在执行，无需终止")
@@ -109,19 +99,19 @@ async def stop_ad_task(task_id: int, user: dict = Depends(require_admin)):
 
 
 @router.get("/tasks/{task_id}/run-status", summary="实时查询自动投放执行状态与增量日志")
-async def get_ad_run_status(task_id: int, since: int = 0, user: dict = Depends(require_admin)):
+async def get_ad_run_status(task_id: int, since: int = 0, user: dict = Depends(require_auth)):
     st = AdTaskService.get_run_status(task_id, since=since)
     return {"code": 0, "msg": "success", "data": st}
 
 
 @router.get("/tasks/{task_id}/runs", summary="查询广告任务的历史执行记录")
-async def list_ad_runs(task_id: int, limit: int = 20, user: dict = Depends(require_admin)):
+async def list_ad_runs(task_id: int, limit: int = 20, user: dict = Depends(require_auth)):
     runs = AdTaskService.list_runs(task_id, limit=limit)
     return {"code": 0, "msg": "查询成功", "data": runs, "total": len(runs)}
 
 
 @router.get("/runs/{run_id}", summary="获取单条执行记录详情（含完整日志与跳过明细）")
-async def get_ad_run(run_id: int, user: dict = Depends(require_admin)):
+async def get_ad_run(run_id: int, user: dict = Depends(require_auth)):
     run = AdTaskService.get_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="执行记录不存在！")
@@ -129,13 +119,13 @@ async def get_ad_run(run_id: int, user: dict = Depends(require_admin)):
 
 
 @router.get("/cdp-status", summary="检测 CDP 调试浏览器是否可用")
-def get_cdp_status(user: dict = Depends(require_admin)):
+def get_cdp_status(user: dict = Depends(require_auth)):
     ok = AdTaskService.check_cdp_available()
     return {"code": 0, "msg": "success", "data": {"available": ok}}
 
 
 @router.post("/launch-browser", summary="启动 9222 调试浏览器并打开批量创建页")
-def launch_debug_browser(user: dict = Depends(require_admin)):
+def launch_debug_browser(user: dict = Depends(require_perm("ads:operate"))):
     try:
         ok, msg = AdTaskService.launch_debug_browser()
         if not ok:

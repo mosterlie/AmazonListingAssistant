@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>用户登录 - 跨境电商运维中台</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="/static/favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="stylesheet" href="/static/css/mobile.css?v=20260930_m1">
+</head>
+<body class="m-login-body">
+  <div class="m-login-card">
+    <div class="login-logo" style="display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:10px;">
+      <span class="login-badge" style="background:linear-gradient(135deg,#3b82f6,#2563eb); color:#fff; padding:4px 10px; border-radius:6px; font-weight:800; font-size:0.85rem;">ERP HUB</span>
+      <span style="font-size:1.15rem; font-weight:700; color:#f8fafc;">跨境电商商品中台</span>
+    </div>
+    <div style="text-align:center; font-size:0.82rem; color:#94a3b8; margin-bottom:24px;">请使用系统账号与密码登录工作台</div>
+
+    <div class="m-login-error" id="loginErrorMsg"></div>
+
+    <form id="loginForm" onsubmit="handleLoginSubmit(event)">
+      <div style="margin-bottom:16px;">
+        <label for="usernameInput" style="display:block; font-size:0.85rem; font-weight:600; color:#cbd5e1; margin-bottom:8px;">👤 用户名 (Username)</label>
+        <input type="text" id="usernameInput" class="m-login-input" placeholder="请输入用户名" required autofocus autocomplete="username" autocapitalize="off">
+      </div>
+
+      <div style="margin-bottom:20px;">
+        <label for="passwordInput" style="display:block; font-size:0.85rem; font-weight:600; color:#cbd5e1; margin-bottom:8px;">🔒 登录密码 (Password)</label>
+        <input type="password" id="passwordInput" class="m-login-input" placeholder="请输入密码" required autocomplete="current-password">
+      </div>
+
+      <button type="submit" class="m-login-btn" id="loginSubmitBtn">
+        🚀 立即安全登录
+      </button>
+    </form>
+
+    <a href="/ui-mode/pc?next=/list" style="display:block; text-align:center; margin-top:18px; font-size:0.78rem; color:#64748b; text-decoration:none;">🌐 切换到桌面版界面</a>
+  </div>
+
+  <script>
+    async function handleLoginSubmit(e) {
+      e.preventDefault();
+      const username = document.getElementById("usernameInput").value.trim();
+      const password = document.getElementById("passwordInput").value;
+      const errorDiv = document.getElementById("loginErrorMsg");
+      const btn = document.getElementById("loginSubmitBtn");
+
+      errorDiv.style.display = "none";
+      errorDiv.textContent = "";
+
+      if (!username || !password) {
+        errorDiv.textContent = "请完整输入用户名和密码！";
+        errorDiv.style.display = "block";
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "⏳ 正在验证并登录...";
+
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+        const result = await res.json();
+
+        if (result.code === 0) {
+          btn.textContent = "✅ 登录成功，跳转中...";
+          const urlParams = new URLSearchParams(window.location.search);
+          let nextUrl = urlParams.get("next") || "";
+          // 仅允许站内相对路径, 防开放重定向 (拒绝 //host、http:// 等)
+          if (!/^\/(?!\/)/.test(nextUrl)) nextUrl = "";
+          window.location.href = nextUrl || "/list";
+        } else {
+          errorDiv.textContent = result.msg || "用户名或密码错误，请核对！";
+          errorDiv.style.display = "block";
+          btn.disabled = false;
+          btn.textContent = "🚀 立即安全登录";
+        }
+      } catch (err) {
+        errorDiv.textContent = "连接服务异常: " + err.message;
+        errorDiv.style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "🚀 立即安全登录";
+      }
+    }
+  </script>
+</body>
+</html>

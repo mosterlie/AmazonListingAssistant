@@ -82,6 +82,11 @@
             </select>
           </div>
         </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">🛡️ 功能角色 (RBAC) <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(可多选; 不选则默认「普通用户」角色)</span></label>
+          <div id="newRolesChecks" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;"></div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeAddUserModal()">取消</button>
@@ -131,6 +136,11 @@
               <option value="disabled">🔴 禁用账号</option>
             </select>
           </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label">🛡️ 功能角色 (RBAC) <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(可多选, 权限取并集; 未选则默认「普通用户」角色)</span></label>
+          <div id="editRolesChecks" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;"></div>
         </div>
       </div>
       <div class="modal-footer">
@@ -227,5 +237,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="/static/js/users.js?v=20260830_5"></script>
+<script src="/static/js/users.js?v=20260930_rbac1"></script>
 {% endblock %}

@@ -1429,3 +1429,129 @@ input[type="text"],
   border-radius: 4px;
 }
 
+
+/* ============================================================
+   手机端全局适配 (窄屏 ≤768px): 未提供手机版模板的页面在此兜底
+   - 顶栏导航横向滚动不换行挤压
+   - 主区/卡片留白收紧
+   - 多列网格单列化、弹窗宽度适配
+   桌面端 (>768px) 完全不受影响
+   ============================================================ */
+@media (max-width: 768px) {
+  /* ── 顶栏: 导航横向滑动, 不再挤压成竖排单字 ── */
+  .header { height: auto; }
+  .nav-container {
+    flex-wrap: nowrap;
+    padding: 8px 10px;
+    gap: 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .brand-logo { flex-shrink: 0; font-size: 0.85rem; gap: 6px; }
+  .brand-logo > span:last-child { display: none; } /* 窄屏只留 ERP HUB 徽章 */
+  .nav-links {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+    scrollbar-width: none;
+  }
+  .nav-links::-webkit-scrollbar { display: none; }
+  .nav-item {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 7px 12px;
+    font-size: 0.85rem;
+  }
+
+  /* 用户区(铃铛/日历/徽章/退出)紧凑化, 不被挤出屏幕 */
+  .nav-container > div[style*="margin-left:auto"] {
+    margin-left: 0 !important;
+    gap: 5px !important;
+    flex-shrink: 0;
+  }
+  .user-profile-badge { max-width: 30vw; overflow: hidden; }
+
+  /* ── 主区与卡片 ── */
+  .main-wrapper { padding: 10px 10px 20px !important; }
+  .form-card { border-radius: 12px; }
+  .card-body { padding: 12px 12px; }
+  .card-header { padding: 12px 12px; }
+  .card-title { font-size: 0.95rem; }
+
+  /* ── 多列网格单列化 ── */
+  .grid-2, .grid-3 { grid-template-columns: 1fr !important; }
+
+  /* ── 弹窗: 宽度贴屏 ── */
+  .custom-modal-dialog {
+    width: 94vw !important;
+    max-width: 94vw !important;
+    max-height: 86vh;
+  }
+  .custom-modal-body { padding: 12px 14px; }
+
+  /* ── 系统管理子菜单胶囊: 横向滑动 ── */
+  .settings-nav {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .settings-nav::-webkit-scrollbar { display: none; }
+  .settings-nav-item { white-space: nowrap; flex-shrink: 0; padding: 8px 14px; }
+
+  /* ── 表格: 横向滚动兜底 ── */
+  .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* ── 按钮/输入框触控尺寸 ── */
+  .btn { min-height: 36px; }
+  .form-input { font-size: 16px; } /* ≥16px 防 iOS Safari 聚焦自动放大 */
+
+  /* ── 页面顶部 sticky 操作条收紧 ── */
+  div[style*="position:sticky"][style*="top:64px"] {
+    padding: 8px 10px !important;
+    margin-left: -10px !important;
+    margin-right: -10px !important;
+    top: 0;
+  }
+}
+
+/* ============================================================
+   手机端内容级适配 v2 (窄屏 ≤768px): 表格/卡片头/弹窗/筛选胶囊
+   ============================================================ */
+@media (max-width: 768px) {
+  /* ── 表格内容紧凑化: 减少横向滚动长度, 内容更易读 ── */
+  .matrix-table th { padding: 8px 6px !important; font-size: 0.74rem; white-space: nowrap; }
+  .matrix-table td { padding: 8px 6px !important; font-size: 0.78rem; }
+  .matrix-table .btn { padding: 3px 8px !important; font-size: 0.72rem !important; min-height: 0 !important; }
+  .matrix-table img { max-width: 56px; max-height: 56px; }
+  .matrix-table input[type="text"], .matrix-table input[type="number"], .matrix-table select {
+    font-size: 0.78rem; padding: 4px 6px;
+  }
+
+  /* ── 卡片头: 标题与操作按钮允许换行 (覆盖内联不换行样式) ── */
+  .card-header { flex-wrap: wrap !important; row-gap: 8px; }
+  .card-header .card-title { min-width: 0; }
+  .card-header .tag-badge { flex-shrink: 0; }
+
+  /* ── 弹窗头尾按钮换行 ── */
+  .custom-modal-header, .custom-modal-footer { flex-wrap: wrap; row-gap: 8px; }
+  .custom-modal-footer .btn { flex: 1; min-height: 40px; }
+
+  /* ── 统计筛选胶囊紧凑化 ── */
+  .stat-pill { padding: 4px 10px !important; font-size: 0.76rem !important; }
+
+  /* ── 表单元素触控 ── */
+  .form-label { font-size: 0.8rem; }
+  textarea.form-input { font-size: 16px; }
+
+  /* ── 全局横向弹层/下拉菜单防溢出屏幕 ── */
+  .user-hover-popover { display: none !important; } /* 手机上悬停卡片无意义, 防止溢出 */
+
+  /* ── 日历快捷弹窗适配 ── */
+  .cal-popup { width: 92vw !important; max-width: 92vw; left: 50% !important; transform: translateX(-50%); }
+}

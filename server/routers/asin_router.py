@@ -10,14 +10,14 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from starlette.responses import Response
 from urllib.parse import quote
 
-from server.routers.ad_router import require_admin, require_auth
+from server.dependencies import require_admin_user, get_current_user
 from server.services.asin_pool_service import AsinPoolService
 
 router = APIRouter(prefix="/api/asin-pool", tags=["ASIN生成池模块"])
 
 
 @router.get("/template", summary="下载 Excel 导入模板")
-def download_template(user: dict = Depends(require_admin)):
+def download_template(user: dict = Depends(require_admin_user)):
     content = AsinPoolService.build_template()
     filename = quote("ASIN父子关系导入模板.xlsx")
     return Response(
@@ -28,7 +28,7 @@ def download_template(user: dict = Depends(require_admin)):
 
 
 @router.post("/import", summary="导入赛狐在线产品 Excel (父子ASIN, 追加批次)")
-async def import_excel(file: UploadFile = File(...), user: dict = Depends(require_admin)):
+async def import_excel(file: UploadFile = File(...), user: dict = Depends(require_admin_user)):
     if not (file.filename or "").lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="仅支持 .xlsx / .xls 文件")
     content = await file.read()
@@ -40,12 +40,12 @@ async def import_excel(file: UploadFile = File(...), user: dict = Depends(requir
 
 
 @router.get("/batches", summary="导入批次列表 (首条为当前生效批次)")
-def list_batches(user: dict = Depends(require_admin)):
+def list_batches(user: dict = Depends(require_admin_user)):
     return {"code": 0, "msg": "查询成功", "data": AsinPoolService.list_batches()}
 
 
 @router.delete("/all", summary="清空 ASIN 生成池 (全部导入批次/父子关系/生成记录)")
-def purge_all(user: dict = Depends(require_admin)):
+def purge_all(user: dict = Depends(require_admin_user)):
     counts = AsinPoolService.purge_all()
     return {"code": 0,
             "msg": f"已清空: {counts['batches']} 个批次, {counts['pairs']} 对父子关系, {counts['logs']} 条生成记录",
@@ -53,7 +53,7 @@ def purge_all(user: dict = Depends(require_admin)):
 
 
 @router.get("/check-duplicates", summary="对最新批次(或指定批次)做重复检查")
-async def check_duplicates(batch_id: int = None, user: dict = Depends(require_auth)):
+async def check_duplicates(batch_id: int = None, user: dict = Depends(get_current_user)):
     try:
         data = AsinPoolService.check_duplicates(batch_id)
     except ValueError as ve:
@@ -62,7 +62,7 @@ async def check_duplicates(batch_id: int = None, user: dict = Depends(require_au
 
 
 @router.post("/generate", summary="输入已投放ASIN, 从未覆盖父体随机生成ASIN")
-async def generate_asins(request: Request, user: dict = Depends(require_admin)):
+async def generate_asins(request: Request, user: dict = Depends(require_admin_user)):
     body = await request.json()
     asins_text = (body or {}).get("asins_text", "")
     mode = (body or {}).get("mode", "byAds")   # 默认 byAds 截取版
@@ -76,7 +76,7 @@ async def generate_asins(request: Request, user: dict = Depends(require_admin)):
 
 
 @router.get("/query-logs", summary="ASIN 获取记录")
-def list_query_logs(limit: int = Query(50, ge=1, le=500), user: dict = Depends(require_admin)):
+def list_query_logs(limit: int = Query(50, ge=1, le=500), user: dict = Depends(require_admin_user)):
     return {"code": 0, "msg": "查询成功", "data": AsinPoolService.list_query_logs(limit)}
 
 
@@ -85,14 +85,14 @@ def overview(
     search: Optional[str] = Query(None, description="父ASIN关键词"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
-    user: dict = Depends(require_admin),
+    user: dict = Depends(require_admin_user),
 ):
     return {"code": 0, "msg": "查询成功",
             "data": AsinPoolService.overview(search=search or "", page=page, page_size=page_size)}
 
 
 @router.get("/parents/{parent}/children", summary="查看某父ASIN下的全部子ASIN")
-def list_children(parent: str, batch_id: Optional[int] = None, user: dict = Depends(require_admin)):
+def list_children(parent: str, batch_id: Optional[int] = None, user: dict = Depends(require_admin_user)):
     try:
         data = AsinPoolService.list_children(parent, batch_id=batch_id)
     except ValueError as ve:

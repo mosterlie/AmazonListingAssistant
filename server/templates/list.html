@@ -35,13 +35,19 @@
     username: {{ (current_user.username if current_user else '') | tojson }},
     role: {{ (current_user.role if current_user else '') | tojson }}
   };
+  // RBAC 按钮权限点 (后端注入, admin 为全量)
+  window.__USER_PERMS__ = {{ user_perms | tojson }};
+  function hasPerm(key) {
+    const u = window.__CURRENT_USER__ || {};
+    return u.role === 'admin' || (window.__USER_PERMS__ || []).includes(key);
+  }
   function canEditProduct(createdBy) {
     const u = window.__CURRENT_USER__ || {};
+    if (!hasPerm('product:edit')) return false;
     return u.role === 'admin' || (u.username && u.username === createdBy);
   }
   function canDeleteProduct() {
-    const u = window.__CURRENT_USER__ || {};
-    return u.role === 'admin';
+    return hasPerm('product:delete');
   }
   async function deleteProduct(productId, name) {
     const displayName = name || ('#' + productId);
@@ -108,9 +114,11 @@
       <button type="button" class="btn btn-outline btn-sm" style="display:inline-flex; align-items:center; gap:4px;" onclick="PricingTool.open()">
         <span>🧮</span> 试算
       </button>
+      {% if 'product:create' in user_perms %}
       <a href="/entry" class="btn btn-primary btn-sm" style="display:inline-flex; align-items:center; gap:4px;">
         <span>➕</span> 录入
       </a>
+      {% endif %}
     </div>
   </div>
   <!-- 筛选条: 紧邻表格, 靠右对齐 -->
@@ -206,13 +214,15 @@
                 {{ (p.updated_at or p.created_at or '')[5:16] }}
               </td>
               <td style="text-align:center; white-space:nowrap;">
-                {% if current_user and (current_user.role == 'admin' or current_user.username == p.created_by) %}
+                {% if 'product:edit' in user_perms and current_user and (current_user.role == 'admin' or current_user.username == p.created_by) %}
                 <a href="/entry?id={{ p.id }}" class="btn btn-primary btn-sm" style="padding:2px 7px; font-size:0.72rem; margin-right:2px; text-decoration:none;">✏️ 编辑</a>
                 {% endif %}
                 <button type="button" class="btn btn-outline btn-sm" onclick="viewProductDetail({{ p.id }})" style="padding:2px 7px; font-size:0.72rem; margin-right:2px;">👁️ 详情</button>
+                {% if 'publish:run' in user_perms %}
                 <button type="button" class="btn btn-success btn-sm" onclick="triggerPublish({{ p.id }}, event)" style="padding:2px 7px; font-size:0.72rem; margin-right:2px;">🚀 上件</button>
-                {% if current_user and current_user.role == 'admin' %}
-                <button type="button" class="btn btn-sm" onclick="deleteProduct({{ p.id }}, '{{ (p.parent_sku or p.sku or p.title or '') | replace("'", "\\'") }}')" style="padding:2px 7px; font-size:0.72rem; background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5;" title="彻底删除商品及本地图片目录 (仅限管理员)">🗑️ 删除</button>
+                {% endif %}
+                {% if 'product:delete' in user_perms %}
+                <button type="button" class="btn btn-sm" onclick="deleteProduct({{ p.id }}, '{{ (p.parent_sku or p.sku or p.title or '') | replace("'", "\\'") }}')" style="padding:2px 7px; font-size:0.72rem; background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5;" title="彻底删除商品及本地图片目录">🗑️ 删除</button>
                 {% endif %}
               </td>
             </tr>
@@ -263,7 +273,9 @@
       <a id="modalEditBtn" href="#" class="btn btn-primary" style="text-decoration:none; display:inline-flex; align-items:center; gap:4px;">
         编辑
       </a>
+      {% if 'publish:run' in user_perms %}
       <button id="modalPublishBtn" class="btn btn-success">🚀 上件</button>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -489,7 +501,7 @@ async function viewProductDetail(productId) {
     document.getElementById("modalCreatedBy").textContent = p.created_by || "admin";
 
     const publishBtn = document.getElementById("modalPublishBtn");
-    publishBtn.onclick = (e) => triggerPublish(productId, e);
+    if (publishBtn) publishBtn.onclick = (e) => triggerPublish(productId, e);
 
     const editBtn = document.getElementById("modalEditBtn");
     if (editBtn) {
@@ -1280,7 +1292,7 @@ function renderProductTableRows(products) {
         <td style="text-align:center; white-space:nowrap;">
           ${canEditProduct(p.created_by) ? `<a href="/entry?id=${p.id}" class="btn btn-primary btn-sm" style="padding:2px 7px; font-size:0.72rem; margin-right:2px; text-decoration:none;">✏️ 编辑</a>` : ''}
           <button type="button" class="btn btn-outline btn-sm" onclick="viewProductDetail(${p.id})" style="padding:2px 7px; font-size:0.72rem; margin-right:2px;">👁️ 详情</button>
-          <button type="button" class="btn btn-success btn-sm" onclick="triggerPublish(${p.id}, event)" style="padding:2px 7px; font-size:0.72rem; margin-right:2px;">🚀 上件</button>
+          ${hasPerm('publish:run') ? `<button type="button" class="btn btn-success btn-sm" onclick="triggerPublish(${p.id}, event)" style="padding:2px 7px; font-size:0.72rem; margin-right:2px;">🚀 上件</button>` : ''}
           ${canDeleteProduct() ? `<button type="button" class="btn btn-sm" onclick="deleteProduct(${p.id}, '${(p.parent_sku || p.sku || p.title || '').replace(/'/g, "\\'")}')" style="padding:2px 7px; font-size:0.72rem; background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5;" title="彻底删除商品及本地图片目录 (仅限管理员)">🗑️ 删除</button>` : ''}
         </td>
       </tr>

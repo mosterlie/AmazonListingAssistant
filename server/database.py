@@ -693,6 +693,64 @@ def init_db():
     );
     """)
 
+    # ═══════════ RBAC 权限体系: 菜单/角色/用户角色/角色权限点 ═══════════
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS roles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        is_builtin INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_roles (
+        user_id INTEGER NOT NULL,
+        role_id INTEGER NOT NULL,
+        UNIQUE(user_id, role_id)
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS role_menus (
+        role_id INTEGER NOT NULL,
+        menu_key TEXT NOT NULL,
+        UNIQUE(role_id, menu_key)
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS role_permissions (
+        role_id INTEGER NOT NULL,
+        perm_key TEXT NOT NULL,
+        UNIQUE(role_id, perm_key)
+    );
+    """)
+
+    # 预置角色 (admin=超管全量; user=普通用户 6 菜单+常用按钮权限)
+    from server.services.rbac_service import BUILTIN_ROLES
+    for role in BUILTIN_ROLES:
+        cursor.execute("SELECT id FROM roles WHERE code = ?;", (role["code"],))
+        row = cursor.fetchone()
+        if not row:
+            cursor.execute(
+                "INSERT INTO roles (code, name, description, is_builtin) VALUES (?, ?, ?, 1);",
+                (role["code"], role["name"], role["description"]))
+            role_id = cursor.lastrowid
+        else:
+            role_id = row["id"]
+        for mk in role["menus"]:
+            cursor.execute("INSERT OR IGNORE INTO role_menus (role_id, menu_key) VALUES (?, ?);", (role_id, mk))
+        for pk in role["permissions"]:
+            cursor.execute("INSERT OR IGNORE INTO role_permissions (role_id, perm_key) VALUES (?, ?);", (role_id, pk))
+
+    # 存量用户迁移: 无任何角色的用户按旧 role 字段绑定预置角色 (仅首次执行一次)
+    cursor.execute("""
+    INSERT OR IGNORE INTO user_roles (user_id, role_id)
+    SELECT u.id, r.id FROM users u
+    JOIN roles r ON r.code = CASE WHEN u.role = 'admin' THEN 'admin' ELSE 'user' END
+    WHERE NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id);
+    """)
+
     # 初始化默认管理员用户 (admin / admin)
     cursor.execute("SELECT id FROM users WHERE username = 'admin';")
     if not cursor.fetchone():
