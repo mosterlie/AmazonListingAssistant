@@ -160,9 +160,9 @@
   function jumpCell(text, type, placeholder = "—") {
     if (!text) return `<span style="font-size:0.75rem; color:#cbd5e1;">${placeholder}</span>`;
     const openAttr = type === "sagawa"
-      ? `window.open('${SAGAWA_URL}', '_blank')`
-      : `window.open('https://t.17track.net/zh-cn#nums=' + encodeURIComponent(this.dataset.v), '_blank')`;
-    const btnTitle = type === "sagawa" ? "到佐川急便官网查询" : "到 17TRACK 查询";
+      ? `copyText(this.dataset.v); window.open('${SAGAWA_URL}', '_blank')`
+      : `copyText(this.dataset.v); window.open('https://t.17track.net/zh-cn#nums=' + encodeURIComponent(this.dataset.v), '_blank')`;
+    const btnTitle = type === "sagawa" ? "复制单号并到佐川急便官网查询" : "复制单号并到 17TRACK 查询";
     return `<span class="copy-chip" title="点击复制: ${escapeHtml(text)}" data-v="${escapeHtml(text)}"
               onclick="copyText(this.dataset.v)">${escapeHtml(text)}</span>
       <button class="btn btn-outline btn-sm" type="button"
