@@ -19,13 +19,14 @@ MENU_REGISTRY: List[Dict[str, Any]] = [
     {"key": "list",                   "name": "商品管理", "icon": "📦", "url": "/list",                "pages": ["/list", "/entry"],            "sort": 1},
     {"key": "tasks",                  "name": "任务管理", "icon": "📋", "url": "/tasks",               "pages": ["/tasks"],                     "sort": 2},
     {"key": "ads",                    "name": "广告管理", "icon": "📣", "url": "/ads",                 "pages": ["/ads"],                       "sort": 3},
-    {"key": "knowledge",              "name": "知识库",   "icon": "📚", "url": "/knowledge",           "pages": ["/knowledge"],                 "sort": 4},
-    {"key": "forwarder_integration",  "name": "运单管理", "icon": "🚚", "url": "/forwarder-integration", "pages": ["/forwarder-integration"],   "sort": 5},
-    {"key": "forwarder",              "name": "货代管理", "icon": "🛳️", "url": "/forwarder",          "pages": ["/forwarder"],                 "sort": 6},
-    {"key": "japan_calendar",         "name": "日本日历", "icon": "📅", "url": "/japan-calendar",      "pages": ["/japan-calendar"],            "sort": 7},
-    {"key": "alert_center",           "name": "告警中心", "icon": "🚨", "url": "/alerts",              "pages": ["/alerts"],                    "sort": 8},
-    {"key": "settings",               "name": "系统管理", "icon": "⚙️", "url": "/settings",            "pages": ["/settings"],                  "sort": 9},
-    {"key": "users",                  "name": "用户管理", "icon": "👥", "url": "/users",               "pages": ["/users"],                     "sort": 10},
+    {"key": "ads_analysis",           "name": "广告分析", "icon": "📊", "url": "/ads-analysis",        "pages": ["/ads-analysis"],              "sort": 4},
+    {"key": "knowledge",              "name": "知识库",   "icon": "📚", "url": "/knowledge",           "pages": ["/knowledge"],                 "sort": 5},
+    {"key": "forwarder_integration",  "name": "运单管理", "icon": "🚚", "url": "/forwarder-integration", "pages": ["/forwarder-integration"],   "sort": 6},
+    {"key": "forwarder",              "name": "货代管理", "icon": "🛳️", "url": "/forwarder",          "pages": ["/forwarder"],                 "sort": 7},
+    {"key": "japan_calendar",         "name": "日本日历", "icon": "📅", "url": "/japan-calendar",      "pages": ["/japan-calendar"],            "sort": 8},
+    {"key": "alert_center",           "name": "告警中心", "icon": "🚨", "url": "/alerts",              "pages": ["/alerts"],                    "sort": 9},
+    {"key": "settings",               "name": "系统管理", "icon": "⚙️", "url": "/settings",            "pages": ["/settings"],                  "sort": 10},
+    {"key": "users",                  "name": "用户管理", "icon": "👥", "url": "/users",               "pages": ["/users"],                     "sort": 11},
 ]
 MENU_KEYS = {m["key"] for m in MENU_REGISTRY}
 
@@ -278,8 +279,8 @@ def require_perm(perm_key: str):
         if not user:
             raise HTTPException(status_code=401, detail="未登录或会话已过期")
         if user.get("role") == "admin" or perm_key not in PERMISSION_REGISTRY:
-            return
+            return user
         if perm_key in RbacService.get_user_perms(user):
-            return
+            return user
         raise HTTPException(status_code=403, detail=f"无操作权限: {PERMISSION_REGISTRY[perm_key]['name']}")
     return _checker

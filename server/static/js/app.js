@@ -552,10 +552,21 @@ async function handleBatchExtraFileSelect(e) {
     return;
   }
 
+  // 图片大小限制: 单张不超过 5MB, 超限自动跳过 (与服务端一致)
+  const MAX_IMG_SIZE = 5 * 1024 * 1024;
+  const oversizeNames = [];
+  const passFiles = [];
+  for (let i = 0; i < files.length; i++) {
+    if (files[i].size > MAX_IMG_SIZE) oversizeNames.push(files[i].name);
+    else passFiles.push(files[i]);
+  }
+  if (oversizeNames.length) showToast(`以下图片超过 5MB 已跳过: ${oversizeNames.join("、")}`, "error");
+  if (!passFiles.length) { e.target.value = ""; return; }
+
   const formData = new FormData();
-  const uploadCount = Math.min(files.length, remainingSlots);
+  const uploadCount = Math.min(passFiles.length, remainingSlots);
   for (let i = 0; i < uploadCount; i++) {
-    formData.append("files", files[i]);
+    formData.append("files", passFiles[i]);
   }
 
   try {
@@ -573,7 +584,7 @@ async function handleBatchExtraFileSelect(e) {
       renderProductGallery();
       showToast(`🎉 成功上传 ${data.data.length} 张附图！`);
     } else {
-      showToast(`上传失败: ${data.msg || "接口异常"}`, "error");
+      showToast(`上传失败: ${data.detail || data.msg || "接口异常"}`, "error");
     }
   } catch (err) {
     showToast(`上传异常: ${err.message}`, "error");
@@ -1623,6 +1634,13 @@ async function handleFileSelect(e) {
   const files = e.target.files;
   if (!files || files.length === 0) return;
 
+  // 图片大小限制: 单张不超过 5MB (与服务端一致)
+  if (files[0].size > 5 * 1024 * 1024) {
+    showToast(`图片「${files[0].name}」超过 5MB 上限，请压缩后再上传！`, "error");
+    e.target.value = "";
+    return;
+  }
+
   const formData = new FormData();
   formData.append("file", files[0]);
 
@@ -1681,7 +1699,7 @@ async function handleFileSelect(e) {
         renderMatrixTable();
       }
     } else {
-      showToast(`上传失败: ${data.msg}`, "error");
+      showToast(`上传失败: ${data.detail || data.msg || "接口异常"}`, "error");
     }
   } catch (err) {
     showToast(`上传异常: ${err.message}`, "error");

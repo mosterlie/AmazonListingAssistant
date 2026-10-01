@@ -62,7 +62,9 @@ async def test_dxm_login(payload: Optional[Dict[str, Any]] = Body(default=None),
     """测试店小秘登录态 (未登录则用配置账密模拟登录, 含验证码 OCR; 同步阻塞约30s)"""
     override = payload.get("config") if isinstance(payload, dict) and isinstance(payload.get("config"), dict) else None
     try:
-        res = alert_service.AlertService.test_dxm_login(override)
+        # 必须放工作线程: 含浏览器操作, 可能长时间阻塞, 不能冻结主事件循环 (否则全站接口无响应)
+        import asyncio
+        res = await asyncio.to_thread(alert_service.AlertService.test_dxm_login, override)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"测试登录异常: {e}")
     return {"code": 0 if res.get("ok") else 1, "msg": res.get("msg", ""), "data": res}

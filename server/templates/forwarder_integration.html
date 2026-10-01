@@ -378,7 +378,7 @@
       }
       bodyEl.innerHTML = `<div class="wb-timeline">` + details.map(d => `
         <div class="wb-timeline-item">
-          <div class="wb-timeline-time">🕐 ${escapeHtml(d.track_occur_date || "")}${d.track_location ? " · " + escapeHtml(d.track_location) : ""}</div>
+          <div class="wb-timeline-time">🕐 ${escapeHtml(d.track_occur_date || "")}（日本时间）${d.track_location ? " · " + escapeHtml(d.track_location) : ""}</div>
           <div class="wb-timeline-desc">${escapeHtml(d.track_description || "—")}</div>
         </div>`).join("") + `</div>`;
     } catch (e) {

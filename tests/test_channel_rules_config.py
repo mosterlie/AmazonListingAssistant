@@ -22,7 +22,9 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE / "pricing_regression"))
 
 from server.database import get_setting, set_setting                       # noqa: E402
-from server.routers.settings_router import get_system_settings, update_system_settings, SystemSettingsSchema  # noqa: E402
+from server.routers.settings_router import (                               # noqa: E402
+    get_system_settings, save_one_channel_rule, toggle_one_channel_rule,
+    reset_channel_rules_config, ChannelRuleSaveSchema, ChannelRuleToggleSchema)
 from run_regression import gen_samples, compare_channel                    # noqa: E402
 from excel_standard import excel_standard, CHANNEL_MAP, quotable           # noqa: E402
 
@@ -38,9 +40,14 @@ ADMIN = {"username": "tester", "role": "admin"}
 
 
 def post_rules(rules):
-    payload = asyncio.run(get_system_settings())
-    body = SystemSettingsSchema(**{**payload["data"], "channel_rules": rules})
-    return asyncio.run(update_system_settings(body, admin=ADMIN))
+    """渠道级写入 (2026-09-29 独立键架构): None→清空回退默认; list→逐渠道独立键保存, 仅触碰目标渠道"""
+    if rules is None:
+        return asyncio.run(reset_channel_rules_config(admin=ADMIN))
+    r = {"code": 0, "msg": "ok"}
+    for rule in rules:
+        r = asyncio.run(save_one_channel_rule(
+            str(rule["key"]), ChannelRuleSaveSchema(rule=rule), admin=ADMIN))
+    return r
 
 
 def get_rules():
@@ -97,6 +104,9 @@ def edge_samples():
         add(s - 30, 20, 10, 5.0)
     for wt in (9.8, 9.9, 10.0):
         add(50, 20, 10, wt)
+    # 实重20边界 (0930新增: 普货/带电>20不适用; 义乌/初岛160/黑猫>20拒收)
+    for wt in (19.9, 20.0, 20.1):
+        add(50, 20, 10, wt)
 
     # 川日大包: 单边305/175/155 / 3倍泡恰好边界 / cw档21/51/101/301/501/1000 / 长边159附加+cw300边界
     for L, mx in ((304.9, 305.0), (305.0, 305.0), (305.1, 305.1)):
@@ -135,13 +145,15 @@ def edge_samples():
     for side in (159.9, 160.0, 160.1):
         add(side, 5, 5, 3.0)
 
-    # 航空邮政大包: 实重30 / 单边150 / 围长330 折扣边界 / 进整边界
+    # 航空邮政大包: 实重30 / 单边150 / 围长300 拒收边界 (0930: 取消9折) / 进整边界
     for wt in (29.9, 30.0, 30.1):
         add(50, 20, 10, wt)
     for side in (149.9, 150.0, 150.1):
         add(side, 20, 10, 5.0)
-    add(150, 45, 45, 5.0)                      # girth=330 → 0.9折
-    add(150, 45.1, 45, 5.0)                    # girth=330.2 → 1.0
+    add(150, 37.5, 37.5, 5.0)                  # girth=300 → 可报价 (0930边界)
+    add(150, 37.6, 37.5, 5.0)                  # girth=300.2 → 拒收
+    add(150, 45, 45, 5.0)                      # girth=330 → 拒收 (原9折已取消)
+    add(150, 45.1, 45, 5.0)                    # girth=330.2 → 拒收
     for wt in (1.0, 1.01, 2.0, 2.01):
         add(50, 20, 10, wt)
     return E
@@ -207,13 +219,26 @@ def main():
     snap = get_rules()
     try:
         r = post_rules(default_rules)
-        check("完整10渠道规则入库 → code 0", r.get("code") == 0, str(r.get("msg")))
-        check("GET 回读与入库规则逐字节一致", get_rules() == default_rules)
+        check("完整10渠道规则逐渠道入库 → code 0", r.get("code") == 0, str(r.get("msg")))
+        check("GET 回读与入库规则逐渠道一致", {x["key"]: x for x in get_rules()} == {x["key"]: x for x in default_rules})
         r = post_rules(None)
-        check("null 清除规则 → code 0", r.get("code") == 0)
-        check("清除后 GET 为 None", get_rules() is None)
-        r = post_rules({"channels": default_rules})
-        check("兼容 {channels:[...]} 包装格式入库", r.get("code") == 0 and get_rules() == {"channels": default_rules})
+        check("清空全部渠道独立键 → code 0", r.get("code") == 0)
+        check("清空后 GET 为空列表 (全部回退内置默认)", get_rules() == [])
+        # 单渠道保存隔离性 (独立键架构核心保证): 全量入库后仅覆盖目标渠道, 其他渠道零接触
+        r = post_rules(default_rules)
+        p0 = perturb_rule(default_rules[0])
+        r = post_rules([p0])
+        merged = {x["key"]: x for x in get_rules()}
+        expect = {x["key"]: x for x in default_rules}
+        expect[p0["key"]] = p0
+        check("单渠道保存仅覆盖目标渠道 (其他渠道零接触)", r.get("code") == 0 and merged == expect)
+        # 单渠道启停隔离性: toggle 只翻转目标渠道 enabled
+        key1 = default_rules[1]["key"]
+        r = asyncio.run(toggle_one_channel_rule(
+            key1, ChannelRuleToggleSchema(enabled=False, defaults=default_rules), admin=ADMIN))
+        after = {x["key"]: x for x in get_rules()}
+        others_ok = {k: v for k, v in after.items() if k != key1} == {k: v for k, v in expect.items() if k != key1}
+        check("单渠道启停仅翻转目标渠道 enabled", r.get("code") == 0 and after[key1]["enabled"] is False and others_ok)
         post_rules(None)
 
         print("\n== A2. 逐渠道全参数扰动持久化 (所有快递配置参数) ==")
@@ -222,6 +247,7 @@ def main():
             p = perturb_rule(rule)
             n = sum(1 for pp, _ in walk_scalars(p) if pp.split(".")[0] not in SKIP)
             total_params += n
+            post_rules(None)                     # 清空后仅保留目标渠道一行, 验证单渠道持久化
             r = post_rules([p])
             ok = r.get("code") == 0 and get_rules() == [p]
             check(f"[{rule['name']}] {n} 个参数扰动全部持久化", ok)
@@ -230,7 +256,7 @@ def main():
         print("\n== B. DB配置路径 × 全渠道计算 (每渠道≥10w, 一次通过) ==")
         post_rules(default_rules)
         rules_db = get_rules()
-        check("DB规则 = 内置默认 (无失真)", rules_db == default_rules)
+        check("DB规则 = 内置默认 (无失真)", {x["key"]: x for x in rules_db} == {x["key"]: x for x in default_rules})
 
         samples = gen_samples(seed=43, random_only=False)     # 12w随机 + 2w边界网格
         samples += edge_samples()

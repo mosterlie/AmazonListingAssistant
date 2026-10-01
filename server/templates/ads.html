@@ -70,7 +70,7 @@
     </div>
   </div>
 
-  <!-- 任务列表 -->
+  <!-- 任务列表 (任务集作为一条记录, 可展开查看子任务) -->
   <div class="card-body" style="padding:0;">
     <div class="table-wrapper" style="overflow-x:auto;">
       <table class="matrix-table" style="min-width:1000px; width:100%; table-layout:fixed;">
@@ -479,6 +479,9 @@ const adState = {
   options: { shop_names: [], create_modes: [], bid_strategies: [], today: '', submit_enabled: false },
   filterStatus: 'all',
   tasks: [],
+  taskSets: [],
+  expandedSets: new Set(),  // 已展开子任务的 任务集ID
+  setRun: null,          // 整套执行状态: {setId, ids:[任务id], idx, setName}
   runTimer: null,
   runTaskId: null,
   runSince: 0,
@@ -635,15 +638,147 @@ async function loadAdTasks() {
     renderAdStats(adState.tasks);
     renderAdTable(adState.tasks);
     await loadAdOptions();
+    await loadAdTaskSets();
   } catch (e) {
     showToast('加载广告任务失败: ' + e.message, 'error');
   }
 }
 
-function renderAdStats(tasks) {
+/* ===================== 广告任务集 ===================== */
+/** 任务集整体状态汇总: {st, c} */
+function setStatusSummary(tasks) {
   const c = { pending: 0, running: 0, success: 0, partial: 0, failed: 0 };
-  tasks.forEach(t => { if (c[t.status] !== undefined) c[t.status]++; else c.pending++; });
-  document.getElementById('adStatAll').innerText = tasks.length;
+  (tasks || []).forEach(t => {
+    if (t.running) { c.running++; return; }
+    const k = (t.status || 'pending');
+    c[k] = (c[k] || 0) + 1;
+  });
+  const n = (tasks || []).length;
+  let st = 'pending';
+  if (c.running) st = 'running';
+  else if (n && c.success === n) st = 'success';
+  else if (c.success && c.success < n) st = 'partial';
+  else if (n && c.failed === n) st = 'failed';
+  else if (c.partial) st = 'partial';
+  return { st: st, c: c, total: n };
+}
+
+async function loadAdTaskSets() {
+  try {
+    const j = await (await fetch('/api/ads/task-sets')).json();
+    if (j.code !== 0) return;
+    adState.taskSets = j.data || [];
+    renderAdTable(adState.tasks);          // 任务集作为列表中的一条记录, 需与任务一起重绘
+  } catch (e) { console.error('加载任务集失败', e); }
+}
+
+function toggleSetExpand(setId) {
+  if (adState.expandedSets.has(setId)) adState.expandedSets.delete(setId);
+  else adState.expandedSets.add(setId);
+  renderAdTable(adState.tasks);
+}
+
+async function deleteAdTaskSet(setId) {
+  const s = adState.taskSets.find(x => x.id === setId);
+  const n = s ? (s.tasks || []).length : 0;
+  if (!confirm('确认删除任务集 #' + setId + ' 及其下 ' + n + ' 个广告任务？（含执行记录，不可恢复）')) return;
+  try {
+    const j = await (await fetch('/api/ads/task-sets/' + setId, { method: 'DELETE' })).json();
+    if (j.code !== 0) throw new Error(j.detail || '删除失败');
+    showToast(j.msg || '任务集已删除', 'success');
+    loadAdTasks();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+/** 整套执行: 按顺序逐个执行任务集下的未完成任务 */
+function runAdTaskSet(setId) {
+  const s = adState.taskSets.find(x => x.id === setId);
+  if (!s) { showToast('任务集不存在', 'error'); return; }
+  const tasks = (s.tasks || []).filter(t => t.status !== 'success');
+  if (!tasks.length) { showToast('该任务集下没有待执行任务（均已成功）', 'error'); return; }
+  const totalAsins = tasks.reduce((n, t) => n + (t.asin_count || (t.asins || []).length), 0);
+  if (!confirm('整套执行任务集「' + s.set_name + '」？\n\n' +
+      '· 共 ' + tasks.length + ' 个广告任务 / ' + totalAsins + ' 个 ASIN\n' +
+      '· 将按顺序逐个执行（同一时间只跑一个），已成功的任务自动跳过\n' +
+      '· 执行期间请勿操作 9222 调试浏览器窗口')) return;
+  adState.setRun = { setId: setId, setName: s.set_name, ids: tasks.map(t => t.id), idx: 0 };
+  openRunLogModal(tasks[0].id);
+  startNextSetTask();
+}
+
+async function startNextSetTask() {
+  const st = adState.setRun;
+  if (!st) return;
+  if (st.idx >= st.ids.length) {
+    const box = document.getElementById('adRunLogBox');
+    if (box) { box.innerText += '\n【任务集】全部 ' + st.ids.length + ' 个任务已执行完毕。\n'; box.scrollTop = box.scrollHeight; }
+    showToast('任务集「' + st.setName + '」执行完毕（共 ' + st.ids.length + ' 个任务）', 'success');
+    adState.setRun = null;
+    if (adState.runTimer) { clearInterval(adState.runTimer); adState.runTimer = null; }
+    loadAdTasks();
+    return;
+  }
+  const id = st.ids[st.idx++];
+  const box = document.getElementById('adRunLogBox');
+  if (box) {
+    box.innerText += '\n【任务集 ' + st.setName + '】▶ 开始执行任务 #' + id + '（第 ' + st.idx + '/' + st.ids.length + ' 个）\n';
+    box.scrollTop = box.scrollHeight;
+  }
+  document.getElementById('adRunTaskId').innerText = id;
+  document.getElementById('adRunStateLabel').innerText = '整套执行中 (' + st.idx + '/' + st.ids.length + ')';
+  adState.runTaskId = id;
+  adState.runSince = 0;
+  try {
+    const j = await (await fetch('/api/ads/tasks/' + id + '/run', { method: 'POST' })).json();
+    if (j.code !== 0) throw new Error(j.detail || j.msg || '启动失败');
+    if (adState.runTimer) clearInterval(adState.runTimer);
+    adState.runTimer = setInterval(pollRunStatus, 1500);
+    pollRunStatus();
+  } catch (e) {
+    if (box) box.innerText += '⚠ 任务 #' + id + ' 启动失败：' + e.message + '，跳过继续下一个\n';
+    showToast('任务 #' + id + ' 启动失败: ' + e.message, 'error');
+    setTimeout(startNextSetTask, 1500);
+  }
+}
+
+/* 任务是否命中当前 状态/搜索 筛选 (用于任务集下的子任务展示) */
+function taskMatchesFilters(t) {
+  if (adState.filterStatus && adState.filterStatus !== 'all' && (t.status || 'pending') !== adState.filterStatus) return false;
+  const el = document.getElementById('adSearchInput');
+  const k = ((el && el.value) || '').trim().toLowerCase();
+  if (!k) return true;
+  const hay = [(t.task_name || ''), (t.shop_name || ''), (t.asins || []).join(',')].join(' ').toLowerCase();
+  return hay.indexOf(k) >= 0;
+}
+
+/** 任务集是否命中当前 店铺/搜索 筛选 */
+function setMatchesFilters(s) {
+  const shopEl = document.getElementById('adShopFilter');
+  const shop = (shopEl && shopEl.value) || '';
+  if (shop && (s.shop_name || '') !== shop) return false;
+  const kwEl = document.getElementById('adSearchInput');
+  const k = ((kwEl && kwEl.value) || '').trim().toLowerCase();
+  if (!k) return true;
+  if ((s.set_name || '').toLowerCase().indexOf(k) >= 0) return true;
+  return (s.tasks || []).some(x => taskMatchesFilters(x));
+}
+
+/** 列表分区: 任务集(一条记录) + 不属于任何任务集的独立任务 */
+function partitionList(tasks) {
+  const sets = (adState.taskSets || []).filter(setMatchesFilters);
+  const childIds = new Set();
+  sets.forEach(s => (s.tasks || []).forEach(t => childIds.add(t.id)));
+  const top = tasks.filter(t => !childIds.has(t.id));
+  return { sets: sets, top: top };
+}
+
+function renderAdStats(tasks) {
+  const parts = partitionList(tasks);
+  const sets = parts.sets, top = parts.top;
+  const c = { pending: 0, running: 0, success: 0, partial: 0, failed: 0 };
+  top.forEach(t => { if (c[t.status] !== undefined) c[t.status]++; else c.pending++; });
+  sets.forEach(s => { c[setStatusSummary(s.tasks).st]++; });   // 任务集按一条记录计入统计
+  document.getElementById('adStatAll').innerText = top.length + sets.length;
   document.getElementById('adStatPending').innerText = c.pending + c.running;
   document.getElementById('adStatSuccess').innerText = c.success;
   document.getElementById('adStatPartial').innerText = c.partial;
@@ -683,48 +818,109 @@ function clampLines(text, maxLines, fs) {
     '; -webkit-box-orient:vertical; overflow:hidden; word-break:break-all; font-size:' + (fs || '0.76rem') + ';">' + t + '</div>';
 }
 
+/** 单个广告任务行 (indent=true 表示作为任务集子任务缩进展示) */
+function taskRowHtml(t, indent) {
+  const asins = t.asins || [];
+  const period = (t.start_date || '-') + ' ~ ' + (t.end_date || '不限');
+  const lastRun = t.last_result
+    ? clampLines(t.last_result, 2) +
+      '<div style="font-size:0.7rem; color:#94a3b8; margin-top:3px;">' + esc(t.last_run_at || '') + '</div>'
+    : '<span style="color:#94a3b8; font-size:0.78rem;">尚未执行</span>';
+  const nameText = (indent ? '└ ' : '') + (t.task_name || '');   // 前缀作为纯文本, 避免被转义成HTML
+  const runBtn = (t2) => {
+    if (!hasPerm('ads:operate')) return '<span style="color:#cbd5e1; font-size:0.7rem;">-</span>';
+    return t2.running
+      ? '<button class="btn btn-outline btn-sm" onclick="stopAdTask(' + t2.id + ')" style="padding:2px 6px; font-size:0.7rem; color:#dc2626; border-color:#fecaca;" title="请求终止执行">⏹ 终止</button>'
+      : '<button class="btn btn-primary btn-sm" onclick="runAdTask(' + t2.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="执行该任务">▶</button>';
+  };
+  return '<tr' + (indent ? ' style="background:#fbfdff;"' : '') + '>' +
+    '<td style="text-align:center; font-weight:700; color:#64748b; overflow:hidden;">#' + t.id + '</td>' +
+    '<td>' + ellip(nameText, '0.84rem', '#0f172a').replace('overflow:hidden', 'overflow:hidden; font-weight:600;') +
+      (t.set_id ? '<div style="font-size:0.68rem; color:#0369a1; margin-top:2px;">🗂️ 任务集 #' + t.set_id + '</div>' : '') +
+      '<div style="font-size:0.7rem; color:#94a3b8; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">👤 ' + esc(t.created_by || '-') + '</div></td>' +
+    '<td>' + ellip(t.shop_name, '0.8rem') + '</td>' +
+    '<td>' + ellip(t.create_mode, '0.78rem') + '</td>' +
+    '<td>' + ellip(period, '0.78rem') + '</td>' +
+    '<td><div style="font-size:0.78rem; white-space:nowrap;">预算 <b>' + t.daily_budget + '</b> / 竞价 <b>' + t.default_bid + '</b></div>' +
+      ellip(t.bid_strategy, '0.7rem', '#94a3b8') + '</td>' +
+    '<td style="text-align:center;"><span title="' + esc(asins.join(', ')) + '" style="font-weight:700; color:#2563eb;">' + asins.length + '</span>' +
+      (t.auto_dedup ? '<div style="font-size:0.68rem; color:#64748b; margin-top:2px;">已去重</div>' : '') +
+      (!t.trim_variants ? '<div style="font-size:0.7rem; color:#64748b; margin-top:2px;">不裁剪</div>' : '') + '</td>' +
+    '<td style="text-align:center; font-size:0.8rem;">' + (t.batch_size || '不分批') + '</td>' +
+    '<td style="text-align:center;">' + statusBadge(t.running ? 'running' : t.status) + '</td>' +
+    '<td>' + lastRun + '</td>' +
+    '<td style="text-align:center;"><div style="display:inline-flex; gap:3px; align-items:center; justify-content:center; white-space:nowrap;">' +
+      runBtn(t) +
+      (hasPerm('ads:operate') ? '<button class="btn btn-outline btn-sm" onclick="openAdTaskModal(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="编辑">✏️</button>' : '') +
+      '<button class="btn btn-outline btn-sm" onclick="openHistoryModal(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="执行记录">🗂️</button>' +
+      (hasPerm('ads:operate') ? '<button class="btn btn-outline btn-sm" onclick="deleteAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem; color:#ef4444;" title="删除">🗑️</button>' : '') +
+    '</div></td></tr>';
+}
+
+/** 任务集投放周期: 开始日期取集记录, 结束日期取子任务中最晚的结束日期 */
+function setPeriodText(s) {
+  const ends = (s.tasks || []).map(t => t.end_date).filter(Boolean).sort();
+  return (s.start_date || '-') + ' ~ ' + (ends.length ? ends[ends.length - 1] : '不限');
+}
+
+/** 任务集行: 一条记录 = 一个任务集 (可展开子任务 / 整套顺序执行) */
+function taskSetRowHtml(s) {
+  const all = (s.tasks || []);
+  const sum = setStatusSummary(all);
+  const expanded = adState.expandedSets.has(s.id);
+  const pending = all.filter(t => t.status !== 'success' && !t.running).length;
+  const asinTotal = s.asin_total || all.reduce((n, t) => n + (t.asin_count || (t.asins || []).length), 0);
+  const summary = '共 ' + all.length + ' 个任务 · 已完成 ' + sum.c.success +
+    (sum.c.running ? ' · 执行中 ' + sum.c.running : '') +
+    (sum.c.failed ? ' · 失败 ' + sum.c.failed : '') +
+    (sum.c.partial ? ' · 部分成功 ' + sum.c.partial : '');
+  const ops = [];
+  if (hasPerm('ads:operate')) {
+    ops.push('<button class="btn btn-primary btn-sm" onclick="runAdTaskSet(' + s.id + ')" style="padding:2px 8px; font-size:0.7rem; background:#0ea5e9; border-color:#0ea5e9;" title="按顺序执行本任务集下所有未完成任务">▶ 整套执行' + (pending ? '（' + pending + '）' : '') + '</button>');
+  }
+  ops.push('<button class="btn btn-outline btn-sm" onclick="toggleSetExpand(' + s.id + ')" style="padding:2px 8px; font-size:0.7rem;" title="查看任务集内的所有子任务">' + (expanded ? '📂 收起' : '📁 子任务') + '（' + all.length + '）</button>');
+  if (hasPerm('ads:operate')) {
+    ops.push('<button class="btn btn-outline btn-sm" onclick="deleteAdTaskSet(' + s.id + ')" style="padding:2px 8px; font-size:0.7rem; color:#ef4444;" title="删除任务集及其下全部任务">🗑️</button>');
+  }
+  return '<tr style="background:#f0f9ff;">' +
+    '<td style="text-align:center; font-weight:700; color:#0369a1;">📦</td>' +
+    '<td>' + ellip(s.set_name, '0.86rem', '#0f172a').replace('overflow:hidden', 'overflow:hidden; font-weight:800;') +
+      '<div style="font-size:0.68rem; color:#0369a1; margin-top:2px;">🗂️ 任务集 #' + s.id + ' · 由广告分析生成</div></td>' +
+    '<td>' + ellip(s.shop_name || '-', '0.8rem') + '</td>' +
+    '<td>' + ellip(s.create_mode || '-', '0.78rem') + '</td>' +
+    '<td>' + ellip(setPeriodText(s), '0.78rem') + '</td>' +
+    '<td><div style="font-size:0.78rem; color:#0369a1; font-weight:700;">多套预算 / 竞价</div>' +
+      '<div style="font-size:0.68rem; color:#94a3b8;">每套参数一个子任务</div></td>' +
+    '<td style="text-align:center;"><span style="font-weight:700; color:#2563eb;">' + asinTotal + '</span></td>' +
+    '<td style="text-align:center; font-size:0.8rem; font-weight:700; color:#0369a1;">' + all.length + ' 个任务</td>' +
+    '<td style="text-align:center;">' + statusBadge(sum.st) + '</td>' +
+    '<td><div style="font-size:0.74rem; color:#334155;">' + summary + '</div>' +
+      '<div style="font-size:0.7rem; color:#94a3b8;">' + esc(s.start_date || '') + '</div></td>' +
+    '<td style="text-align:center;"><div style="display:inline-flex; gap:3px; align-items:center; justify-content:center; flex-wrap:wrap;">' +
+      ops.join('') + '</div></td></tr>';
+}
+
 function renderAdTable(tasks) {
   const tbody = document.getElementById('adTableBody');
-  if (!tasks.length) {
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:40px; color:var(--text-muted);">📭 暂无广告任务，点击右上角「新建」创建</td></tr>';
+  const parts = partitionList(tasks);
+  const sets = parts.sets, top = parts.top;
+  if (!sets.length && !top.length) {
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:40px; color:var(--text-muted);">📭 暂无广告任务或任务集，可点右上角「新建」，或在「广告分析 → 统计结果」中批量生成任务集</td></tr>';
     return;
   }
-  const isAdmin = (CURRENT_USER_ROLE === 'admin');
-  const runBtn = (t) => {
-    if (!hasPerm('ads:operate')) return '<span style="color:#cbd5e1; font-size:0.7rem;">-</span>';
-    return t.running
-    ? '<button class="btn btn-outline btn-sm" onclick="stopAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem; color:#dc2626; border-color:#fecaca;" title="请求终止执行">⏹ 终止</button>'
-    : '<button class="btn btn-primary btn-sm" onclick="runAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="执行自动投放">▶</button>';
-  };
-  tbody.innerHTML = tasks.map(t => {
-    const asins = t.asins || [];
-    const period = (t.start_date || '-') + ' ~ ' + (t.end_date || '不限');
-    const lastRun = t.last_result
-      ? clampLines(t.last_result, 2) +
-        '<div style="font-size:0.7rem; color:#94a3b8; margin-top:3px;">' + esc(t.last_run_at || '') + '</div>'
-      : '<span style="color:#94a3b8; font-size:0.78rem;">尚未执行</span>';
-    return '<tr>' +
-      '<td style="text-align:center; font-weight:700; color:#64748b; overflow:hidden;">#' + t.id + '</td>' +
-      '<td>' + ellip(t.task_name, '0.84rem', '#0f172a').replace('overflow:hidden', 'overflow:hidden; font-weight:600;') +
-        '<div style="font-size:0.7rem; color:#94a3b8; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">👤 ' + esc(t.created_by || '-') + '</div></td>' +
-      '<td>' + ellip(t.shop_name, '0.8rem') + '</td>' +
-      '<td>' + ellip(t.create_mode, '0.78rem') + '</td>' +
-      '<td>' + ellip(period, '0.78rem') + '</td>' +
-      '<td><div style="font-size:0.78rem; white-space:nowrap;">预算 <b>' + t.daily_budget + '</b> / 竞价 <b>' + t.default_bid + '</b></div>' +
-        ellip(t.bid_strategy, '0.7rem', '#94a3b8') + '</td>' +
-      '<td style="text-align:center;"><span title="' + esc(asins.join(', ')) + '" style="font-weight:700; color:#2563eb;">' + asins.length + '</span>' +
-        (t.auto_dedup ? '<div style="font-size:0.68rem; color:#64748b; margin-top:2px;">已去重</div>' : '') +
-        (!t.trim_variants ? '<div style="font-size:0.7rem; color:#64748b; margin-top:2px;">不裁剪</div>' : '') + '</td>' +
-      '<td style="text-align:center; font-size:0.8rem;">' + (t.batch_size || '不分批') + '</td>' +
-      '<td style="text-align:center;">' + statusBadge(t.running ? 'running' : t.status) + '</td>' +
-      '<td>' + lastRun + '</td>' +
-      '<td style="text-align:center;"><div style="display:inline-flex; gap:3px; align-items:center; justify-content:center; white-space:nowrap;">' +
-        runBtn(t) +
-        (hasPerm('ads:operate') ? '<button class="btn btn-outline btn-sm" onclick="openAdTaskModal(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="编辑">✏️</button>' : '') +
-        '<button class="btn btn-outline btn-sm" onclick="openHistoryModal(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem;" title="执行记录">🗂️</button>' +
-        (hasPerm('ads:operate') ? '<button class="btn btn-outline btn-sm" onclick="deleteAdTask(' + t.id + ')" style="padding:2px 6px; font-size:0.7rem; color:#ef4444;" title="删除">🗑️</button>' : '') +
-      '</div></td></tr>';
-  }).join('');
+  const rows = [];
+  sets.forEach(s => {
+    rows.push(taskSetRowHtml(s));
+    if (adState.expandedSets.has(s.id)) {
+      const children = (s.tasks || []).filter(taskMatchesFilters);
+      if (!children.length) {
+        rows.push('<tr style="background:#fbfdff;"><td colspan="11" style="text-align:center; padding:10px; color:#94a3b8; font-size:0.78rem;">该任务集内没有符合当前筛选条件的子任务</td></tr>');
+      }
+      children.forEach(t => rows.push(taskRowHtml(t, true)));
+    }
+  });
+  top.forEach(t => rows.push(taskRowHtml(t, false)));
+  tbody.innerHTML = rows.join('');
 }
 
 /* ===================== 新增 / 编辑 ===================== */
@@ -952,7 +1148,14 @@ async function pollRunStatus() {
       bar.style.color = ok ? '#065f46' : '#92400e';
       bar.innerText = d.msg || (ok ? '执行完成' : '执行结束，请查看日志');
       checkCdpStatus();
-      loadAdTasks();
+      loadAdTaskSets();
+      if (adState.setRun) {
+        // 整套执行中: 当前任务结束后自动开始下一个
+        document.getElementById('adRunLogBox').innerText += '\n【任务集】任务 #' + id + ' ' + (ok ? '完成' : '结束(异常)') + '\n';
+        setTimeout(startNextSetTask, 1200);
+      } else {
+        loadAdTasks();
+      }
     }
   } catch (e) { console.error('轮询执行状态失败', e); }
 }

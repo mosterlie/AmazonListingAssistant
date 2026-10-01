@@ -27,6 +27,32 @@ async def get_ad_options(user: dict = Depends(require_auth)):
     return {"code": 0, "msg": "获取成功", "data": AdTaskService.get_options()}
 
 
+@router.get("/task-sets", summary="查询广告任务集列表 (含集下各任务)")
+async def list_ad_task_sets(user: dict = Depends(require_auth)):
+    sets = AdTaskService.list_task_sets()
+    return {"code": 0, "msg": "查询成功", "data": sets, "total": len(sets)}
+
+
+@router.post("/task-sets", summary="按「每日预算+默认竞价」批量生成广告任务集")
+async def create_ad_task_set(payload: dict, user: dict = Depends(require_perm("ads:create"))):
+    try:
+        data = AdTaskService.create_task_set(payload, current_user=user)
+        return {"code": 0, "msg": f"任务集创建成功：共 {data['task_count']} 个广告任务 / {data['asin_total']} 个ASIN", "data": data}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"创建失败: {str(e)}")
+
+
+@router.delete("/task-sets/{set_id}", summary="删除广告任务集及其下全部任务")
+async def delete_ad_task_set(set_id: int, user: dict = Depends(require_perm("ads:operate"))):
+    try:
+        data = AdTaskService.delete_task_set(set_id)
+        return {"code": 0, "msg": "任务集已删除", "data": data}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
+
 @router.get("/tasks", summary="查询广告投放任务列表")
 async def list_ad_tasks(
     status: Optional[str] = Query(None, description="状态过滤 (all/pending/running/success/partial/failed)"),

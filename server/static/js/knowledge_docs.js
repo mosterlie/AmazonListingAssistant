@@ -200,6 +200,17 @@ async function uploadDocuments() {
   files.forEach(f => formData.append("files", f));
   formData.append("description", (descInput?.value || "").trim());
 
+  // 大小预检: 图片单张不超过 5MB, 其他文档不超过 20MB (与服务端一致)
+  const IMG_EXTS = ["png", "jpg", "jpeg", "gif", "webp", "svg"];
+  const oversize = files.filter(f => {
+    const ext = (f.name.split(".").pop() || "").toLowerCase();
+    return f.size > (IMG_EXTS.includes(ext) ? 5 * 1024 * 1024 : 20 * 1024 * 1024);
+  });
+  if (oversize.length) {
+    showToast(`以下文件超过大小上限 (图片5MB/其他20MB): ${oversize.map(f => f.name).join("、")}`, "error");
+    return;
+  }
+
   try {
     const res = await fetch("/api/knowledge/documents", { method: "POST", body: formData });
     const result = await res.json();

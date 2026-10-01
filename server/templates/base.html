@@ -22,6 +22,7 @@
         {% if 'list' in user_menus %}<a href="/list" class="nav-item {% if active_page == 'list' %}active{% endif %}">📋 商品管理</a>{% endif %}
         {% if 'tasks' in user_menus %}<a href="/tasks" class="nav-item {% if active_page == 'tasks' %}active{% endif %}">📌 任务管理</a>{% endif %}
         {% if 'ads' in user_menus %}<a href="/ads" class="nav-item {% if active_page == 'ads' %}active{% endif %}">📢 广告管理</a>{% endif %}
+        {% if 'ads_analysis' in user_menus %}<a href="/ads-analysis" class="nav-item {% if active_page == 'ads_analysis' %}active{% endif %}">📊 广告分析</a>{% endif %}
         {% if 'knowledge' in user_menus %}<a href="/knowledge" class="nav-item {% if active_page == 'knowledge' %}active{% endif %}">📚 知识库</a>{% endif %}
         {% if 'forwarder_integration' in user_menus %}<a href="/forwarder-integration" class="nav-item {% if active_page == 'forwarder_integration' %}active{% endif %}">🚚 运单管理</a>{% endif %}
         {% if 'forwarder' in user_menus %}<a href="/forwarder" class="nav-item {% if active_page == 'forwarder' %}active{% endif %}">🚢 货代管理</a>{% endif %}
@@ -278,8 +279,8 @@
       });
     })();
   </script>
-  <script src="/static/js/pricing_tool.js?v=20260927_pt11"></script>
-  <script src="/static/js/app.js?v=20260928_color1"></script>
+  <script src="/static/js/pricing_tool.js?v=20260930_pt12"></script>
+  <script src="/static/js/app.js?v=20260930_img5m1"></script>
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>

@@ -1,0 +1,460 @@
+{% extends "base.html" %}
+
+{% block title %}广告分析{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ═══════════ 广告分析页样式 (与独立版 adsAnalysis 保持一致) ═══════════ */
+  /* 子菜单 (数据导入 | 在线产品-子 | 在线产品-父 | 广告研判) */
+  .ads-subnav {
+    display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap;
+    background: var(--bg-card, #fff); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 6px; box-shadow: 0 2px 8px rgba(15,23,42,0.05);
+    width: fit-content; max-width: 100%;
+  }
+  .ads-subnav-item { display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px; border: none;
+    border-radius: 8px; background: transparent; cursor: pointer; font-size: 0.92rem; white-space: nowrap;
+    color: var(--text-main); font-weight: 600; transition: all 0.15s; }
+  .ads-subnav-item:hover { background: #f1f5f9; }
+  .ads-subnav-item.active { background: #0ea5e9; color: #fff; box-shadow: 0 2px 6px rgba(14,165,233,0.35); }
+  .ads-panel { display: none; }
+  .ads-panel.active { display: block; }
+
+  .ads-upload-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 14px; }
+  @media (max-width: 900px) { .ads-upload-grid { grid-template-columns: 1fr; } }
+  .ads-upload-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 16px; box-shadow: 0 2px 8px rgba(15,23,42,0.05); display: flex; flex-direction: column; gap: 10px; }
+  .ads-upload-card .up-icon { width: 40px; height: 40px; border-radius: 10px; display: flex;
+    align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0; }
+  .ads-upload-title { font-weight: 800; color: #0f172a; font-size: 0.95rem; }
+  .ads-upload-desc { font-size: 0.78rem; color: var(--text-muted); line-height: 1.55; }
+  .ads-file-label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    border: 1.5px dashed #94a3b8; border-radius: 8px; padding: 8px 12px; font-size: 0.82rem;
+    color: #475569; background: #f8fafc; transition: all 0.15s; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ads-file-label:hover { border-color: #0ea5e9; color: #0369a1; }
+  .ads-upload-result { font-size: 0.78rem; color: #16a34a; min-height: 1.2em; word-break: break-all; }
+
+  .ads-stat-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
+  .ads-stat-chip { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px;
+                   padding: 10px 16px; min-width: 130px; }
+  .ads-stat-chip .num { font-size: 1.25rem; font-weight: 800; color: #0f172a; line-height: 1.2; }
+  .ads-stat-chip .lbl { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+
+  .ads-colpop-wrap { position: relative; }
+  .ads-colpop { display: none; position: absolute; right: 0; top: calc(100% + 6px); z-index: 60;
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 10px 32px rgba(15,23,42,0.16); padding: 10px; width: 300px; max-height: 380px; overflow: auto; }
+  .ads-colpop.open { display: block; }
+  .ads-colpop-head { display: flex; align-items: center; justify-content: space-between;
+    padding: 2px 4px 8px; border-bottom: 1px solid #f1f5f9; margin-bottom: 6px;
+    font-size: 0.8rem; color: var(--text-muted); }
+  .ads-col-item { display: flex; align-items: center; gap: 7px; padding: 4px 4px;
+    font-size: 0.82rem; color: #334155; border-radius: 6px; cursor: pointer; }
+  .ads-col-item:hover { background: #f8fafc; }
+  .ads-col-item input { accent-color: #0ea5e9; }
+
+  .ads-table th { white-space: nowrap; position: sticky; top: 0; z-index: 5; }
+  .ads-table th.sortable { cursor: pointer; user-select: none; }
+  .ads-table th.sortable:hover { background: #eef2f7; }
+  .ads-table td { white-space: nowrap; }
+  .ads-table td.wrap { white-space: normal; word-break: break-all; min-width: 160px; max-width: 340px; }
+  /* 过长文本自动省略 (鼠标悬停显示完整内容) */
+  .ads-ellipsis { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+                  white-space: nowrap; vertical-align: middle; }
+  .ads-ellipsis.ads-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }
+  .ads-ellipsis.ads-strong { font-weight: 600; color: #0f172a; }
+  /* 广告研判列表: 列宽整体收紧, 同屏展示更多字段 (ASIN/SKU 等长文本省略, 悬停看完整值) */
+  .ads-table-compact th, .ads-table-compact td { padding: 5px 6px; font-size: 0.79rem; }
+  .ads-table-compact th { font-size: 0.76rem; }
+  .ads-table-compact .ads-prod-img { width: 30px; height: 30px; border-radius: 4px; }
+  /* 子ASIN 列头内的展开/收起按钮 */
+  .ads-expand-btn { margin-left: 6px; padding: 1px 6px; border: 1px solid #bae6fd; background: #eff6ff;
+                    color: #0369a1; border-radius: 5px; font-size: 0.72rem; font-weight: 700;
+                    font-family: inherit; cursor: pointer; vertical-align: middle; transition: all 0.15s; }
+  .ads-expand-btn:hover { background: #e0f2fe; border-color: #7dd3fc; }
+  /* 单击复制的单元格 (子ASIN/父ASIN/父SKU/标题) */
+  .ads-copy { cursor: pointer; }
+  .ads-copy:hover { color: #0369a1; text-decoration: underline dotted; text-underline-offset: 3px; }
+  /* 打广天数: 悬停显示具体日期 */
+  .ads-days:hover { border-bottom: 1px dashed #94a3b8; }
+  /* 操作列: 新每日预算 / 新默认竞价 输入框 (固定在最右侧, 横向滚动不跟随) */
+  .ads-op { display: inline-flex; align-items: center; gap: 4px; }
+  .ads-op-input { width: 36px; padding: 2px 2px; border: 1px solid #cbd5e1; border-radius: 4px;
+                  font-size: 0.72rem; font-family: inherit; color: #0f172a; background: #fff; text-align: center; }
+  .ads-op-input::placeholder { color: #cbd5e1; }
+  .ads-op-input:focus { outline: none; border-color: #0ea5e9; box-shadow: 0 0 0 2px rgba(14,165,233,0.16); }
+  .ads-table th.ads-op-col, .ads-table td.ads-op-col { position: sticky; right: 0; z-index: 6;
+    background: #fff; box-shadow: -8px 0 8px -8px rgba(15,23,42,0.35); }
+  .ads-table th.ads-op-col { z-index: 8; background: var(--bg-card-sub); }
+  tr.ads-marked td.ads-op-col { background: #fffbeb; }
+  /* 勾选列 / 序号列: 固定在左侧 */
+  .ads-table th.ads-chk-col, .ads-table td.ads-chk-col { position: sticky; left: 0; z-index: 6;
+    width: 34px; min-width: 34px; background: #fff; }
+  .ads-table th.ads-idx-col, .ads-table td.ads-idx-col { position: sticky; left: 34px; z-index: 6;
+    width: 40px; min-width: 40px; background: #fff; color: #64748b;
+    box-shadow: 8px 0 8px -8px rgba(15,23,42,0.35); }
+  .ads-table th.ads-chk-col, .ads-table th.ads-idx-col { z-index: 8; background: var(--bg-card-sub); }
+  .ads-table td.ads-chk-col input { accent-color: #0ea5e9; cursor: pointer; }
+  tr.ads-marked td.ads-chk-col, tr.ads-marked td.ads-idx-col { background: #fffbeb; }
+  /* 批量设置工具栏 */
+  .ads-batch-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+    padding: 8px 12px; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 0.82rem; color: #475569; }
+  .ads-batch-label { font-weight: 700; color: #0f172a; }
+  .ads-batch-bar .ads-op-input { width: 62px; }
+  .ads-batch-count { font-weight: 700; color: #0369a1; }
+  .ads-batch-right { margin-left: auto; }
+  /* 广告研判 说明问号图标 (白色圆形) + 悬停浮层提示 */
+  .ads-help-wrap { position: relative; display: inline-flex; }
+  .ads-help { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+    border-radius: 50%; background: #fff; border: 1px solid #cbd5e1; color: #64748b;
+    font-size: 0.72rem; font-weight: 800; user-select: none; cursor: default; transition: var(--transition); }
+  .ads-help-wrap:hover .ads-help { background: #f8fafc; border-color: #94a3b8; color: #334155; }
+  .ads-help-tip { display: none; position: absolute; left: 0; top: calc(100% + 8px); z-index: 2000;
+    white-space: pre-line; width: max-content; max-width: min(640px, 84vw);
+    background: #0f172a; color: #f1f5f9; border-radius: 10px; padding: 10px 13px;
+    font-size: 0.76rem; font-weight: 400; line-height: 1.75; text-align: left;
+    box-shadow: 0 14px 34px rgba(15,23,42,0.35); }
+  .ads-help-wrap:hover .ads-help-tip { display: block; }
+  /* 统计结果弹窗 */
+  .ads-modal { display: none; position: fixed; inset: 0; z-index: 1800; background: rgba(15,23,42,0.55);
+    align-items: flex-start; justify-content: center; padding: 46px 20px 20px; overflow: auto; }
+  .ads-modal.open { display: flex; }
+  .ads-modal-box { background: #fff; border-radius: 14px; width: min(1080px, 94vw);
+    box-shadow: 0 20px 60px rgba(15,23,42,0.35); }
+  .ads-modal-head { display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 18px; border-bottom: 1px solid var(--border); font-weight: 700; color: #0f172a; }
+  .ads-modal-close { font-size: 1.4rem; line-height: 1; color: #94a3b8; cursor: pointer; user-select: none; }
+  .ads-modal-close:hover { color: #475569; }
+  .ads-modal-body { padding: 16px 18px 22px; max-height: 78vh; overflow: auto; }
+  .ads-stat-block { margin-bottom: 16px; }
+  .ads-stat-title { font-weight: 700; font-size: 0.9rem; color: #0f172a; margin-bottom: 7px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ads-stat-asin { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem;
+    background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+    max-height: 170px; overflow: auto; white-space: pre-wrap; word-break: break-all; color: #334155;
+    text-align: left; }
+  .ads-stat-copy { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 6px;
+    border: 1px solid #bae6fd; background: #eff6ff; color: #0369a1; font-size: 0.75rem; font-weight: 700;
+    cursor: pointer; user-select: none; }
+  .ads-stat-copy:hover { background: #e0f2fe; border-color: #7dd3fc; }
+  /* 危险操作 (清除重复项 / 删除分组) */
+  .ads-stat-danger { border-color: #fecaca; background: #fef2f2; color: #dc2626; }
+  .ads-stat-danger:hover { background: #fee2e2; border-color: #fca5a5; }
+  /* 统计结果: 组合/待投放/自定义分组 的子区块 */
+  .ads-stat-sub { border: 1px dashed #e2e8f0; border-radius: 10px; padding: 8px 10px; background: #fff; }
+  /* 未投广明细表 */
+  .ads-stat-table { font-size: 0.78rem; }
+  .ads-stat-table th, .ads-stat-table td { padding: 4px 6px; }
+  .ads-stat-table .ads-asin { cursor: pointer; }
+  .ads-stat-table .ads-asin:hover { color: #0369a1; text-decoration: underline dotted; text-underline-offset: 3px; }
+  /* 重复ASIN 高亮 */
+  .ads-stat-asin .ads-asin { padding: 0 2px; border-radius: 4px; }
+  .ads-asin-dup { background: #fef3c7; color: #b45309; font-weight: 800; border: 1px solid #fde68a; }
+  .ads-dup-tip { display: block; margin-bottom: 8px; padding: 6px 10px; border-radius: 8px;
+    background: #fffbeb; border: 1px solid #fde68a; color: #b45309; font-size: 0.78rem;
+    font-weight: 700; word-break: break-all; text-align: left; }
+  /* 涨跌箭头: 细长 ↑ / ↓ */
+  .ads-up, .ads-down { display: inline-block; font-weight: 800; line-height: 1;
+                       transform: scale(0.85, 1.45); vertical-align: -2px; }
+  .ads-up { color: #dc2626; }
+  .ads-down { color: #16a34a; }
+  tr.ads-marked td { background: #fffbeb; }
+  /* 全局表格数据居中 */
+  .matrix-table th, .matrix-table td { text-align: center; }
+  /* 广告研判 时间范围切换 (近1天/近3天/近7天/所有) */
+  .ads-range { display: inline-flex; gap: 2px; background: #f1f5f9; border: 1px solid var(--border);
+               border-radius: 8px; padding: 3px; }
+  .ads-range-btn { border: none; background: transparent; cursor: pointer; padding: 5px 12px;
+                   border-radius: 6px; font-size: 0.82rem; font-weight: 600; color: #475569;
+                   font-family: inherit; transition: all 0.15s; }
+  .ads-range-btn:hover { color: #0ea5e9; }
+  .ads-range-btn.active { background: #fff; color: #0ea5e9; box-shadow: 0 1px 3px rgba(15,23,42,0.14); }
+  .ads-prod-img { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; cursor: pointer;
+                  border: 1px solid #e2e8f0; background: #f8fafc; }
+  /* 图片放大预览 (点击缩略图) */
+  .ads-lightbox { display: none; position: fixed; inset: 0; z-index: 2000; background: rgba(15,23,42,0.78);
+                  align-items: center; justify-content: center; cursor: pointer; animation: fadeIn 0.15s ease; }
+  .ads-lightbox.open { display: flex; }
+  .ads-lightbox img { max-width: 82vw; max-height: 82vh; border-radius: 10px; background: #fff;
+                      box-shadow: 0 20px 50px rgba(0,0,0,0.45); }
+  .ads-lightbox-close { position: absolute; top: 14px; right: 24px; color: #fff; font-size: 2rem; line-height: 1;
+                        cursor: pointer; opacity: 0.85; font-weight: 300; user-select: none; }
+  .ads-lightbox-close:hover { opacity: 1; }
+  .ads-badge-yes { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; padding: 1px 8px;
+                   border-radius: 9999px; font-size: 0.72rem; font-weight: 700; }
+  .ads-badge-no { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; padding: 1px 8px;
+                  border-radius: 9999px; font-size: 0.72rem; font-weight: 700; }
+
+  .ads-pager { display: flex; align-items: center; gap: 10px; justify-content: flex-end;
+               padding: 10px 4px 2px; font-size: 0.82rem; color: var(--text-muted); flex-wrap: wrap; }
+
+  @media (max-width: 768px) {
+    .ads-subnav-item { padding: 8px 12px; font-size: 0.85rem; }
+    .ads-stat-chip { min-width: 104px; padding: 8px 12px; }
+    .ads-colpop { width: min(300px, 86vw); }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 子菜单 -->
+<div class="ads-subnav" id="adsSubnav">
+  <button class="ads-subnav-item" data-tab="import" type="button">📥 数据导入</button>
+  <button class="ads-subnav-item" data-tab="products" type="button">🛒 在线产品-子</button>
+  <button class="ads-subnav-item" data-tab="parents" type="button">🧩 在线产品-父</button>
+  <button class="ads-subnav-item active" data-tab="research" type="button">📈 广告研判</button>
+</div>
+
+<!-- ═══════════ Tab1 数据导入 ═══════════ -->
+<div class="ads-panel" data-panel="import">
+  <div class="form-card">
+    <div class="card-header" style="flex-wrap:wrap; gap:12px;">
+      <div class="card-title" style="display:flex; align-items:center; gap:8px;">
+        <div class="card-title-icon" style="background:#0ea5e9;">📊</div>
+        <span>数据概览</span>
+      </div>
+      <div style="margin-left:auto; display:flex; gap:10px; align-items:center;">
+        <button class="btn btn-primary btn-sm" id="btnLinkData" type="button"
+                style="background:#0ea5e9; border-color:#0ea5e9; font-weight:700;">🔗 数据关联</button>
+        <button class="btn btn-outline btn-sm" id="btnClearData" type="button"
+                style="border-color:#fecaca; color:#dc2626; font-weight:700;">🗑️ 清空数据</button>
+      </div>
+    </div>
+    <div class="card-body" style="padding:16px;">
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px; line-height:1.6;">
+        💡 <b>说明</b>：依次上传 <b>在线产品</b>、<b>广告活动</b>、<b>广告组</b> 三份 Excel；三份数据导入完成后点击
+        <b>「🔗 数据关联」</b>，系统自动完成三表关联（广告组 → 所属广告活动 → 产品，支持互相追溯），并标记每个产品<b>是否开通自动广告</b>。重复导入自动按日期+名称去重覆盖。
+        点击 <b>「🗑️ 清空数据」</b> 可一键删除全部已导入及已处理的数据（在线产品 / 广告活动 / 广告组 及关联结果）。
+      </p>
+      <div class="ads-stat-row" id="adsStatusRow">
+        <div class="ads-stat-chip"><div class="num" id="stProducts">—</div><div class="lbl">在线产品 (SKU)</div></div>
+        <div class="ads-stat-chip"><div class="num" id="stAutoAd">—</div><div class="lbl">已开通自动广告</div></div>
+        <div class="ads-stat-chip"><div class="num" id="stCampaigns">—</div><div class="lbl">广告活动 (活动×日)</div></div>
+        <div class="ads-stat-chip"><div class="num" id="stGroups">—</div><div class="lbl">广告组 (组×日)</div></div>
+        <div class="ads-stat-chip"><div class="num" id="stLinked" style="font-size:0.95rem;">—</div><div class="lbl">关联状态</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ads-upload-grid">
+    <div class="ads-upload-card">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div class="up-icon" style="background:#eff6ff;">🛒</div>
+        <div>
+          <div class="ads-upload-title">① 在线产品导入</div>
+          <div class="ads-upload-desc">产品Listing快照（ASIN/MSKU/父ASIN/价格/销量等），全量替换导入</div>
+        </div>
+      </div>
+      <label class="ads-file-label">📎 <span id="fileProductsName">选择 .xlsx 文件</span>
+        <input type="file" id="fileProducts" accept=".xlsx,.xlsm" style="display:none;">
+      </label>
+      <button class="btn btn-primary btn-sm" id="btnUploadProducts" type="button" style="background:#0ea5e9; border-color:#0ea5e9;">⬆️ 上传导入</button>
+      <div class="ads-upload-result" id="resProducts"></div>
+    </div>
+
+    <div class="ads-upload-card">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div class="up-icon" style="background:#fef3c7;">📣</div>
+        <div>
+          <div class="ads-upload-title">② 广告活动导入</div>
+          <div class="ads-upload-desc">广告活动每日报表（每日预算/竞价策略/曝光点击花费等）</div>
+        </div>
+      </div>
+      <label class="ads-file-label">📎 <span id="fileCampaignsName">选择 .xlsx 文件</span>
+        <input type="file" id="fileCampaigns" accept=".xlsx,.xlsm" style="display:none;">
+      </label>
+      <button class="btn btn-primary btn-sm" id="btnUploadCampaigns" type="button" style="background:#0ea5e9; border-color:#0ea5e9;">⬆️ 上传导入</button>
+      <div class="ads-upload-result" id="resCampaigns"></div>
+    </div>
+
+    <div class="ads-upload-card">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div class="up-icon" style="background:#f3e8ff;">🧩</div>
+        <div>
+          <div class="ads-upload-title">③ 广告组导入</div>
+          <div class="ads-upload-desc">广告组每日报表（默认竞价/广告产品/点击率/花费等）</div>
+        </div>
+      </div>
+      <label class="ads-file-label">📎 <span id="fileGroupsName">选择 .xlsx 文件</span>
+        <input type="file" id="fileGroups" accept=".xlsx,.xlsm" style="display:none;">
+      </label>
+      <button class="btn btn-primary btn-sm" id="btnUploadGroups" type="button" style="background:#0ea5e9; border-color:#0ea5e9;">⬆️ 上传导入</button>
+      <div class="ads-upload-result" id="resGroups"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ Tab2 在线产品-子 ═══════════ -->
+<div class="ads-panel" data-panel="products">
+  <div class="form-card">
+    <div class="card-header" style="flex-wrap:wrap; gap:12px;">
+      <div class="card-title" style="display:flex; align-items:center; gap:8px;">
+        <div class="card-title-icon" style="background:#0ea5e9;">🛒</div>
+        <span>在线产品-子</span>
+        <span class="tag-badge" id="prodCountBadge" style="background:#e0f2fe; color:#0369a1; border-color:#bae6fd;">共 0 条</span>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center; margin-left:auto; flex-wrap:wrap;">
+        <select id="prodAutoAdFilter" style="padding:6px 8px; border:1px solid var(--border); border-radius:8px; font-size:0.85rem;">
+          <option value="">是否开通自动广告：全部</option>
+          <option value="1">已开通</option>
+          <option value="0">未开通</option>
+        </select>
+        <input type="text" id="prodKeyword" placeholder="🔍 ASIN / SKU / 标题"
+               style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; font-size:0.85rem; width:190px;">
+        <div class="ads-colpop-wrap">
+          <button class="btn btn-outline btn-sm" id="prodColBtn" type="button">⚙️ 列设置</button>
+          <div class="ads-colpop" id="prodColPop">
+            <div class="ads-colpop-head">
+              <span>勾选要展示的列</span>
+              <span style="display:flex; gap:8px;">
+                <a href="javascript:void(0)" id="prodColAll" style="color:#0ea5e9;">全选</a>
+                <a href="javascript:void(0)" id="prodColReset" style="color:#64748b;">默认</a>
+              </span>
+            </div>
+            <div id="prodColList"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body" style="padding:16px;">
+      <div class="table-wrapper" style="border:1px solid var(--border); border-radius:var(--radius-sm); overflow:auto; max-height:calc(100vh - 210px);">
+        <table class="matrix-table ads-table" id="prodTable" style="width:100%; font-size:0.85rem; margin-bottom:0;">
+          <thead><tr id="prodHead"></tr></thead>
+          <tbody id="prodBody"></tbody>
+        </table>
+      </div>
+      <div class="ads-pager" id="prodPager"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ Tab3 在线产品-父 ═══════════ -->
+<div class="ads-panel" data-panel="parents">
+  <div class="form-card">
+    <div class="card-header" style="flex-wrap:wrap; gap:12px;">
+      <div class="card-title" style="display:flex; align-items:center; gap:8px;">
+        <div class="card-title-icon" style="background:#8b5cf6;">🧩</div>
+        <span>在线产品-父</span>
+        <span class="tag-badge" id="parCountBadge" style="background:#f3e8ff; color:#7c3aed; border-color:#e9d5ff;">共 0 条</span>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center; margin-left:auto; flex-wrap:wrap;">
+        <input type="text" id="parKeyword" placeholder="🔍 父SKU / 父ASIN"
+               style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; font-size:0.85rem; width:160px;">
+        <select id="parHasAdFilter" style="padding:6px 8px; border:1px solid var(--border); border-radius:8px; font-size:0.85rem;">
+          <option value="" selected>是否在投：全部</option>
+          <option value="1">在投</option>
+          <option value="0">未投</option>
+        </select>
+        <select id="parSort" style="padding:6px 8px; border:1px solid var(--border); border-radius:8px; font-size:0.85rem;">
+          <option value="产品价格:desc">产品价格 降序</option>
+          <option value="产品价格:asc">产品价格 升序</option>
+          <option value="变体数量:desc">变体数量 降序</option>
+          <option value="变体数量:asc">变体数量 升序</option>
+          <option value="父SKU:asc">父SKU A→Z</option>
+        </select>
+      </div>
+    </div>
+    <div class="card-body" style="padding:16px;">
+      <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">
+        💡 以父SKU为代表一条记录：<b>是否在投</b>按该父下是否存在<b>正在投的广告活动</b>判定（活动状态未停止，且当前日期落在活动的开始~结束日期之间；无结束日期视为长期有效）；产品价格为该父下所有子SKU均价。点击表头可排序。
+        <span id="parLatestDate" style="color:#0369a1; font-weight:600;"></span>
+      </p>
+      <div class="table-wrapper" style="border:1px solid var(--border); border-radius:var(--radius-sm); overflow:auto; max-height:calc(100vh - 210px);">
+        <table class="matrix-table ads-table" id="parTable" style="width:100%; font-size:0.85rem; margin-bottom:0;">
+          <thead><tr id="parHead"></tr></thead>
+          <tbody id="parBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ Tab4 广告研判 ═══════════ -->
+<div class="ads-panel active" data-panel="research">
+  <div class="form-card">
+    <div class="card-header" style="flex-wrap:wrap; gap:12px;">
+      <div class="card-title" style="display:flex; align-items:center; gap:8px;">
+        <div class="card-title-icon" style="background:#f59e0b;">📈</div>
+        <span>广告研判</span>
+        <span class="tag-badge" id="resCountBadge" style="background:#fef3c7; color:#b45309; border-color:#fde68a;">共 0 个广告组</span>
+        <span class="ads-help-wrap">
+          <span class="ads-help" id="resHelp">?</span>
+          <span class="ads-help-tip" id="resHelpTip"></span>
+        </span>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center; margin-left:auto; flex-wrap:wrap;">
+        <div class="ads-range" id="resRange">
+          <button class="ads-range-btn active" data-days="1" type="button">近1天</button>
+          <button class="ads-range-btn" data-days="3" type="button">近3天</button>
+          <button class="ads-range-btn" data-days="7" type="button">近7天</button>
+          <button class="ads-range-btn" data-days="" type="button">所有</button>
+        </div>
+        <select id="resMarkedFilter" style="padding:6px 8px; border:1px solid var(--border); border-radius:8px; font-size:0.85rem;">
+          <option value="" selected>标记：全部</option>
+          <option value="1">已标记</option>
+          <option value="0">未标记</option>
+        </select>
+        <input type="text" id="resKeyword" placeholder="🔍 广告组 / ASIN / 父SKU"
+               style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; font-size:0.85rem; width:190px;">
+        <button class="btn btn-outline btn-sm" id="resStatBtn" type="button"
+                style="border-color:#bae6fd; color:#0369a1;">📊 统计结果</button>
+        <div class="ads-colpop-wrap">
+          <button class="btn btn-outline btn-sm" id="resColBtn" type="button">⚙️ 列设置</button>
+          <div class="ads-colpop" id="resColPop">
+            <div class="ads-colpop-head">
+              <span>勾选要展示的列</span>
+              <span style="display:flex; gap:8px;">
+                <a href="javascript:void(0)" id="resColAll" style="color:#0ea5e9;">全选</a>
+                <a href="javascript:void(0)" id="resColReset" style="color:#64748b;">默认</a>
+              </span>
+            </div>
+            <div id="resColList"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body" style="padding:16px;">
+      <div class="ads-batch-bar">
+        <span class="ads-batch-label">批量设置</span>
+        <span class="ads-batch-count" id="resBatchCount">已选 0 条</span>
+        <span>每日预算 <input type="text" id="resBatchBudget" class="ads-op-input" inputmode="decimal" placeholder="新值" title="批量设置每日预算新值（留空则不修改该字段）"></span>
+        <span>默认竞价 <input type="text" id="resBatchBid" class="ads-op-input" inputmode="decimal" placeholder="新值" title="批量设置默认竞价新值（留空则不修改该字段）"></span>
+        <button class="btn btn-outline btn-sm" id="resBatchWipe" type="button" title="清空已输入的批量内容">🧹</button>
+        <button class="btn btn-primary btn-sm" id="resBatchApply" type="button" style="background:#0ea5e9; border-color:#0ea5e9;" disabled>应用</button>
+        <button class="btn btn-outline btn-sm ads-batch-right" id="resClearMarks" type="button"
+                style="border-color:#fecaca; color:#dc2626; font-weight:700;" title="清空所有已标记行的新每日预算/新默认竞价">清除标记</button>
+      </div>
+      <div class="table-wrapper" style="border:1px solid var(--border); border-radius:var(--radius-sm); overflow:auto; max-height:calc(100vh - 255px);">
+        <table class="matrix-table ads-table ads-table-compact" id="resTable" style="width:100%; margin-bottom:0;">
+          <thead><tr id="resHead"></tr></thead>
+          <tbody id="resBody"></tbody>
+        </table>
+      </div>
+      <div class="ads-pager" id="resPager"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 统计结果弹窗 -->
+<div class="ads-modal" id="statModal">
+  <div class="ads-modal-box">
+    <div class="ads-modal-head">
+      <span>📊 统计结果</span>
+      <span class="ads-modal-close" id="statClose" title="关闭 (Esc)">×</span>
+    </div>
+    <div class="ads-modal-body" id="statBody"></div>
+  </div>
+</div>
+
+<!-- 图片放大预览层 (点击产品缩略图触发, 点击空白处或 Esc 关闭) -->
+<div class="ads-lightbox" id="adsLightbox">
+  <span class="ads-lightbox-close" title="关闭 (Esc)">×</span>
+  <img id="adsLightboxImg" alt="产品图片预览">
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/ads_analysis.js?v=20261001_ads_v18"></script>
+{% endblock %}

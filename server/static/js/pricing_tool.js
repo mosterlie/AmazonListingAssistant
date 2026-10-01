@@ -72,7 +72,7 @@
     },
     {
       key: "rc_plain", name: "日川普货", enabled: true,
-      limits: { max_weight: null, max_single_side: null, max_sum_sides: 960, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
+      limits: { max_weight: 20, max_single_side: null, max_sum_sides: 960, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
       charge_weight: {
         vol_ratio: 6000, round_to: 0.5, min_cw: null,
         bands: [{ max_sum: 100, cmp: "lt", mode: "actual" }, { max_sum: null, cmp: "lte", mode: "max_actual_avg" }]
@@ -95,7 +95,7 @@
     },
     {
       key: "rc_batt", name: "日川带电", enabled: true,
-      limits: { max_weight: null, max_single_side: null, max_sum_sides: 960, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
+      limits: { max_weight: 20, max_single_side: null, max_sum_sides: 960, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
       charge_weight: {
         vol_ratio: 6000, round_to: 0.5, min_cw: null,
         bands: [{ max_sum: 100, cmp: "lt", mode: "actual" }, { max_sum: null, cmp: "lte", mode: "max_actual_avg" }]
@@ -103,10 +103,10 @@
       pricing: {
         type: "tiered_step", step_unit: 0.5,
         tiers: [
-          { max_cw: 2, cmp: "lte", base: 38, step: 9, rate: null, min_charge: null },
-          { max_cw: 5, cmp: "lte", base: 39, step: 9.5, rate: null, min_charge: null },
-          { max_cw: 10, cmp: "lte", base: 40, step: 10, rate: null, min_charge: null },
-          { max_cw: null, cmp: "lte", base: 41, step: 11, rate: null, min_charge: null }
+          { max_cw: 2, cmp: "lte", base: 35, step: 7, rate: null, min_charge: null },
+          { max_cw: 5, cmp: "lte", base: 36, step: 7.5, rate: null, min_charge: null },
+          { max_cw: 10, cmp: "lte", base: 36, step: 8, rate: null, min_charge: null },
+          { max_cw: null, cmp: "lte", base: 37, step: 8.5, rate: null, min_charge: null }
         ],
         first_weight_fee: null, continue_per_kg: null, extra_fee: null, op_fee: 0, discount: null
       },
@@ -126,13 +126,13 @@
       pricing: {
         type: "tiered_step", step_unit: 0.5,
         tiers: [
-          { max_cw: 21, cmp: "lt", base: 60, step: 18, rate: null, min_charge: null },
-          { max_cw: 51, cmp: "lt", base: null, step: null, rate: 19, min_charge: null },
-          { max_cw: 101, cmp: "lt", base: null, step: null, rate: 18.5, min_charge: null },
-          { max_cw: 301, cmp: "lt", base: null, step: null, rate: 17.5, min_charge: null },
-          { max_cw: 501, cmp: "lt", base: null, step: null, rate: 17, min_charge: null },
-          { max_cw: 1000, cmp: "lt", base: null, step: null, rate: 16.5, min_charge: null },
-          { max_cw: null, cmp: "lte", base: null, step: null, rate: 16, min_charge: null }
+          { max_cw: 21, cmp: "lt", base: 55, step: 15, rate: null, min_charge: null },
+          { max_cw: 51, cmp: "lt", base: null, step: null, rate: 18, min_charge: null },
+          { max_cw: 101, cmp: "lt", base: null, step: null, rate: 17.5, min_charge: null },
+          { max_cw: 301, cmp: "lt", base: null, step: null, rate: 17, min_charge: null },
+          { max_cw: 501, cmp: "lt", base: null, step: null, rate: 16.5, min_charge: null },
+          { max_cw: 1000, cmp: "lt", base: null, step: null, rate: 16, min_charge: null },
+          { max_cw: null, cmp: "lte", base: null, step: null, rate: 15.5, min_charge: null }
         ],
         first_weight_fee: null, continue_per_kg: null, extra_fee: null, op_fee: 0, discount: null
       },
@@ -158,7 +158,7 @@
     },
     {
       key: "yw_small", name: "义乌小包", enabled: true,
-      limits: { max_weight: null, max_single_side: 9100, max_sum_sides: 9160, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
+      limits: { max_weight: 20, max_single_side: 9100, max_sum_sides: 9160, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
       charge_weight: {
         vol_ratio: 6000, round_to: null, min_cw: null,
         bands: [
@@ -186,7 +186,7 @@
     },
     {
       key: "chudao160", name: "初岛160免泡", enabled: true,
-      limits: { max_weight: null, max_single_side: 9100, max_sum_sides: 260, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
+      limits: { max_weight: 20, max_single_side: 9100, max_sum_sides: 260, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
       charge_weight: {
         vol_ratio: 6000, round_to: null, min_cw: null,
         bands: [{ max_sum: 160, cmp: "lte", mode: "actual" }, { max_sum: null, cmp: "lte", mode: "avg_actual_vol" }]
@@ -210,7 +210,7 @@
     },
     {
       key: "chudao_heimao", name: "初岛黑猫", enabled: true,
-      limits: { max_weight: null, max_single_side: 160, max_sum_sides: 160, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
+      limits: { max_weight: 20, max_single_side: 160, max_sum_sides: 160, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
       charge_weight: {
         vol_ratio: 6000, round_to: null, min_cw: null,
         bands: [
@@ -233,12 +233,11 @@
     },
     {
       key: "air_post", name: "航空邮政大包", enabled: true,
-      limits: { max_weight: 30, max_single_side: 150, max_sum_sides: null, max_length: null, max_width: null, max_height: null, max_combined_girth: null, max_cw: null, reject_both_over: [] },
+      limits: { max_weight: 30, max_single_side: 150, max_sum_sides: null, max_length: null, max_width: null, max_height: null, max_combined_girth: 300, max_cw: null, reject_both_over: [] },
       charge_weight: { vol_ratio: null, round_to: 1, min_cw: null, bands: [{ max_sum: null, cmp: "lte", mode: "actual" }] },
       pricing: {
         type: "first_continue", step_unit: null, tiers: [],
-        first_weight_fee: 124.2, continue_per_kg: 29.6, extra_fee: 8.0, op_fee: 0, discount: null,
-        girth_discount: { threshold: 330, factor_above: 1.0, factor_below: 0.9 }
+        first_weight_fee: 124.2, continue_per_kg: 29.6, extra_fee: 8.0, op_fee: 0, discount: null, girth_discount: null
       },
       surcharges: [],
       round_total: "ceil2"
@@ -620,7 +619,7 @@
     ,
 
     _defaults: function () {
-      return { tax_rate: 0.17, exchange_rate: 23.0, price_coefficient: 26.0, default_profit_coeff: 1.0 };
+      return { tax_rate: 0.17, exchange_rate: 22.0, price_coefficient: 28.0, default_profit_coeff: 1.0 };
     },
 
     _inject: function () {
@@ -867,6 +866,10 @@
       var sumSides = L + W + H;
       var declared = Math.round(actWt * 4 * 7.19 * 100) / 100;          // 申报金额 = 实重×4×7.19 (商业件川日大包)
       var commTax = Math.round(declared * 0.1 * 100) / 100 + 50;        // 商业件税金 = 申报金额×10% + 50
+      // 新增三指标 (与计价表0930同步): 泡比=6000泡重÷实重; 货度密值=商业件税金÷MAX(实重,6000泡重); 费货比=最低运费÷采购价
+      var paoBi = actWt > 0 ? res.vol6000 / actWt : null;
+      var huoDuMi = actWt > 0 ? commTax / Math.max(actWt, res.vol6000) : null;
+      var feiHuoBi = cost > 0 ? res.optimalFreight / cost : null;
 
       function cell(k, v) {
         return '<div><div class="pt-k">' + k + '</div><div class="pt-v">' + v + "</div></div>";
@@ -893,6 +896,9 @@
         cell("税率 (日本综合)", (taxRate * 100).toFixed(0) + "%") +
         cell("汇率 (1¥≈N円)", exRate + " 円") +
         cell("价格系数", pCoeff) +
+        cell("泡比 (6000泡重÷实重)", paoBi === null ? "—" : fmt2(paoBi)) +
+        cell("货度密值 (税金÷较大重)", huoDuMi === null ? "—" : fmt2(huoDuMi)) +
+        cell("费货比 (最低运费÷采购价)", feiHuoBi === null ? "—" : fmt2(feiHuoBi)) +
         "</div></div>";
 
       // ── 渠道明细表: 每个快递一行, 按运费由低到高 ──

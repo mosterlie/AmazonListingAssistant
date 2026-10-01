@@ -42,7 +42,8 @@ from server.routers import (
     rbac_router,
     alert_router,
     jp_holiday_router,
-    db_agent_router
+    db_agent_router,
+    ads_analysis_router
 )
 
 @asynccontextmanager
@@ -168,6 +169,7 @@ app.include_router(chudao_router.router)
 app.include_router(rbac_router.router)
 app.include_router(alert_router.router)
 app.include_router(jp_holiday_router.router)
+app.include_router(ads_analysis_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
 app.include_router(db_agent_router.router)
 
@@ -410,6 +412,19 @@ async def render_knowledge_page(request: Request):
 
     return render_page(request, "knowledge.html", context={
         "active_page": "knowledge",
+        "current_user": user
+    })
+
+
+@app.get("/ads-analysis", response_class=HTMLResponse, summary="广告分析页面 (数据导入/在线产品/广告研判)")
+async def render_ads_analysis_page(request: Request):
+    """渲染广告分析页面 (需登录; 菜单可见性由 RBAC 角色配置控制)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
+    if redirect_resp:
+        return redirect_resp
+
+    return render_page(request, "ads_analysis.html", context={
+        "active_page": "ads_analysis",
         "current_user": user
     })
 

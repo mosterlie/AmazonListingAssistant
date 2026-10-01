@@ -8,12 +8,18 @@
 表结构见 database.py #12c forwarder_waybills。
 """
 import sqlite3
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from server.database import get_db_connection
 from server.services.chudao_service import ChudaoService, ChudaoApiError
 
 MAX_BATCH_ADD = 200  # 单次入库单号上限
+
+
+def _now_local() -> str:
+    """服务器本地时间字符串 (北京时间; SQLite CURRENT_TIMESTAMP 是 UTC, 直接用会慢 8 小时)"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 class WaybillService:
@@ -94,13 +100,13 @@ class WaybillService:
                 "INSERT INTO forwarder_waybills "
                 "(reference_no, tracking_number, server_hawbcode, channel_hawbcode, "
                  "dest_country, track_status, track_status_name, last_track_desc, "
-                 "last_track_time, source, note, created_by) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 "last_track_time, source, note, created_by, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (reference_no or None, number, summary.get("server_hawbcode", ""),
                  summary.get("channel_hawbcode", ""), summary.get("dest_country", ""),
                  summary.get("track_status", ""), summary.get("track_status_name", ""),
                  summary.get("last_track_desc", ""), summary.get("last_track_time", ""),
-                 source, note, created_by))
+                 source, note, created_by, _now_local(), _now_local()))
             conn.commit()
             return cur.lastrowid
         finally:
@@ -233,10 +239,10 @@ class WaybillService:
             cur = conn.execute(
                 "UPDATE forwarder_waybills SET server_hawbcode=?, channel_hawbcode=?, dest_country=?, "
                 "track_status=?, track_status_name=?, last_track_desc=?, last_track_time=?, "
-                "updated_at=CURRENT_TIMESTAMP WHERE tracking_number=?",
+                "updated_at=? WHERE tracking_number=?",
                 (s.get("server_hawbcode", ""), s.get("channel_hawbcode", ""), s.get("dest_country", ""),
                  s.get("track_status", ""), s.get("track_status_name", ""),
-                 s.get("last_track_desc", ""), s.get("last_track_time", ""), number))
+                 s.get("last_track_desc", ""), s.get("last_track_time", ""), _now_local(), number))
             conn.commit()
             return cur.rowcount > 0
         finally:

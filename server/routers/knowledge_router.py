@@ -356,6 +356,8 @@ DOC_ALLOWED_EXTS = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg",
 }
 DOC_MAX_SIZE = 20 * 1024 * 1024  # 单文件 20MB
+DOC_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+DOC_IMAGE_MAX_SIZE = 5 * 1024 * 1024  # 图片类文档上限 5MB (全站统一图片限制)
 
 
 def _ext_label(ext: str) -> str:
@@ -433,6 +435,9 @@ async def upload_documents(
                 continue
             if size > DOC_MAX_SIZE:
                 skipped.append({"name": raw_name, "reason": "超过 20MB 上限"})
+                continue
+            if ext in DOC_IMAGE_EXTS and size > DOC_IMAGE_MAX_SIZE:
+                skipped.append({"name": raw_name, "reason": "图片超过 5MB 上限"})
                 continue
 
             slug = re.sub(r"[^0-9A-Za-z]+", "_", os.path.splitext(raw_name)[0]).strip("_") or "doc"

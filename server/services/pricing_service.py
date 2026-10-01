@@ -132,6 +132,8 @@ class PricingService:
         # 3. 日川普货
         if cw_richuan is None:
             freights.append({"channel": "日川普货", "status": "拒收", "cost": None, "reason": "三边和>960"})
+        elif act_wt > 20.0:
+            freights.append({"channel": "日川普货", "status": "不适用", "cost": None, "reason": "实重>20kg"})
         else:
             steps = math.ceil(round(cw_richuan / 0.5, 6))
             if cw_richuan <= 2.0:
@@ -147,44 +149,46 @@ class PricingService:
             cost = float(math.ceil(base + extra_size + extra_wt))
             freights.append({"channel": "日川普货", "status": "可用", "cost": cost, "charge_weight": cw_richuan})
 
-        # 4. 日川带电 (Excel: 38/39/40/41 + 9/9.5/10/11)
+        # 4. 日川带电 (Excel 0930: 35/36/36/37 + 7/7.5/8/8.5, 实重>20不适用)
         if cw_richuan is None:
             freights.append({"channel": "日川带电", "status": "拒收", "cost": None, "reason": "三边和>960"})
+        elif act_wt > 20.0:
+            freights.append({"channel": "日川带电", "status": "不适用", "cost": None, "reason": "实重>20kg"})
         else:
             steps = math.ceil(round(cw_richuan / 0.5, 6))
             if cw_richuan <= 2.0:
-                base = 38.0 + (steps - 1) * 9.0
+                base = 35.0 + (steps - 1) * 7.0
             elif cw_richuan <= 5.0:
-                base = 39.0 + (steps - 1) * 9.5
+                base = 36.0 + (steps - 1) * 7.5
             elif cw_richuan <= 10.0:
-                base = 40.0 + (steps - 1) * 10.0
+                base = 36.0 + (steps - 1) * 8.0
             else:
-                base = 41.0 + (steps - 1) * 11.0
+                base = 37.0 + (steps - 1) * 8.5
             extra_size = 260.0 if sum_sides > 239.0 else (200.0 if sum_sides > 220.0 else (150.0 if sum_sides > 200.0 else (100.0 if sum_sides > 179.0 else (80.0 if sum_sides > 159.0 else 0.0))))
             extra_wt = 50.0 if act_wt > 9.9 else 0.0
             cost = float(math.ceil(base + extra_size + extra_wt))
             freights.append({"channel": "日川带电", "status": "可用", "cost": cost, "charge_weight": cw_richuan})
 
-        # 5. 川日大包 (Excel: 超尺/超3倍泡→询价, 无计费重上限, ≥1000kg费率16)
+        # 5. 川日大包 (Excel 0930: 超尺/超3倍泡→询价, 无计费重上限, ≥1000kg费率15.5)
         if length > 305.0 or width > 175.0 or height > 155.0:
             freights.append({"channel": "川日大包", "status": "询价", "cost": None, "reason": "超尺单询"})
         elif cw_richuan is None or cw_richuan > act_wt * 3.0:
             freights.append({"channel": "川日大包", "status": "询价", "cost": None, "reason": "超3倍泡单询"})
         else:
             if cw_richuan < 21.0:
-                base = 60.0 + (math.ceil(round(cw_richuan / 0.5, 6)) - 1) * 18.0
+                base = 55.0 + (math.ceil(round(cw_richuan / 0.5, 6)) - 1) * 15.0
             elif cw_richuan < 51.0:
-                base = cw_richuan * 19.0
+                base = cw_richuan * 18.0
             elif cw_richuan < 101.0:
-                base = cw_richuan * 18.5
-            elif cw_richuan < 301.0:
                 base = cw_richuan * 17.5
-            elif cw_richuan < 501.0:
+            elif cw_richuan < 301.0:
                 base = cw_richuan * 17.0
-            elif cw_richuan < 1000.0:
+            elif cw_richuan < 501.0:
                 base = cw_richuan * 16.5
-            else:
+            elif cw_richuan < 1000.0:
                 base = cw_richuan * 16.0
+            else:
+                base = cw_richuan * 15.5
             extra = 200.0 if (max_side > 159.0 and cw_richuan < 300.0) else 0.0
             cost = round(base + extra, 2)
             freights.append({"channel": "川日大包", "status": "可用", "cost": cost, "charge_weight": cw_richuan})
@@ -197,9 +201,9 @@ class PricingService:
             cost = round(40.0 + (steps - 1) * 10.0, 2)
             freights.append({"channel": "佐川大件", "status": "可用", "cost": cost, "charge_weight": cw_richuan})
 
-        # 7. 义乌小包 (Excel 无实重限制)
-        if cw_chudao is None or max_side > 9100.0 or sum_sides > 9160.0:
-            freights.append({"channel": "义乌小包", "status": "拒收", "cost": None, "reason": "尺寸超限"})
+        # 7. 义乌小包 (Excel 0930: 实重>20拒收)
+        if cw_chudao is None or act_wt > 20.0 or max_side > 9100.0 or sum_sides > 9160.0:
+            freights.append({"channel": "义乌小包", "status": "拒收", "cost": None, "reason": "实重>20或尺寸超限"})
         else:
             steps = math.ceil(round(cw_chudao / 0.5, 6))
             if cw_chudao <= 2.0:
@@ -213,9 +217,9 @@ class PricingService:
             cost = round(float(math.ceil(base + max(extra1, extra2))), 2)
             freights.append({"channel": "义乌小包", "status": "可用", "cost": cost, "charge_weight": cw_chudao})
 
-        # 8. 初岛 160 免泡 (Excel 无实重限制)
-        if cw_chudao160 is None or max_side > 9100.0 or sum_sides > 260.0:
-            freights.append({"channel": "初岛160免泡", "status": "拒收", "cost": None, "reason": "三边和>260"})
+        # 8. 初岛 160 免泡 (Excel 0930: 实重>20拒收)
+        if cw_chudao160 is None or act_wt > 20.0 or max_side > 9100.0 or sum_sides > 260.0:
+            freights.append({"channel": "初岛160免泡", "status": "拒收", "cost": None, "reason": "实重>20或三边和>260"})
         else:
             steps = math.ceil(round(cw_chudao160 / 0.5, 6))
             if cw_chudao160 <= 2.0:
@@ -229,9 +233,9 @@ class PricingService:
             cost = round(float(math.ceil(base + extra_max + extra_sum + 20.0)), 2)
             freights.append({"channel": "初岛160免泡", "status": "可用", "cost": cost, "charge_weight": cw_chudao160})
 
-        # 9. 初岛黑猫 (Excel 无实重限制)
-        if cw_heimao is None or max_side > 160.0 or sum_sides > 160.0:
-            freights.append({"channel": "初岛黑猫", "status": "拒收", "cost": None, "reason": "单边>160或三边和>160"})
+        # 9. 初岛黑猫 (Excel 0930: 实重>20拒收)
+        if cw_heimao is None or act_wt > 20.0 or max_side > 160.0 or sum_sides > 160.0:
+            freights.append({"channel": "初岛黑猫", "status": "拒收", "cost": None, "reason": "实重>20或单边>160或三边和>160"})
         else:
             steps = math.ceil(round(cw_heimao / 0.5, 6))
             if cw_heimao <= 2.0:
@@ -245,15 +249,18 @@ class PricingService:
             cost = round(float(math.ceil(raw_cost)), 2)
             freights.append({"channel": "初岛黑猫", "status": "可用", "cost": cost, "charge_weight": cw_heimao})
 
-        # 10. 航空邮政大包 (Excel: 围长≤330打9折, >330不打折也不拒收)
+        # 10. 航空邮政大包 (Excel 0930: 围长>300拒收, 无折扣)
         if act_wt > 30.0 or max_side > 150.0:
             freights.append({"channel": "航空邮政大包", "status": "拒收", "cost": None, "reason": "重量>30或单边>150"})
         else:
-            wt_ceil = math.ceil(round(act_wt, 6))
             girth = (sum_sides - max_side) * 2.0 + max_side
-            raw = (124.2 + (wt_ceil - 1) * 29.6) * (1.0 if girth > 330.0 else 0.9) + 8.0
-            cost = _ceil2(raw)
-            freights.append({"channel": "航空邮政大包", "status": "可用", "cost": cost, "charge_weight": wt_ceil})
+            if girth > 300.0:
+                freights.append({"channel": "航空邮政大包", "status": "拒收", "cost": None, "reason": "围长>300"})
+            else:
+                wt_ceil = math.ceil(round(act_wt, 6))
+                raw = 124.2 + (wt_ceil - 1) * 29.6 + 8.0
+                cost = _ceil2(raw)
+                freights.append({"channel": "航空邮政大包", "status": "可用", "cost": cost, "charge_weight": wt_ceil})
 
         # =====================================================================
         # 3. 筛选最优渠道

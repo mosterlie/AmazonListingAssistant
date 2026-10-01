@@ -99,6 +99,109 @@ def cleanup_stale_drivers():
     return len(pids)
 
 
+class PlaywrightStuckError(TimeoutError):
+    """Playwright 协议操作超过硬上限。
+
+    典型根因: node 驱动进程死亡后, sync API dispatcher fiber 的主循环
+    (loop.run_until_complete(...)) 已结束, 此后每次 fiber.switch() 立即返回,
+    `while not task.done()` 退化为纯 CPU 无限自旋 (100% CPU 占满 GIL),
+    任务永不完成、调用线程永久挂死。此错误用于解除该卡死。
+    """
+
+
+# 单次 Playwright 协议操作 (new_page/goto/evaluate 等) 的硬上限秒数。
+# 正常操作均自带 <=40s 超时, 超过该上限基本可断定连接已死 (自旋空转)。
+PW_OP_DEADLINE_SECONDS = float(os.environ.get("PW_OP_DEADLINE_SECONDS", "120"))
+
+# 派发到浏览器线程的单个作业的默认上限秒数 (兜底解除无超时协议调用的内核永久等待)
+PW_DISPATCH_TIMEOUT_SECONDS = float(os.environ.get("PW_DISPATCH_TIMEOUT_SECONDS", "300"))
+
+
+def _install_pw_sync_deadline() -> bool:
+    """给 playwright sync API 的 _sync 自旋等待加装墙钟硬上限 (上游缺陷防御)。
+
+    上游缺陷: node 驱动/管道死亡后, 任务在已停转的事件循环上永不完成,
+    `while not task.done(): self._dispatcher_fiber.switch()` 无限自旋。
+    这里在自旋循环中加入超时检测, 超时抛 PlaywrightStuckError 解除卡死。
+    """
+    try:
+        import asyncio
+        import greenlet
+        import traceback as _traceback
+        from playwright._impl import _sync_base
+        from playwright._impl._connection import _capture_stack_trace
+        from playwright._impl._helper import Error as _PwError
+
+        def _sync_with_deadline(self, coro):
+            __tracebackhide__ = True
+            if self._loop.is_closed():
+                coro.close()
+                raise _PwError("Event loop is closed! Is Playwright already stopped?")
+
+            g_self = greenlet.getcurrent()
+            task = self._loop.create_task(coro)
+            setattr(task, "__pw_stack__", _capture_stack_trace())
+            setattr(task, "__pw_stack_trace__", _traceback.extract_stack(limit=10))
+
+            task.add_done_callback(lambda _: g_self.switch())
+            deadline = time.monotonic() + PW_OP_DEADLINE_SECONDS
+            while not task.done():
+                self._dispatcher_fiber.switch()
+                if time.monotonic() >= deadline:
+                    try:
+                        task.cancel()
+                    except Exception:
+                        pass
+                    # 关键: 关闭已停转的事件循环, 让同一连接上的后续操作立即失败
+                    # (否则作业内 except-continue 循环会逐页再各空转 120s)
+                    try:
+                        self._loop.close()
+                    except Exception:
+                        pass
+                    raise PlaywrightStuckError(
+                        f"Playwright 操作超过 {PW_OP_DEADLINE_SECONDS:.0f}s 未完成"
+                        " (疑似 node 驱动进程死亡导致的空转), 已强制中断"
+                    )
+            asyncio._set_running_loop(self._loop)
+            return task.result()
+
+        _sync_base.SyncBase._sync = _sync_with_deadline
+
+        # 同类防御: expect_*/wait_for_event 走 EventInfo.value, 也有相同的自旋循环
+        from playwright._impl._impl_to_api_mapping import ImplToApiMapping
+        _mapping = ImplToApiMapping()
+
+        def _value_with_deadline(self):
+            __tracebackhide__ = True
+            deadline = time.monotonic() + PW_OP_DEADLINE_SECONDS
+            while not self._future.done():
+                self._sync_base._dispatcher_fiber.switch()
+                if time.monotonic() >= deadline:
+                    try:
+                        self._sync_base._loop.close()
+                    except Exception:
+                        pass
+                    raise PlaywrightStuckError(
+                        f"Playwright 事件等待超过 {PW_OP_DEADLINE_SECONDS:.0f}s 未完成"
+                        " (疑似 node 驱动进程死亡导致的空转), 已强制中断"
+                    )
+            asyncio._set_running_loop(self._sync_base._loop)
+            exception = self._future.exception()
+            if exception:
+                raise exception
+            return _mapping.from_maybe_impl(self._future.result())
+
+        _sync_base.EventInfo.value = property(_value_with_deadline)
+        return True
+    except Exception as e:
+        print(f"[BrowserManager] Playwright 自旋超时防御安装失败(保持上游原生行为): {e}",
+              file=sys.stderr)
+        return False
+
+
+_install_pw_sync_deadline()
+
+
 class BrowserManager:
     """
     负责启动 Chrome/Edge 实例、探测 CDP 端口、管理 Playwright 连接与标签页识别。
@@ -137,20 +240,30 @@ class BrowserManager:
             except Exception as e:
                 fut["error"] = e
                 fut["success"] = False
+                if isinstance(e, PlaywrightStuckError) or (
+                        self.playwright is not None
+                        and not self._driver_proc_alive(self.playwright)):
+                    # 单操作硬超时/驱动已死: 连接不可复用, 立即硬重置, 下次任务自动全新连接
+                    self._hard_reset_connection(str(e) or "node 驱动进程已死亡")
             finally:
                 fut["event"].set()
                 self._task_queue.task_done()
 
     def run_on_browser_thread(self, func: Callable, *args, timeout: Optional[float] = None, **kwargs) -> Any:
-        """安全派发函数到 Playwright 专属常驻线程中同步执行"""
+        """安全派发函数到 Playwright 专属常驻线程中同步执行
+
+        默认 300s 派发超时: 若作业卡在无超时协议调用的内核等待上 (如冻结页面的
+        evaluate, greenlet switch 阻塞在 kevent 永不返回, 单操作死循环超时无从触发),
+        超时后强杀 node 驱动解除等待——管道 EOF 会唤醒 switch → 循环内的死循环
+        超时接管 → 工作线程硬重置自愈, 队列恢复流转。
+        """
         fut = {"result": None, "error": None, "success": False, "event": threading.Event()}
         self._task_queue.put((func, args, kwargs, fut))
-        if timeout:
-            if not fut["event"].wait(timeout=timeout):
-                raise TimeoutError("Playwright thread execution timeout")
-        else:
-            fut["event"].wait()
-
+        wait = PW_DISPATCH_TIMEOUT_SECONDS if timeout is None else timeout
+        if not fut["event"].wait(timeout=wait):
+            _kill_driver_proc(self.playwright)
+            raise TimeoutError(
+                f"浏览器线程任务超过 {wait:.0f}s 未完成, 已强制中断并触发自愈")
         if not fut["success"]:
             raise fut["error"]
         return fut["result"]
@@ -322,14 +435,20 @@ class BrowserManager:
             return False, f"端口 {self.port} 未开启 CDP 调试模式，请先启动浏览器！"
 
         try:
-            if not self.playwright:
-                self.playwright = sync_playwright().start()
-                _register_driver_pid(self.playwright)
-
-            if self.browser and self.browser.is_connected():
+            if (self.playwright and self.browser and self.browser.is_connected()
+                    and self._driver_proc_alive(self.playwright)):
                 if activate:
                     self.bring_browser_to_front()
                 return True, "已连接至 Chrome 浏览器"
+
+            # 防御: node 驱动进程已死但连接对象未失效 → 硬重置后走全新连接
+            # (否则后续操作会在已停转的事件循环上空转卡死)
+            if self.playwright and not self._driver_proc_alive(self.playwright):
+                self._hard_reset_connection("node 驱动进程已死亡, 旧连接对象不可复用")
+
+            if not self.playwright:
+                self.playwright = sync_playwright().start()
+                _register_driver_pid(self.playwright)
 
             self.browser = self.playwright.chromium.connect_over_cdp(
                 endpoint_url=self.cdp_url,
@@ -349,6 +468,33 @@ class BrowserManager:
             return True, "成功接管 Chrome 浏览器！"
         except Exception as e:
             return False, f"连接 Chrome 失败: {str(e)}"
+
+    @staticmethod
+    def _driver_proc_alive(playwright) -> bool:
+        """检测 playwright node 驱动进程是否仍存活 (无法判定时保守返回 True)"""
+        pid = _get_driver_pid(playwright)
+        if not pid:
+            return True
+        try:
+            import psutil
+            return psutil.pid_exists(pid)
+        except Exception:
+            try:
+                os.kill(pid, 0)
+                return True
+            except OSError:
+                return False
+
+    def _hard_reset_connection(self, reason: str):
+        """硬重置 Playwright 连接 (仅在工作线程内调用): 杀驱动+清引用, 下次任务自动重连"""
+        print(f"[BrowserManager] 硬重置 Playwright 连接: {reason}", file=sys.stderr)
+        try:
+            _kill_driver_proc(self.playwright)
+        except Exception:
+            pass
+        self.playwright = None
+        self.browser = None
+        self.context = None
 
     def _bind_dialog_handler(self, page: Page):
         """自动绑定弹窗处理器，避免重复绑定与未捕获协议异常"""

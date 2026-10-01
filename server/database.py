@@ -335,6 +335,27 @@ def init_db():
         cursor.execute("ALTER TABLE ad_campaign_tasks ADD COLUMN trim_variants INTEGER NOT NULL DEFAULT 1;")
     if "trim_keep" not in _ad_cols:
         cursor.execute("ALTER TABLE ad_campaign_tasks ADD COLUMN trim_keep INTEGER NOT NULL DEFAULT 5;")
+    # 广告任务集: 统计结果按「每日预算+默认竞价」批量生成的任务归属同一个任务集
+    if "set_id" not in _ad_cols:
+        cursor.execute("ALTER TABLE ad_campaign_tasks ADD COLUMN set_id INTEGER NOT NULL DEFAULT 0;")
+
+    # 8.1 广告任务集 (一个任务集 = 多套「每日预算+默认竞价」对应的多个广告任务)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ad_task_sets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        set_name TEXT NOT NULL DEFAULT '',
+        shop_name TEXT DEFAULT '',
+        start_date TEXT DEFAULT '',
+        create_mode TEXT DEFAULT '',
+        task_count INTEGER DEFAULT 0,
+        asin_total INTEGER DEFAULT 0,
+        source TEXT DEFAULT 'ads_analysis',
+        created_by TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ad_tasks_set_id ON ad_campaign_tasks(set_id);")
 
     # 9. 广告任务执行记录表 (每次「自动投放」登记一条执行结果)
     cursor.execute("""
@@ -644,6 +665,19 @@ def init_db():
     """)
     cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_waybill_track ON forwarder_waybills(tracking_number) WHERE tracking_number IS NOT NULL;")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_waybill_ref ON forwarder_waybills(reference_no);")
+    # 时区修正 (一次性): 存量 created_at/updated_at 由 CURRENT_TIMESTAMP 写入实为 UTC, 整体 +8h 修正为北京时间;
+    # 之后 waybill_service 写入改用本地时间, 以标记键保证本迁移只执行一次
+    if not get_setting("waybill_tz_fixed_v1"):
+        cursor.execute(
+            "UPDATE forwarder_waybills SET "
+            "created_at = datetime(created_at, '+8 hours'), "
+            "updated_at = datetime(updated_at, '+8 hours')")
+        # 标记键在 init_db 同一事务内写入 (set_setting 另开连接会与未提交事务撞写锁)
+        cursor.execute("""
+        INSERT INTO system_settings (key, value_json, updated_at)
+        VALUES ('waybill_tz_fixed_v1', 'true', CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = CURRENT_TIMESTAMP;
+        """)
 
     # 13. 店小秘订单剩余发货时间采集 (临期预警: 黄=剩余<warn_hours / 红=剩余<danger_hours / 超时=剩余<=0)
     #     快照幂等: 每轮 UPSERT (按 order_no); 消失/已发货订单保留最近快照 (last_seen_at 判定)
@@ -690,6 +724,73 @@ def init_db():
         local_name TEXT DEFAULT '',
         types TEXT DEFAULT '',
         synced_at TEXT DEFAULT ''
+    );
+    """)
+
+    # ═══════════ 广告分析: 在线产品 / 广告活动 / 广告组 (原始列存 data JSON) ═══════════
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ads_products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        asin TEXT NOT NULL UNIQUE,
+        parent_asin TEXT DEFAULT '',
+        msku TEXT DEFAULT '',
+        sku TEXT DEFAULT '',
+        parent_sku TEXT DEFAULT '',
+        price REAL DEFAULT 0,
+        status TEXT DEFAULT '',
+        title TEXT DEFAULT '',
+        image TEXT DEFAULT '',
+        auto_ad INTEGER DEFAULT 0,
+        data TEXT DEFAULT '{}',
+        import_time TEXT DEFAULT ''
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ads_campaigns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT DEFAULT '',
+        name TEXT NOT NULL,
+        shop TEXT DEFAULT '',
+        state TEXT DEFAULT '',
+        service_state TEXT DEFAULT '',
+        bid_strategy TEXT DEFAULT '',
+        daily_budget TEXT DEFAULT '',
+        ad_type TEXT DEFAULT '',
+        targeting TEXT DEFAULT '',
+        product_asin TEXT DEFAULT '',
+        parent_asin TEXT DEFAULT '',
+        data TEXT DEFAULT '{}',
+        import_time TEXT DEFAULT '',
+        UNIQUE(date, name)
+    );
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ads_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT DEFAULT '',
+        name TEXT NOT NULL,
+        campaign_name TEXT DEFAULT '',
+        shop TEXT DEFAULT '',
+        state TEXT DEFAULT '',
+        service_state TEXT DEFAULT '',
+        targeting TEXT DEFAULT '',
+        default_bid TEXT DEFAULT '',
+        products_count TEXT DEFAULT '',
+        product_asin TEXT DEFAULT '',
+        parent_asin TEXT DEFAULT '',
+        data TEXT DEFAULT '{}',
+        import_time TEXT DEFAULT '',
+        UNIQUE(date, name, campaign_name)
+    );
+    """)
+    # 广告研判: 人工录入的"新值"(每日预算/默认竞价) 与标记状态, 按广告组名持久化
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ads_group_marks (
+        group_name TEXT PRIMARY KEY,
+        new_budget TEXT DEFAULT '',
+        new_bid TEXT DEFAULT '',
+        marked INTEGER DEFAULT 0,
+        update_time TEXT DEFAULT ''
     );
     """)
 

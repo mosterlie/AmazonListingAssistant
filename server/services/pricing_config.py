@@ -9,8 +9,8 @@ from typing import Dict, Any
 # ============================================================================
 GLOBAL_PRICING_CONFIG = {
     "tax_rate": 0.17,               # 日本消费税/平台税率 (默认 17%)
-    "exchange_rate": 23.0,           # 日元兑人民币汇率 (1 人民币 ≈ 23 日元)
-    "price_coefficient": 26.0,       # 日元售价转换系数 (默认 26.0)
+    "exchange_rate": 22.0,           # 日元兑人民币汇率 (1 人民币 ≈ 22 日元, 计价表0930利润率口径)
+    "price_coefficient": 28.0,       # 日元售价转换系数 (计价表0930: 售价=(合计+利润)×28)
     "default_profit_coeff": 1.0,     # 默认目标利润系数 (默认 1.0)
     "exchange_rate_usd_rmb": 7.19,   # 美元汇率 (用于商业件申报金额测算)
     "japan_tax_rate": 0.10,          # 日本商业件进口税率 (10%)

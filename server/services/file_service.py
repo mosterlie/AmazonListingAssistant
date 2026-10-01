@@ -5,8 +5,11 @@ import os
 import re
 import shutil
 from typing import List, Dict, Any
-from fastapi import UploadFile
+from fastapi import UploadFile, HTTPException
 from server.config import UPLOADS_DIR
+
+# 单张图片上传上限 5MB (全站统一图片限制)
+MAX_IMAGE_SIZE = 5 * 1024 * 1024
 
 
 class FileService:
@@ -22,6 +25,16 @@ class FileService:
         raw_name = os.path.basename(upload_file.filename) if upload_file.filename else "image.jpg"
         # 清理文件名中的非法文件系统字符，保留原文件名
         clean_name = re.sub(r'[\\/*?:"<>|]', '_', raw_name).strip() or "image.jpg"
+
+        # 大小校验: 单张图片不得超过 5MB
+        upload_file.file.seek(0, 2)
+        size = upload_file.file.tell()
+        upload_file.file.seek(0)
+        if size > MAX_IMAGE_SIZE:
+            raise HTTPException(status_code=400, detail=f"图片「{raw_name}」超过 5MB 上限，请压缩后再上传！")
+        if size <= 0:
+            raise HTTPException(status_code=400, detail=f"图片「{raw_name}」内容为空！")
+
         target_path = os.path.join(UPLOADS_DIR, clean_name)
 
         with open(target_path, "wb") as buffer:

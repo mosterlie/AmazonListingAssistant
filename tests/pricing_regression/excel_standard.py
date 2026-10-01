@@ -1,20 +1,21 @@
 """
-Excel《巨富挂件计价表0819(采购用)》公式逐字移植 —— 回归测试的"标准"实现
-来源: .trae/documents/巨富挂件计价表0819（采购用.xlsx 运费计算 sheet 第3/8行公式
-列映射: C=长 D=宽 E=高 F=实重 G=6000泡重 H=8000泡重 I=川日计费重 J=初岛计费重
-        K=初岛160计费重 L=黑猫计费重 M=顺丰小包计费重 N=国际大件计费重 O=三边和
-        P=顺丰小包 Q=国际大件 R=普货小包(日川普货) S=带电小包 T=川日大包
-        U=佐川大件 V=义乌小包 W=初岛160免泡 X=初岛黑猫 Y=航空大包
-状态: 数值=可用报价, "拒收", "询价"(超尺单询/超3倍泡单询), "不适用"(R/S, 实重>912.5)
+Excel《巨富挂件计价表0930（上件)》公式逐字移植 —— 回归测试的"标准"实现
+来源: docs/巨富挂件计价表0930（上件) -.xlsx 运费计算 sheet 第3行公式
+列映射: C=长 D=宽 E=高 F=实重 G=泡比 H=货度密值 I=费货比 J=6000泡重 K=8000泡重
+        L=川日计费重 M=初岛计费重 N=初岛160计费重 O=黑猫计费重 P=顺丰小包计费重
+        Q=国际大件计费重 R=三边和 S=顺丰小包 T=顺丰国际大件 U=普货小包(日川普货)
+        V=带电小包(日川带电) W=川日大包 X=佐川大件 Y=义乌小包 Z=初岛160免泡
+        AA=初岛黑猫 AB=航空大包
+状态: 数值=可用报价, "拒收", "询价"(超尺单询/超3倍泡单询), "不适用"(U/V, 实重>20)
 """
 import math
 from typing import Dict, Any, Optional
 
 # Excel 列名 -> 渠道名
 CHANNEL_MAP = [
-    ("P", "顺丰小包"), ("Q", "顺丰国际大件"), ("R", "日川普货"), ("S", "日川带电"),
-    ("T", "川日大包"), ("U", "佐川大件"), ("V", "义乌小包"), ("W", "初岛160免泡"),
-    ("X", "初岛黑猫"), ("Y", "航空邮政大包"),
+    ("S", "顺丰小包"), ("T", "顺丰国际大件"), ("U", "日川普货"), ("V", "日川带电"),
+    ("W", "川日大包"), ("X", "佐川大件"), ("Y", "义乌小包"), ("Z", "初岛160免泡"),
+    ("AA", "初岛黑猫"), ("AB", "航空邮政大包"),
 ]
 
 
@@ -104,7 +105,7 @@ def excel_standard(length: float, width: float, height: float, weight: float,
     # R 普货小包(日川普货)
     if I is None:
         ch["日川普货"] = "拒收"
-    elif F > 912.5:
+    elif F > 20:
         ch["日川普货"] = "不适用"
     else:
         if I <= 2:   b = 32 + 6.5 * (_ceil_int(I / 0.5) - 1)
@@ -116,13 +117,13 @@ def excel_standard(length: float, width: float, height: float, weight: float,
     # S 带电小包(日川带电)
     if I is None:
         ch["日川带电"] = "拒收"
-    elif F > 912.5:
+    elif F > 20:
         ch["日川带电"] = "不适用"
     else:
-        if I <= 2:   b = 38 + 9 * (_ceil_int(I / 0.5) - 1)
-        elif I <= 5: b = 39 + 9.5 * (_ceil_int(I / 0.5) - 1)
-        elif I <= 10: b = 40 + 10 * (_ceil_int(I / 0.5) - 1)
-        else:        b = 41 + 11 * (_ceil_int(I / 0.5) - 1)
+        if I <= 2:   b = 35 + 7 * (_ceil_int(I / 0.5) - 1)
+        elif I <= 5: b = 36 + 7.5 * (_ceil_int(I / 0.5) - 1)
+        elif I <= 10: b = 36 + 8 * (_ceil_int(I / 0.5) - 1)
+        else:        b = 37 + 8.5 * (_ceil_int(I / 0.5) - 1)
         ch["日川带电"] = _roundup(b + _size_extra(O) + (50.0 if F > 9.9 else 0.0), 0)
 
     # T 川日大包 (无 ROUNDUP, 无计费重上限)
@@ -132,14 +133,14 @@ def excel_standard(length: float, width: float, height: float, weight: float,
         ch["川日大包"] = "询价"                      # 超3倍泡单询 (I="拒收"文本比较恒真)
     else:
         if I < 21:
-            v = 60 + 18 * (_ceil_int(I / 0.5) - 1)
+            v = 55 + 15 * (_ceil_int(I / 0.5) - 1)
         else:
-            if I < 51: r = 19.0
-            elif I < 101: r = 18.5
-            elif I < 301: r = 17.5
-            elif I < 501: r = 17.0
-            elif I < 1000: r = 16.5
-            else: r = 16.0
+            if I < 51: r = 18.0
+            elif I < 101: r = 17.5
+            elif I < 301: r = 17.0
+            elif I < 501: r = 16.5
+            elif I < 1000: r = 16.0
+            else: r = 15.5
             v = I * r
         if mx > 159 and I < 300:
             v += 200.0
@@ -151,8 +152,8 @@ def excel_standard(length: float, width: float, height: float, weight: float,
     else:
         ch["佐川大件"] = 40 + 10 * (_ceil_int(I / 0.5) - 1)
 
-    # V 义乌小包 (J 永不为"拒收", 实际只受尺寸限制)
-    if F > 912.5 or mx > 9100 or O > 9160:
+    # V 义乌小包 (实重>20拒收)
+    if F > 20 or mx > 9100 or O > 9160:
         ch["义乌小包"] = "拒收"
     else:
         if J <= 2:   b = 34 + 6 * (_ceil_int(J / 0.5) - 1)
@@ -162,8 +163,8 @@ def excel_standard(length: float, width: float, height: float, weight: float,
                     120.0 if O > 200 else (80.0 if O > 160 else 0.0))
         ch["义乌小包"] = _roundup(b + extra, 0)
 
-    # W 初岛160免泡
-    if F > 912.5 or mx > 9100 or O > 260:
+    # W 初岛160免泡 (实重>20拒收)
+    if F > 20 or mx > 9100 or O > 260:
         ch["初岛160免泡"] = "拒收"
     else:
         if K <= 2:   b = 34 + 6 * (_ceil_int(K / 0.5) - 1)
@@ -173,8 +174,8 @@ def excel_standard(length: float, width: float, height: float, weight: float,
                 (20.0 if O > 200 else (30.0 if O > 160 else 0.0))
         ch["初岛160免泡"] = _roundup(b + extra, 0) + 20.0
 
-    # X 初岛黑猫
-    if L is None or F > 912.5 or mx > 160 or O > 160:
+    # X 初岛黑猫 (实重>20拒收)
+    if L is None or F > 20 or mx > 160 or O > 160:
         ch["初岛黑猫"] = "拒收"
     else:
         if L <= 2:   b = 36 + 6 * (_ceil_int(L / 0.5) - 1)
@@ -183,20 +184,20 @@ def excel_standard(length: float, width: float, height: float, weight: float,
         else:        b = 39 + 10 * (_ceil_int(L / 0.5) - 1)
         ch["初岛黑猫"] = _roundup(b, 0)
 
-    # Y 航空邮政大包 (正常围长打9折, 超330不打折也不拒收)
-    if F > 30 or mx > 150:
+    # Y 航空邮政大包 (围长>300拒收, 无折扣)
+    if F > 30 or mx > 150 or ((O - mx) * 2 + mx) > 300:
         ch["航空邮政大包"] = "拒收"
     else:
-        girth = (O - mx) * 2 + mx
-        v = (124.2 + (_ceil_int(F) - 1) * 29.6) * (1.0 if girth > 330 else 0.9) + 8
+        v = 124.2 + (_ceil_int(F) - 1) * 29.6 + 8.0
         ch["航空邮政大包"] = _roundup(v, 2)
 
-    # ---- Excel 售价推导 (AE=采购+普货小包运费, AF=AE*0.9, AG=(AE+AF)*28) ----
-    r_val = ch["日川普货"]
-    if isinstance(r_val, (int, float)):
-        ae = purchase + r_val
-        af = ae * 0.9
-        out["price_jpy"] = (ae + af) * 28
+    # ---- Excel 售价推导 (AF=AGGREGATE(15,6,U3:AB3,1)=U:AB 8渠道最低运费, AH=采购+AF, AI=AH, AJ=(AH+AI)*28) ----
+    min8_names = ["日川普货", "日川带电", "川日大包", "佐川大件",
+                  "义乌小包", "初岛160免泡", "初岛黑猫", "航空邮政大包"]
+    nums = [ch[n] for n in min8_names if isinstance(ch.get(n), (int, float))]
+    if nums:
+        ah = purchase + min(nums)
+        out["price_jpy"] = (ah + ah) * 28
     else:
         out["price_jpy"] = None
     return out

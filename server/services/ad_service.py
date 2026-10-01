@@ -314,7 +314,8 @@ class AdTaskService:
     # ================= 写入 =================
 
     @staticmethod
-    def create_task(data: AdTaskCreateSchema, current_user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def create_task(data: AdTaskCreateSchema, current_user: Optional[Dict[str, Any]] = None,
+                    set_id: int = 0) -> Dict[str, Any]:
         asins = parse_asins(data.asins_text, dedup=bool(data.auto_dedup))
         errors = AdTaskService.validate_payload({
             "task_name": data.task_name,
@@ -340,9 +341,9 @@ class AdTaskService:
                 task_name, shop_name, create_mode, start_date, end_date,
                 daily_budget, bid_strategy, default_bid,
                 asins_json, asin_count, batch_size, auto_dedup,
-                trim_variants, trim_keep,
+                trim_variants, trim_keep, set_id,
                 status, last_result, created_by, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?)
             """, (
                 data.task_name.strip(), data.shop_name.strip(), data.create_mode,
                 data.start_date, (data.end_date or "").strip(),
@@ -350,6 +351,7 @@ class AdTaskService:
                 json.dumps(asins, ensure_ascii=False), len(asins),
                 int(data.batch_size or 0), 1 if data.auto_dedup else 0,
                 1 if data.trim_variants else 0, int(data.trim_keep or 5),
+                int(set_id or 0),
                 (current_user or {}).get("username", ""), now, now,
             ))
             task_id = cursor.lastrowid
@@ -429,6 +431,148 @@ class AdTaskService:
             affected = cursor.rowcount
             conn.commit()
             return affected > 0
+        finally:
+            conn.close()
+
+    # ================= 广告任务集 =================
+
+    @staticmethod
+    def create_task_set(payload: Dict[str, Any],
+                        current_user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """按「每日预算 + 默认竞价」批量生成广告任务集。
+
+        一个任务集包含多个广告任务: payload.tasks 里每一套「每日预算+默认竞价」
+        对应一个广告任务 (ASIN 列表随该套参数)。
+        payload: set_name / shop_name / start_date / end_date / create_mode /
+                 bid_strategy / batch_size / trim_variants / trim_keep /
+                 tasks: [{budget, bid, asins:[...], task_name?}]
+        """
+        set_name = str(payload.get("set_name") or "").strip()
+        shop_name = str(payload.get("shop_name") or "").strip()
+        start_date = str(payload.get("start_date") or "").strip() or _today_str()
+        end_date = str(payload.get("end_date") or "").strip()
+        create_mode = payload.get("create_mode") or CREATE_MODES[0]
+        bid_strategy = payload.get("bid_strategy") or BID_STRATEGIES[0]
+        batch_size = int(payload.get("batch_size") or 0)
+        trim_variants = bool(payload.get("trim_variants", True))
+        trim_keep = int(payload.get("trim_keep") or 5)
+        groups = payload.get("tasks") or []
+
+        if not set_name:
+            raise ValueError("任务集名称不能为空")
+        if not groups:
+            raise ValueError("任务集至少需要 1 个分组（每日预算 + 默认竞价 + ASIN）")
+
+        # 先建任务集记录
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            now = _now_str()
+            cursor.execute("""
+            INSERT INTO ad_task_sets (set_name, shop_name, start_date, create_mode,
+                                      task_count, asin_total, source, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 0, 0, 'ads_analysis', ?, ?, ?)
+            """, (set_name, shop_name, start_date, create_mode,
+                  (current_user or {}).get("username", ""), now, now))
+            set_id = cursor.lastrowid
+            conn.commit()
+        finally:
+            conn.close()
+
+        created: List[Dict[str, Any]] = []
+        asin_total = 0
+        try:
+            for i, g in enumerate(groups, 1):
+                budget, bid = g.get("budget", ""), g.get("bid", "")
+                try:
+                    budget_f, bid_f = float(budget), float(bid)
+                except (TypeError, ValueError):
+                    raise ValueError(f"第 {i} 个分组的每日预算/默认竞价必须为数字")
+                if budget_f <= 0 or bid_f <= 0:
+                    raise ValueError(f"第 {i} 个分组的每日预算/默认竞价必须大于 0")
+                asins = g.get("asins")
+                if isinstance(asins, (list, tuple)):
+                    asins = ",".join(str(a) for a in asins)
+                asins = str(asins or "").strip()
+                if not asins:
+                    raise ValueError(f"第 {i} 个分组没有 ASIN")
+                task_name = str(g.get("task_name") or "").strip() or \
+                    f"{set_name}-{i}({_num_str(budget_f)}/{_num_str(bid_f)})"
+                data = AdTaskCreateSchema(
+                    task_name=task_name, shop_name=shop_name, create_mode=create_mode,
+                    start_date=start_date, end_date=end_date,
+                    daily_budget=budget_f, bid_strategy=bid_strategy, default_bid=bid_f,
+                    asins_text=asins, auto_dedup=True,
+                    trim_variants=trim_variants, trim_keep=trim_keep, batch_size=batch_size,
+                )
+                task = AdTaskService.create_task(data, current_user, set_id=set_id)
+                created.append(task)
+                asin_total += int(task.get("asin_count") or 0)
+        except Exception:
+            # 失败回滚: 删除已建任务与本任务集, 避免留下半成品
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            try:
+                for t in created:
+                    cursor.execute("DELETE FROM ad_task_runs WHERE task_id = ?;", (t["id"],))
+                    cursor.execute("DELETE FROM ad_campaign_tasks WHERE id = ?;", (t["id"],))
+                cursor.execute("DELETE FROM ad_task_sets WHERE id = ?;", (set_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            raise
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("UPDATE ad_task_sets SET task_count = ?, asin_total = ?, updated_at = ? WHERE id = ?;",
+                           (len(created), asin_total, _now_str(), set_id))
+            conn.commit()
+        finally:
+            conn.close()
+        return {"set_id": set_id, "set_name": set_name, "task_count": len(created),
+                "asin_total": asin_total, "tasks": created}
+
+    @staticmethod
+    def list_task_sets() -> List[Dict[str, Any]]:
+        """任务集列表 (含每个任务集下的任务, 便于投放页按集展示与整套执行)"""
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT * FROM ad_task_sets ORDER BY id DESC;")
+            sets = [dict(r) for r in cursor.fetchall()]
+            cursor.execute("SELECT * FROM ad_campaign_tasks WHERE set_id != 0 ORDER BY set_id ASC, id ASC;")
+            tasks = [AdTaskService._decorate(dict(r)) for r in cursor.fetchall()]
+        finally:
+            conn.close()
+        by_set: Dict[int, List[Dict[str, Any]]] = {}
+        for t in tasks:
+            by_set.setdefault(int(t.get("set_id") or 0), []).append(t)
+        for s in sets:
+            items = by_set.get(int(s["id"]), [])
+            s["tasks"] = items
+            s["done_count"] = sum(1 for t in items if t.get("status") in ("success", "failed", "partial"))
+            s["running_count"] = sum(1 for t in items if t.get("running"))
+        return sets
+
+    @staticmethod
+    def delete_task_set(set_id: int) -> Dict[str, Any]:
+        """删除任务集及其下全部任务与执行记录"""
+        sid = int(set_id or 0)
+        if not sid:
+            raise ValueError("任务集ID无效")
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT id FROM ad_campaign_tasks WHERE set_id = ?;", (sid,))
+            ids = [r["id"] for r in cursor.fetchall()]
+            for tid in ids:
+                cursor.execute("DELETE FROM ad_task_runs WHERE task_id = ?;", (tid,))
+            cursor.execute("DELETE FROM ad_campaign_tasks WHERE set_id = ?;", (sid,))
+            cursor.execute("DELETE FROM ad_task_sets WHERE id = ?;", (sid,))
+            n = cursor.rowcount or 0
+            conn.commit()
+            return {"set_id": sid, "deleted_tasks": len(ids), "deleted_set": n}
         finally:
             conn.close()
 

@@ -1,5 +1,5 @@
 """
-计费回归测试主程序: 14万样本, 以 Excel《巨富挂件计价表0819》公式移植为标准
+计费回归测试主程序: 14万样本, 以 Excel《巨富挂件计价表0930（上件)》公式移植为标准
 对比对象:
   A. 后端试算  PricingService.calculate_sku_pricing (server/services/pricing_service.py)
   B. 前端子SKU  PricingToolEngine.calculate (server/static/js/pricing_tool.js, Node 运行真实代码)
@@ -175,7 +175,7 @@ def main():
             price_rows.append((ex["price_jpy"], jr["priceJpy"] or 0, py["final_price_jpy"]))
 
     # ---------------------------------------------------------------- 报告
-    lines = ["# 计费回归测试报告 (标准=Excel巨富计价表0819)", "",
+    lines = ["# 计费回归测试报告 (标准=Excel巨富计价表0930上件)", "",
              f"- 样本量: **{len(samples)}**  模式: {mode}",
              "- 引擎A = 前端子SKU/试算工具 (pricing_tool.js, Node 真实运行)",
              "- 引擎B = 后端试算 (pricing_service.py)",
@@ -224,7 +224,7 @@ def main():
                     f"- **{name} [{label}]**: {len(ds)} 条价差, 平均偏差 {avg:+.2f} 元, "
                     f"最大偏差 {mx[2]-mx[1]:+.2f} 元 (例 #{mx[0]}: {mx[1]}→{mx[2]})")
 
-    lines += ["", "## 售价推导 (结构性差异, 非缺陷: Excel=普货运费+利润0.9x+系数28; 系统=最优运费+利润1.0x+系数26)", ""]
+    lines += ["", "## 售价推导 (结构性差异, 非缺陷: Excel=8渠道最低运费+利润1.0x+系数28; 系统=最优运费+利润1.0x+系数26)", ""]
     if price_rows:
         djs = [b - a for a, b, _ in price_rows]
         dpy = [c - a for a, _, c in price_rows]
