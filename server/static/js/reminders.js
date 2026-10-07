@@ -12,9 +12,10 @@ const REMINDER_PRESENTATION = {
     logHtml(t) {
       const st = t.status || {}, last = st.last;
       if (!last) return "";
-      const ok = String(last.status || "").startsWith("sent");
-      let html = `<b>上次发送</b> ${atEsc(fmtLogTime(last.time))} · ${last.trigger === "manual" ? "手动" : "定时"} · ` +
-        `<b style="color:${ok ? "#16a34a" : "#dc2626"};">${atEsc(String(last.status || "—").slice(0, 120))}</b>`;
+      const s = String(last.status || "");
+      const tone = s.startsWith("sent") ? "#16a34a" : (s.startsWith("skipped") ? "#b45309" : "#dc2626");
+      let html = `<b>上次判断</b> ${atEsc(fmtLogTime(last.time))} · ${last.trigger === "manual" ? "手动" : "定时"} · ` +
+        `<b style="color:${tone};">${atEsc(s.slice(0, 120))}</b>`;
       if (st.next_check) html += `<br><b>下次发送</b> ${atEsc(st.next_check)}`;
       return html;
     }
@@ -39,7 +40,8 @@ const REMINDER_PRESENTATION = {
     badges(t) {
       const st = t.status || {};
       const badges = [{ text: t.enabled ? "🟢 已开启" : "⚪ 已关闭", tone: t.enabled ? "run" : "idle" }];
-      if (st.upcoming_count != null) badges.push({ text: `🇯🇵 未来90天 ${st.upcoming_count} 个节日`, tone: "warn" });
+      if (st.today_remind_count) badges.push({ text: `🇯🇵 今日待提醒 ${st.today_remind_count}`, tone: "danger" });
+      if (st.upcoming_count != null) badges.push({ text: `未来90天 ${st.upcoming_count} 个节日`, tone: "warn" });
       return badges;
     },
     logHtml(t) {

@@ -1,14 +1,14 @@
 """
-每日汇总邮件服务 (DailyDigestService) — 监控与邮件解耦后的独立邮件任务
+每日汇总邮件服务 (DailyDigestService) — 三类提醒统一合并为一封的邮件任务
 
-调度: 每天 digest_time (默认 08:15) 触发一次 (心跳 60s; 当天已发不再发; email_enabled 总开关)
-内容 (两个独立区块, 对应两路监控任务的采集结果):
-  A. 货代文档采集: 今日批次结果 (forwarder_doc_sync_logs 今日最新批次, 每日 8 点采集)
-     - 今日无成功批次 → 「未采集到」提醒 (含失败原因)
-     - 成功 → 采集统计 + 超期未发货告警明细 (forwarder_ship_alerts 今日, 按货代分组)
-  B. 店小秘订单预警 (今日 8 点批次): dxm_order_sync_logs 中今日 08:00-08:59 的成功批次
-     - 无 8 点成功批次 → 「未采集到」提醒
-     - 有 → 库内橘色(黄)+红色/超时未发货订单明细 (dxm_order_deadlines, alert_level>=1)
+调度: 每天 digest_time (默认 08:15) 触发一次 (心跳 60s; 当天已判断过不再重复; email_enabled 总开关)
+发送条件 (三个区块任一「满足条件」才发; 全不满足则当天不发, 并记 skipped):
+  A. 🇯🇵 日本节日提前提醒: 仅在「连休首日前 N 天」或「前 1 天」(JpHolidayService.reminder_items)
+  B. 🚢 货代文档采集: 今日批次成功 (success/partial) 且存在超期未发货告警行
+     (forwarder_ship_alerts 今日, 按货代分组; 采集失败/未采集到不算满足条件)
+  C. 📦 店小秘订单预警: 今日 8 点批次成功且存在橘色(黄)/红色未发货订单 (alert_level>=1)
+     (无 8 点成功批次不算满足条件)
+区块内仍会展示「未采集到」等提示信息 (仅在邮件因其它区块而发出时可见)。
 
 SMTP/收件人复用货代采集配置 (fwd_doc_* 扁平键); 发送结果记 system_settings.daily_digest_last。
 店小秘红色/超时预警的即时单独邮件仍由 DxmOrderService 在每轮采集中触发, 与本任务互不影响。
@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 
 from server.database import get_db_connection, get_setting, set_setting
 from server.services.forwarder_doc_service import ForwarderDocService
+from server.services.jp_holiday_service import JpHolidayService
 
 # 货代告警明细邮件中优先展示的列 (与「发货数据」表头对应, 缺列自动跳过)
 _ALERT_DISPLAY_COLUMNS = ["产品名称及备注", "国内包裹数量", "国际单号", "订单号"]
@@ -128,14 +129,20 @@ class DailyDigestService:
             _SEND_LOCK.release()
 
     @staticmethod
-    def _send_email(cfg: Dict[str, Any]) -> str:
+    def _send_email(cfg: Dict[str, Any], force: bool = False) -> str:
+        """组装并发送汇总邮件; force=True (测试邮件) 时忽略「无满足条件」判定强制发送"""
         try:
             biz_date = _today()
+            jp_html, jp_meta = DailyDigestService.jp_section()
             fwd_html, fwd_meta = DailyDigestService.forwarder_section(biz_date)
             dxm_html, dxm_meta = DailyDigestService.dxm_section(biz_date)
+            # 三类任一满足条件才发; 全不满足 → 当天不发邮件
+            if not force and not (jp_meta["hit"] or fwd_meta["hit"] or dxm_meta["hit"]):
+                return "skipped: 今日三类均无满足条件的提醒"
             subject = (f"{cfg.get('subject_prefix', '')} {biz_date} 每日汇总 "
-                       f"(货代告警 {fwd_meta['alerts']} 行 · 店小橘/红 {dxm_meta['alert_rows']} 单)")
-            html = DailyDigestService._build_digest_html(biz_date, fwd_html, dxm_html)
+                       f"(节日提醒 {jp_meta['count']} · 货代告警 {fwd_meta['alerts']} 行 · "
+                       f"店小橘/红 {dxm_meta['alert_rows']} 单)")
+            html = DailyDigestService._build_digest_html(biz_date, jp_html, fwd_html, dxm_html)
             msg = MIMEMultipart("alternative")
             msg["Subject"] = Header(subject, "utf-8")
             msg["From"] = formataddr((Header("ERP每日汇总", "utf-8").encode(),
@@ -152,6 +159,8 @@ class DailyDigestService:
                                 cfg["mail_to"], msg.as_string())
             finally:
                 server.quit()
+            if jp_meta["hit"]:
+                JpHolidayService.mark_reminded("digest")
             return "sent"
         except Exception as e:
             return f"failed: {e.__class__.__name__}: {str(e)[:200]}"
@@ -162,13 +171,46 @@ class DailyDigestService:
         cfg = DailyDigestService.get_config(cfg_override)
         if not cfg.get("mail_to"):
             return "failed: 未配置收件人"
-        return DailyDigestService._send_email(cfg)
+        return DailyDigestService._send_email(cfg, force=True)
 
-    # ───────────────── 区块A: 货代文档采集 ─────────────────
+    # ───────────────── 区块A: 日本节日提前提醒 ─────────────────
+    @staticmethod
+    def jp_section() -> tuple:
+        """今日日本节日提前提醒区块 (仅连休首日前 N 天 / 前 1 天命中);
+        返回 (html, {hit, count})"""
+        items = JpHolidayService.reminder_items()
+        meta = {"hit": bool(items), "count": len(items)}
+        head = "<h3 style='margin:0 0 6px;'>🇯🇵 日本节日提前提醒</h3>"
+        if not items:
+            return (head + "<p style='color:#16a34a;'>✅ 今日非节日提醒时点 "
+                    "(仅在连休首日前 N 天 / 前 1 天发送, 共 2 次)</p>"), meta
+        body = ""
+        for x in items:
+            major = (f"<span style='background:#dc2626;color:#fff;border-radius:4px;"
+                     f"padding:1px 6px;font-size:11px;margin-left:6px;'>大节日</span>"
+                     if x.get("is_major") else "")
+            body += (
+                f"<tr><td style='border:1px solid #e5e7eb;padding:5px 8px;white-space:nowrap;'>"
+                f"{x['break_start']} ~ {x['break_end']}</td>"
+                f"<td style='border:1px solid #e5e7eb;padding:5px 8px;'>{x.get('break_weekday', '')}</td>"
+                f"<td style='border:1px solid #e5e7eb;padding:5px 8px;font-weight:700;'>"
+                f"{x.get('local_name') or x.get('name') or ''}{major}</td>"
+                f"<td style='border:1px solid #e5e7eb;padding:5px 8px;'>连休 {x.get('break_days', 1)} 天</td>"
+                f"<td style='border:1px solid #e5e7eb;padding:5px 8px;color:#dc2626;font-weight:700;'>"
+                f"还有 {x.get('days_to_break', '')} 天</td></tr>")
+        table = ("<table style='border-collapse:collapse;font-size:12.5px;'><thead><tr>" + "".join(
+            f"<th style='border:1px solid #e5e7eb;background:#f8fafc;padding:5px 8px;text-align:left;'>{c}</th>"
+            for c in ["放假区间", "星期", "节日", "连休天数", "距放假"]) +
+            f"</tr></thead><tbody>{body}</tbody></table>")
+        return (head + f"<p>临近假期 <b>{len(items)}</b> 个, 请提前安排发货/采购计划:</p>" + table), meta
+
+    # ───────────────── 区块B: 货代文档采集 ─────────────────
     @staticmethod
     def forwarder_section(biz_date: str) -> tuple:
-        """今日货代采集区块; 返回 (html, {ok, alerts, docs_total, docs_ok, docs_failed})"""
-        meta = {"ok": False, "alerts": 0, "docs_total": 0, "docs_ok": 0, "docs_failed": 0}
+        """今日货代采集区块; 返回 (html, {ok, hit, alerts, docs_total, docs_ok, docs_failed})
+        hit = 今日批次成功且有超期告警行 (采集失败/未采集到不算满足条件)"""
+        meta = {"ok": False, "hit": False, "alerts": 0,
+                "docs_total": 0, "docs_ok": 0, "docs_failed": 0}
         conn = get_db_connection()
         try:
             row = conn.execute(
@@ -190,7 +232,7 @@ class DailyDigestService:
                     + DailyDigestService._miss_box(
                         f"今日货代文档未采集到 (批次状态: {row['status']}{('; ' + row['message'][:150]) if row['message'] else ''})"))
             return html, meta
-        meta.update({"ok": True, "alerts": len(alerts),
+        meta.update({"ok": True, "hit": bool(alerts), "alerts": len(alerts),
                      "docs_total": row["docs_total"] or 0, "docs_ok": row["docs_ok"] or 0,
                      "docs_failed": row["docs_failed"] or 0})
         head = f"<p>今日采集文档 <b>{meta['docs_total']}</b> 个, 成功 <b>{meta['docs_ok']}</b>"
@@ -243,8 +285,9 @@ class DailyDigestService:
     # ───────────────── 区块B: 店小秘 8 点批次 ─────────────────
     @staticmethod
     def dxm_section(biz_date: str) -> tuple:
-        """今日 8 点店小秘批次区块 (橘色+红色/超时未发货订单); 返回 (html, {ok, alert_rows, yellow, red})"""
-        meta = {"ok": False, "alert_rows": 0, "yellow": 0, "red": 0}
+        """今日 8 点店小秘批次区块 (橘色+红色/超时未发货订单); 返回 (html, {ok, hit, alert_rows, yellow, red})
+        hit = 8 点批次成功且有橘色(黄)/红色未发货订单 (无批次不算满足条件)"""
+        meta = {"ok": False, "hit": False, "alert_rows": 0, "yellow": 0, "red": 0}
         day_prefix = f"{biz_date} {_DXM_EIGHT_BATCH_START:02d}"
         window_end = f"{biz_date} {_DXM_EIGHT_BATCH_END:02d}"
         conn = get_db_connection()
@@ -267,7 +310,7 @@ class DailyDigestService:
                     + DailyDigestService._miss_box(
                         "今日店小秘订单未采集到 (8 点批次未执行成功, 上件任务占用或登录失败时批次会跳过)"))
             return html, meta
-        meta.update({"ok": True, "alert_rows": len(rows),
+        meta.update({"ok": True, "hit": bool(rows), "alert_rows": len(rows),
                      "yellow": sum(1 for r in rows if r["alert_level"] == 1),
                      "red": sum(1 for r in rows if r["alert_level"] == 2)})
         head = (f"<p>8 点批次采集 <b>{batch['orders_total'] or 0}</b> 单 · "
@@ -311,13 +354,15 @@ class DailyDigestService:
                 f"padding:8px 12px;color:#b91c1c;'>⚠️ 未采集到 — {reason}</div>")
 
     @staticmethod
-    def _build_digest_html(biz_date: str, fwd_html: str, dxm_html: str) -> str:
+    def _build_digest_html(biz_date: str, jp_html: str, fwd_html: str, dxm_html: str) -> str:
         return (f"<div style='font-family:Microsoft YaHei,Arial;font-size:13px;'>"
                 f"<h2 style='margin:0 0 10px;'>📋 每日监控汇总 <small style='color:#6b7280;font-size:12px;'>{biz_date}</small></h2>"
+                f"<div style='border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin-bottom:14px;'>{jp_html}</div>"
                 f"<div style='border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin-bottom:14px;'>{fwd_html}</div>"
                 f"<div style='border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;'>{dxm_html}</div>"
                 f"<p style='color:#94a3b8;font-size:11px;margin-top:14px;'>"
-                f"本邮件由 ERP 中间件每日汇总任务自动发送 (货代文档采集 · 店小秘订单预警)</p></div>")
+                f"本邮件由 ERP 中间件每日汇总任务自动发送 "
+                f"(日本节日提前提醒 · 货代文档采集 · 店小秘订单预警; 三类全无时当天不发)</p></div>")
 
     @staticmethod
     def get_status() -> Dict[str, Any]:

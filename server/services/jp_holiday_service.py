@@ -1,9 +1,11 @@
 """
-日本节假日服务 (JpHolidayService) — 日历同步 + 大节日邮件提醒
+日本节假日服务 (JpHolidayService) — 日历同步 + 大节日提前提醒判定
 
 同步: 定时从 date.nager.at 公共 API 拉取日本法定节假日 (当年+次年) 入库 jp_holidays 表,
       心跳每天检查一次 (last_sync_date ≠ 今天或数据缺失即同步)。
-提醒: 每天心跳检查 advance_days (默认7) 内是否有法定节假日, 有且当天未发 → 发送邮件。
+提醒: 本服务不再独立发送邮件。节日提前提醒由 reminder_items() 判定后,
+      并入每日汇总邮件 (DailyDigestService, 默认 08:15) 一起发送;
+      仅在「连休首日前 advance_days (默认7) 天」与「连休首日前 1 天」两个时点各提醒一次 (共 2 次)。
       连休自动计算 (节假日+相邻周六日连续区间), 连休 >= MAJOR_BREAK_DAYS 视为「大节日」高亮。
 
 SMTP 通道复用货代采集配置 (fwd_doc_* 扁平键), 提醒配置用 jp_holiday_* 扁平键存 system_settings。
@@ -39,8 +41,6 @@ def _fmt(d: date) -> str:
     return d.strftime("%Y-%m-%d")
 
 
-_SEND_LOCK = threading.Lock()
-_SENDING = {"sending": False}
 _SYNC_LOCK = threading.Lock()
 
 
@@ -281,49 +281,39 @@ class JpHolidayService:
         return {"year": year, "month": month,
                 "first_weekday": first.weekday(), "days": days}
 
-    # ───────────────── 邮件提醒 ─────────────────
+    # ───────────────── 提前提醒判定 ─────────────────
     @staticmethod
-    def maybe_send_reminder() -> bool:
-        """心跳调用 (每60s): 开关开启 + advance_days 内有节日 + 今天未发 → 后台线程发送"""
-        if _SEND_LOCK.locked() or _SENDING["sending"]:
-            return False
+    def reminder_items(today: Optional[date] = None) -> List[Dict[str, Any]]:
+        """今日应发出提前提醒的节日 — 仅两个时点:
+        「连休首日前 advance_days 天」与「连休首日前 1 天」各一次 (共 2 次; N=1 时合并为 1 次)。
+        返回命中的节日条目 (附 days_to_break=距连休首日天数 / break_weekday); 无命中返回 []。
+        注意: 明日已进入连休的当日 (days_to_break<=0) 不再提醒。"""
         cfg = JpHolidayService.get_config()
-        if not cfg["email_enabled"]:
-            return False
-        items = JpHolidayService.upcoming()
-        if not items:
-            return False
-        last = get_setting("jp_holiday_reminder_last", None)
-        if isinstance(last, dict) and last.get("date") == _fmt(_today()):
-            return False
-        threading.Thread(target=JpHolidayService.send_reminder,
-                         kwargs={"trigger": "scheduled", "items": items},
-                         daemon=True).start()
-        return True
+        if not cfg.get("email_enabled"):
+            return []
+        n = max(1, int(cfg.get("advance_days") or 7))
+        t = today or _today()
+        out: List[Dict[str, Any]] = []
+        # 连休首日可能比法定节日当天早若干天(周末延展), 故搜索窗口放宽 7 天
+        for x in JpHolidayService.upcoming(days=n + 7):
+            try:
+                start = date.fromisoformat(x["break_start"])
+            except Exception:
+                continue
+            until = (start - t).days
+            if until in (n, 1):
+                y = dict(x)
+                y["days_to_break"] = until
+                y["break_weekday"] = _WEEKDAY_CN[start.weekday()]
+                out.append(y)
+        return out
 
     @staticmethod
-    def send_reminder(trigger: str = "manual", items: Optional[List[Dict[str, Any]]] = None) -> str:
-        """组装并发送临近节日提醒邮件 (阻塞); 结果记入 jp_holiday_reminder_last"""
-        if not _SEND_LOCK.acquire(blocking=False):
-            return "skipped: 已有发送任务在执行"
-        _SENDING["sending"] = True
-        try:
-            cfg = JpHolidayService.get_config()
-            if items is None:
-                items = JpHolidayService.upcoming()
-            if not cfg.get("mail_to"):
-                status = "failed: 未配置收件人"
-            elif not items:
-                status = "skipped: 提前窗口内无节日"
-            else:
-                status = JpHolidayService._send_email(cfg, items)
-            set_setting("jp_holiday_reminder_last", {
-                "date": _fmt(_today()), "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "trigger": trigger, "status": status})
-            return status
-        finally:
-            _SENDING["sending"] = False
-            _SEND_LOCK.release()
+    def mark_reminded(trigger: str = "digest") -> None:
+        """记录「节日提醒已随汇总邮件发出」标记 (供日历页/提醒卡片展示)"""
+        set_setting("jp_holiday_reminder_last", {
+            "date": _fmt(_today()), "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "trigger": trigger, "status": "sent"})
 
     @staticmethod
     def _send_email(cfg: Dict[str, Any], items: List[Dict[str, Any]]) -> str:
@@ -414,9 +404,9 @@ class JpHolidayService:
         finally:
             conn.close()
         return {
-            "sending": bool(_SENDING["sending"]),
             "last_sync": get_setting("jp_holiday_last_sync", None),
             "last_reminder": get_setting("jp_holiday_reminder_last", None),
+            "today_remind_count": len(JpHolidayService.reminder_items()),
             "total": total,
             "years": years,
             "latest_synced_at": latest,

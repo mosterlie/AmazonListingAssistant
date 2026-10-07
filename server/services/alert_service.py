@@ -89,7 +89,8 @@ REMINDER_FORMS = {
             {"title": "⏱️ 提醒规则", "fields": [
                 {"key": "email_enabled", "type": "switch", "label": "每日定时提醒", "def": False, "role": "enable",
                  "title": "关闭后不再发送每日汇总提醒",
-                 "hint": "每天固定时间发送一次汇总提醒, 内容包含: 店小秘订单预警 (橘/红/超时未发货) + 货代超期未发货告警明细"},
+                 "hint": "每天固定时间发送一封汇总提醒, 内容包含三个区块: 日本节日提前提醒 + 货代超期未发货告警明细 "
+                         "+ 店小秘订单预警 (橘/红/超时未发货); 三类都无满足条件时当天不发送"},
             ]},
             {"title": "🕐 发送时间与收件人", "cols": 2, "fields": [
                 {"key": "digest_time", "type": "time", "label": "每日发送时间", "def": "08:15"},
@@ -121,14 +122,12 @@ REMINDER_FORMS = {
     "jp_holiday": {
         "sections": [
             {"title": "🇯🇵 提醒规则", "cols": 2, "fields": [
-                {"key": "email_enabled", "type": "switch", "label": "大节日邮件提醒", "def": True, "role": "enable",
-                 "title": "临近日本大节日 (连休≥3天) 提前发邮件",
-                 "hint": "每天检查一次, 提前 N 天内发送, 当天不重复; 节假日数据自动同步 (date.nager.at)"},
-                {"key": "advance_days", "type": "number", "label": "提前提醒天数", "def": 7},
-            ]},
-            {"title": "📧 收件人", "cols": 1, "fields": [
-                {"key": "mail_to", "type": "text", "label": "提醒收件人 (多个用英文逗号分隔; 留空=用邮件配置的默认收件人)",
-                 "placeholder": "you@qq.com, boss@qq.com", "actions": ["test_email"], "role": "mail_to"},
+                {"key": "email_enabled", "type": "switch", "label": "纳入每日汇总提醒", "def": True, "role": "enable",
+                 "title": "开启后, 节日提前提醒随每日汇总邮件 (08:15) 一起发送",
+                 "hint": "仅在「连休首日前 N 天」与「连休首日前 1 天」各提醒一次 (共 2 次); "
+                         "已并入「每日定时提醒」的 08:15 汇总邮件, 不再单独发送; 日历数据自动同步 (date.nager.at)"},
+                {"key": "advance_days", "type": "number", "label": "提前提醒天数 (N)", "def": 7,
+                 "min": 1, "max": 90},
             ]},
         ],
     },
@@ -252,7 +251,7 @@ class AlertService:
                 "key": "daily_digest",
                 "name": "每日定时提醒",
                 "icon": "📅",
-                "desc": "每天固定时间发送一次汇总提醒邮件, 内容包含两个区块: 店小秘订单预警 (橘/红/超时未发货) + 货代超期未发货告警明细",
+                "desc": "每天固定时间发送一封汇总提醒邮件, 内容包含三个区块: 日本节日提前提醒 + 货代超期未发货告警明细 + 店小秘订单预警 (橘/红/超时未发货); 三类都无满足条件时当天不发送",
                 "enabled": bool(cfg.get("email_enabled")),
                 "form": REMINDER_FORMS["daily_digest"],
                 "config": {
@@ -278,19 +277,20 @@ class AlertService:
             },
             {
                 "key": "jp_holiday",
-                "name": "日本大节日提醒",
+                "name": "日本节日提前提醒",
                 "icon": "🇯🇵",
-                "desc": "临近日本大节日 (连休≥3天) 自动发送提醒邮件; 提前 N 天内每天检查, 当天不重复",
+                "desc": "日本连休假期提前提醒; 仅在「连休首日前 N 天」与「连休首日前 1 天」各提醒一次 (共 2 次), "
+                        "已并入「每日定时提醒」的 08:15 汇总邮件, 不再单独发送",
                 "enabled": bool(jp_cfg.get("email_enabled")),
                 "form": REMINDER_FORMS["jp_holiday"],
                 "config": {
                     "email_enabled": bool(jp_cfg.get("email_enabled")),
                     "advance_days": jp_cfg.get("advance_days", 7),
-                    "mail_to": str(get_setting("jp_holiday_mail_to", "") or ""),
                 },
                 "status": {"last_reminder": jp_status.get("last_reminder"),
+                           "today_remind_count": jp_status.get("today_remind_count", 0),
                            "upcoming_count": len(JpHolidayService.upcoming(days=90) or [])},
-                "email_note": "发送通道 (SMTP 账号) 复用系统管理 → 邮件配置; 收件人留空时发送给默认收件人",
+                "email_note": "邮件随「每日定时提醒」的 08:15 汇总邮件发送, 收件人同该卡片配置",
             },
         ]
 

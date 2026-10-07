@@ -8,6 +8,7 @@
   - sheet.cellDataGrid.usedRange = {startRowIndex, startColIndex, endRowIndex, endColIndex}
     (空 sheet 哨兵值 2147483647 / -1)
   - 单元格对象: {value, style, formattedValue, extendedValue?}, 取 value (空则 formattedValue)
+  - 单元格底色: style.fill.patternFill.fgColor.rgb (ARGB); 每行汇总为 row_fills (该行首个有填充色的单元格)
   - 未激活 sheet initialized=false 数据未加载 → 逐 sheet 以 ?tab=<sheetId> 重载后提取
 仅支持公开分享的 docs.qq.com/sheet/ 链接 (匿名可访问, 无需登录)。
 """
@@ -55,8 +56,10 @@ _EXTRACT_JS = """
     if (r1 - r0 + 1 > 5000) r1 = r0 + 4999;   // 安全上限
     if (c1 - c0 + 1 > 100) c1 = c0 + 99;
     const rows = [];
+    const rowFills = [];   // 每行底色: 该行第一个有填充色的单元格 ARGB (无填充=null)
     for (let r = r0; r <= r1; r++) {
       const row = [];
+      let rowFill = null;
       for (let c = c0; c <= c1; c++) {
         let cell = null;
         try { cell = s.getCellDataAtPosition(r, c); } catch (e) { cell = null; }
@@ -68,10 +71,20 @@ _EXTRACT_JS = """
         }
         if (v == null || v === '') v = cell.formattedValue;
         row.push(v == null ? null : v);
+        if (rowFill == null) {
+          try {
+            const f = cell.style && cell.style.fill;
+            const pf = f && f.patternFill;
+            const rgb = (pf && pf.fgColor && pf.fgColor.rgb) || (f && f.fgColor && f.fgColor.rgb);
+            if (rgb) rowFill = String(rgb);
+          } catch (e) {}
+        }
       }
       rows.push(row);
+      rowFills.push(rowFill);
     }
     item.rows = rows;
+    item.row_fills = rowFills;
     item.nrows = rows.length;
     item.ncols = rows.length ? rows[0].length : 0;
     out.push(item);

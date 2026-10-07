@@ -6,6 +6,7 @@
   2. 按 (doc_id, tab) 去重后, 无头浏览器直读腾讯文档全部 sheet (TencentDocExtractor)
   3. 幂等入库: 先删当天 (biz_date) 同链接快照再插入 (重跑=删当天重跑)
   4. 告警: 「发货数据」sheet 内, 采购日期可解析 + 发货列为空 + (当天-采购日期) >= 阈值(默认7, 大于等于)
+         + 该行底色非绿色 (绿色 = 货代已处理, 跳过)
 
 配置全部存 system_settings (fwd_doc_* 扁平键), 系统管理页维护。
 其中 smtp_*/mail_*/subject_prefix/email_enabled/digest_time 由每日汇总邮件任务
@@ -88,6 +89,20 @@ def _parse_purchase_date(v: Any) -> Optional[date]:
 
 def _is_empty(v: Any) -> bool:
     return v is None or (isinstance(v, str) and not v.strip()) or v == 0
+
+
+def _is_green_fill(rgb: Any) -> bool:
+    """是否为绿色系底色 (绿色分量显著高于红/蓝)。
+    用于跳过货代已在在线文档中「标绿 = 已处理」的行。"""
+    if not rgb:
+        return False
+    s = re.sub(r"[^0-9A-Fa-f]", "", str(rgb)).upper()
+    if len(s) == 8:  # AARRGGBB → RRGGBB
+        s = s[2:]
+    if len(s) != 6:
+        return False
+    r, g, b = int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
+    return g - max(r, b) >= 10
 
 
 class ForwarderDocService:
@@ -196,6 +211,7 @@ class ForwarderDocService:
 
         # 2. 逐文档提取 + 入库
         all_alerts: List[Dict[str, Any]] = []
+        summary["alerts_skipped_green"] = 0
         with TencentDocExtractor() as extractor:
             for key, job in jobs.items():
                 doc_summary = {"forwarder": job["forwarder_name"], "doc_id": job["doc_id"],
@@ -218,8 +234,10 @@ class ForwarderDocService:
                                                          sheet.get("sheet_id") or "", rows)
                         rows_total += max(0, len(rows) - 1)
                         if _norm_header(sheet["sheet_name"]) == _norm_header(cfg["sheet_name"]):
-                            all_alerts.extend(ForwarderDocService._compute_alerts(
-                                biz_date, job, sheet, cfg, today))
+                            sheet_alerts, skipped = ForwarderDocService._compute_alerts(
+                                biz_date, job, sheet, cfg, today)
+                            all_alerts.extend(sheet_alerts)
+                            summary["alerts_skipped_green"] += skipped
                     doc_summary.update({"status": "success", "rows": rows_total,
                                         "sheets": [s.get("sheet_name") for s in doc.get("sheets", [])]})
                     summary["docs_ok"] += 1
@@ -276,19 +294,22 @@ class ForwarderDocService:
 
     @staticmethod
     def _compute_alerts(biz_date: str, job: Dict[str, Any], sheet: Dict[str, Any],
-                        cfg: Dict[str, Any], today: date) -> List[Dict[str, Any]]:
+                        cfg: Dict[str, Any], today: date) -> tuple:
+        """返回 (告警列表, 因行底色为绿色而跳过的条数)"""
         rows = sheet.get("rows") or []
         if len(rows) < 2:
-            return []
+            return [], 0
+        fills = sheet.get("row_fills") or []
         # 空标题列不参与
         headers = [_norm_header(h) or "" for h in rows[0]]
         valid_idx = [i for i, h in enumerate(headers) if h]
         date_col, ship_col = cfg["date_column"], cfg["ship_column"]
         if date_col not in headers:
-            return []
+            return [], 0
         date_idx = headers.index(date_col)
         ship_idx = headers.index(ship_col) if ship_col in headers else None
         alerts = []
+        skipped_green = 0
         for idx, row in enumerate(rows[1:], start=1):
             purchase = _parse_purchase_date(row[date_idx] if date_idx < len(row) else None)
             if purchase is None:
@@ -298,6 +319,10 @@ class ForwarderDocService:
                 continue
             days = (today - purchase).days
             if days >= cfg["alert_days"]:
+                # 该行底色为绿色 → 货代已处理, 不告警
+                if _is_green_fill(fills[idx] if idx < len(fills) else None):
+                    skipped_green += 1
+                    continue
                 row_json = {headers[i]: row[i] for i in valid_idx if i < len(row)}
                 alerts.append({"forwarder_id": job["forwarder_id"], "forwarder_name": job["forwarder_name"],
                                "link_label": job["link_label"], "link_url": job["link_url"],
@@ -305,7 +330,7 @@ class ForwarderDocService:
                                "purchase_date": purchase.isoformat(), "days_elapsed": days,
                                "row_json": json.dumps(row_json, ensure_ascii=False, default=str),
                                "biz_date": biz_date})
-        return alerts
+        return alerts, skipped_green
 
     @staticmethod
     def _store_alerts(biz_date: str, alerts: List[Dict[str, Any]]) -> None:

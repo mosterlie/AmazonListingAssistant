@@ -57,7 +57,7 @@ async def sync_now(admin: Dict[str, Any] = Depends(require_admin_user)):
 @router.post("/config")
 async def save_config(payload: Dict[str, Any] = Body(default={}),
                       admin: Dict[str, Any] = Depends(require_admin_user)):
-    """保存提醒配置 (email_enabled/advance_days/mail_to; SMTP 通道在系统管理维护)"""
+    """保存提醒配置 (email_enabled/advance_days; 邮件并入每日汇总, SMTP 通道在系统管理维护)"""
     patch = payload.get("config") if isinstance(payload.get("config"), dict) else payload
     cfg = jp_holiday_service.JpHolidayService.save_config(patch)
     return {"code": 0, "msg": "配置已保存", "data": cfg}

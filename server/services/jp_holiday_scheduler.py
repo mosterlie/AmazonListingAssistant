@@ -1,8 +1,9 @@
 """
 日本节假日调度器 — 后台心跳协程 (每60s):
 1. 日历同步: 当年+次年数据缺失或今天未同步过 → 从 date.nager.at 拉取
-2. 节日提醒: 开关开启 + advance_days 内有节日 + 今天未发 → 后台线程发邮件
-具体逻辑见 JpHolidayService.sync_due / maybe_send_reminder。
+具体逻辑见 JpHolidayService.sync_due。
+节日提前提醒不在此发送: 由 daily_digest_scheduler 的每日汇总邮件 (08:15) 统一发出
+(判定见 JpHolidayService.reminder_items)。
 """
 import asyncio
 
@@ -10,7 +11,7 @@ from server.services import jp_holiday_service
 
 
 async def jp_holiday_scheduler():
-    """调度心跳 (每60s): 日历同步 + 大节日邮件提醒"""
+    """调度心跳 (每60s): 仅日历同步"""
     while True:
         try:
             synced = await asyncio.to_thread(
@@ -19,13 +20,6 @@ async def jp_holiday_scheduler():
                 print("🇯🇵 日本节假日日历已同步:", synced.get("years"))
         except Exception as e:
             print(f"⚠️ 日本节假日同步心跳异常: {e}")
-        try:
-            triggered = await asyncio.to_thread(
-                jp_holiday_service.JpHolidayService.maybe_send_reminder)
-            if triggered:
-                print("🇯🇵 日本节日提醒邮件任务已触发")
-        except Exception as e:
-            print(f"⚠️ 日本节日提醒心跳异常: {e}")
         await asyncio.sleep(60)
 
 
