@@ -1,0 +1,271 @@
+{% extends "base_mobile.html" %}
+
+{% block title %}日本日历{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* 月历卡 */
+  .mjc-cal { background:#fff; border:1px solid #ede9fe; border-radius:16px; padding:12px 10px; margin-bottom:12px; }
+  .mjc-nav { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .mjc-nav-btn { min-width:44px; min-height:44px; border:1px solid #ede9fe; background:#faf5ff; color:#7c3aed; border-radius:12px; font-size:1.05rem; font-weight:800; cursor:pointer; }
+  .mjc-nav-btn:active { background:#f3e8ff; }
+  .mjc-nav-title { flex:1; text-align:center; font-size:1rem; font-weight:800; color:#6d28d9; }
+  .mjc-nav-today { min-height:44px; padding:0 12px; border:1px solid #fbcfe8; background:#fdf2f8; color:#be185d; border-radius:12px; font-size:0.78rem; font-weight:700; cursor:pointer; }
+  .mjc-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:4px; }
+  .mjc-wd { text-align:center; font-size:0.68rem; font-weight:700; color:#94a3b8; padding:2px 0; }
+  .mjc-wd.sat { color:#60a5fa; }
+  .mjc-wd.sun { color:#f43f5e; }
+  .mjc-day {
+    position:relative; min-height:48px; border-radius:10px;
+    background:#fff; border:1px solid #f1f5f9; padding:3px 3px 2px;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  .mjc-num { font-size:0.76rem; font-weight:700; color:#334155; line-height:1.2; }
+  .mjc-holname { font-size:0.54rem; line-height:1.15; color:#dc2626; font-weight:600; word-break:break-all; margin-top:1px; }
+  .mjc-day.weekend { background:#f8fafc; }
+  .mjc-day.weekend .mjc-num { color:#94a3b8; }
+  .mjc-day.holiday { background:#fef2f2; border-color:#fecaca; }
+  .mjc-day.holiday .mjc-num { color:#dc2626; }
+  .mjc-day.brk { background:linear-gradient(180deg, #ffe4e6 0%, #fff1f2 100%); border-color:#fda4af; }
+  .mjc-day.brk .mjc-num { color:#be123c; }
+  .mjc-day.brk::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:#e11d48; }
+  .mjc-day.today {
+    outline:2px solid #a855f7; outline-offset:-2px; border-color:#a855f7;
+    background:linear-gradient(135deg, #faf5ff 0%, #ffffff 65%);
+    box-shadow:0 3px 10px rgba(168,85,247,0.35);
+  }
+  .mjc-day.today .mjc-num { color:#7c3aed; font-weight:800; }
+  .mjc-today-badge {
+    position:absolute; top:2px; right:2px; width:16px; height:16px; border-radius:999px;
+    background:linear-gradient(135deg, #f472b6, #db2777); color:#fff;
+    font-size:0.58rem; font-weight:800; line-height:16px; text-align:center;
+    box-shadow:0 1px 4px rgba(219,39,119,0.5); border:1px solid #fff;
+  }
+  .mjc-brk-badge {
+    position:absolute; bottom:2px; right:3px;
+    font-size:0.5rem; font-weight:800; color:#fff; background:#e11d48;
+    border-radius:4px; padding:0 3px; line-height:1.4;
+  }
+  .mjc-legend { display:flex; flex-wrap:wrap; gap:10px; margin-top:10px; font-size:0.64rem; color:#94a3b8; }
+  .mjc-legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:3px; vertical-align:-1px; }
+
+  /* 临近节日 */
+  .mjc-up { display:flex; flex-direction:column; gap:8px; }
+  .mjc-up-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; background:#fff; border:1px solid #f1f5f9; }
+  .mjc-up-item.major { border-color:#fecaca; background:#fef2f2; }
+  .mjc-up-date { font-size:0.82rem; font-weight:800; color:#0f172a; white-space:nowrap; }
+  .mjc-up-main { flex:1; min-width:0; }
+  .mjc-up-name { font-size:0.82rem; font-weight:700; color:#1e293b; word-break:break-word; }
+  .mjc-up-sub { font-size:0.66rem; color:#94a3b8; margin-top:1px; word-break:break-word; }
+  .mjc-up-chip { font-size:0.62rem; font-weight:800; padding:3px 8px; border-radius:999px; white-space:nowrap; }
+  .mjc-up-chip.major { background:#dc2626; color:#fff; }
+  .mjc-up-chip.brk { background:#fffbeb; color:#b45309; border:1px solid #fde68a; }
+  .mjc-up-chip.one { background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 页面标题条 -->
+<div class="m-pagehead">
+  <div>
+    <h1 class="m-ptitle">🇯🇵 日本节假日日历</h1>
+    <div class="m-psub" id="mjcSub">法定节假日 · 连休自动标注</div>
+  </div>
+  <div class="m-pactions">
+    <button type="button" class="m-icon-btn" id="mjcRefresh" title="刷新">🔄</button>
+    {% if current_user and current_user.role == 'admin' %}
+    <button type="button" class="m-icon-btn m-primary" id="mjcSync" title="立即同步">☁️</button>
+    {% endif %}
+  </div>
+</div>
+
+<!-- 月历 -->
+<div class="mjc-cal">
+  <div class="mjc-nav">
+    <button type="button" class="mjc-nav-btn" id="mjcPrev" title="上个月">‹</button>
+    <div class="mjc-nav-title" id="mjcTitle">—</div>
+    <button type="button" class="mjc-nav-btn" id="mjcNext" title="下个月">›</button>
+    <button type="button" class="mjc-nav-today" id="mjcToday">今天</button>
+  </div>
+  <div class="mjc-grid" style="margin-bottom:2px;">
+    <div class="mjc-wd">一</div><div class="mjc-wd">二</div><div class="mjc-wd">三</div>
+    <div class="mjc-wd">四</div><div class="mjc-wd">五</div>
+    <div class="mjc-wd sat">六</div><div class="mjc-wd sun">日</div>
+  </div>
+  <div class="mjc-grid" id="mjcGrid"></div>
+  <div class="mjc-legend">
+    <span><i style="background:#fecaca;"></i>法定节日</span>
+    <span><i style="background:#f8fafc; border:1px solid #e2e8f0;"></i>周末</span>
+    <span><i style="background:linear-gradient(180deg,#ffe4e6,#fff1f2); border-left:3px solid #e11d48;"></i>连休</span>
+    <span><i style="background:#faf5ff; border:1px solid #a855f7;"></i>今天</span>
+  </div>
+</div>
+
+<!-- 临近节日 -->
+<div class="mjc-cal">
+  <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+    <span style="font-size:1rem;">🔔</span>
+    <span style="font-size:0.88rem; font-weight:800; color:#6d28d9;">临近节日（未来 90 天）</span>
+  </div>
+  <div class="mjc-up" id="mjcUpList">
+    <div class="m-empty" style="padding:20px;">⏳ 加载中…</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+/* 本页自包含脚本: 与 PC 版 japan_calendar.js 互不影响 */
+(function () {
+  "use strict";
+  const IS_ADMIN = {{ 'true' if current_user and current_user.role == 'admin' else 'false' }};
+  const state = { year: 0, month: 0 };
+
+  function esc(s) {
+    return String(s === null || s === undefined ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function pad(n) { return String(n).padStart(2, "0"); }
+  function todayKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  async function api(url, options) {
+    const res = await fetch(url, options || {});
+    if (res.status === 401) { location.href = "/login"; throw new Error("未登录"); }
+    const result = await res.json();
+    if (result.detail) throw new Error(typeof result.detail === "string" ? result.detail : JSON.stringify(result.detail));
+    return result;
+  }
+  function toast(msg, type) { if (typeof showToast === "function") showToast(msg, type || "success"); }
+  function addMonths(y, m, delta) {
+    const t = y * 12 + (m - 1) + delta;
+    return { year: Math.floor(t / 12), month: ((t % 12) + 12) % 12 + 1 };
+  }
+
+  // 连休分组: 周末/祝日相邻连续, 总天数 ≥3 且组内含法定祝日
+  function calcBreaks(days) {
+    const brkSet = new Set(), brkStart = new Map();
+    let run = [];
+    const flush = () => {
+      if (run.length >= 3 && run.some(x => x.holiday_name)) {
+        run.forEach(x => brkSet.add(x.date));
+        brkStart.set(run[0].date, run.length);
+      }
+      run = [];
+    };
+    (days || []).forEach(day => {
+      if (day.holiday_name || day.is_weekend) run.push(day); else flush();
+    });
+    flush();
+    return { brkSet, brkStart };
+  }
+
+  async function loadMonth() {
+    const grid = document.getElementById("mjcGrid");
+    const title = document.getElementById("mjcTitle");
+    title.innerText = `${state.year} 年 ${state.month} 月`;
+    try {
+      const result = await api(`/api/jp-holidays/calendar?year=${state.year}&month=${state.month}`);
+      const d = result.data || {};
+      const tKey = todayKey();
+      const { brkSet, brkStart } = calcBreaks(d.days);
+      let html = "";
+      for (let i = 0; i < (d.first_weekday || 0); i++) {
+        html += `<div class="mjc-day" style="border:none; background:transparent;"></div>`;
+      }
+      html += (d.days || []).map(day => {
+        const cls = ["mjc-day"];
+        if (day.is_weekend) cls.push("weekend");
+        if (day.holiday_name) cls.push("holiday");
+        if (brkSet.has(day.date)) cls.push("brk");
+        const isToday = day.date === tKey;
+        if (isToday) cls.push("today");
+        const isBrkStart = brkStart.has(day.date);
+        const brkBadge = (isBrkStart && !isToday) ? `<div class="mjc-brk-badge">連休${brkStart.get(day.date)}</div>` : "";
+        return `<div class="${cls.join(" ")}">
+          <div class="mjc-num">${parseInt(day.date.slice(8), 10)}</div>
+          ${isToday ? `<div class="mjc-today-badge">今</div>` : ""}
+          ${day.holiday_name ? `<div class="mjc-holname">${esc(day.holiday_name)}</div>` : ""}
+          ${brkBadge}
+        </div>`;
+      }).join("");
+      grid.innerHTML = html;
+    } catch (e) {
+      grid.innerHTML = `<div style="grid-column:1/-1; color:#dc2626; font-size:0.8rem; padding:12px;">加载失败: ${esc(e.message)}</div>`;
+    }
+  }
+
+  function renderUpcoming(items) {
+    const box = document.getElementById("mjcUpList");
+    if (!items.length) {
+      box.innerHTML = `<div class="m-empty" style="padding:16px;">✅ 未来 90 天内无法定节假日</div>`;
+      return;
+    }
+    box.innerHTML = items.map(x => {
+      const chip = x.is_major
+        ? `<span class="mjc-up-chip major">大节日 · 连休${x.break_days}天</span>`
+        : (x.break_days > 1 ? `<span class="mjc-up-chip brk">连休${x.break_days}天</span>`
+                            : `<span class="mjc-up-chip one">单日</span>`);
+      const range = x.break_days > 1 ? `${x.break_start} ~ ${x.break_end}` : x.date;
+      return `<div class="mjc-up-item ${x.is_major ? "major" : ""}">
+        <span class="mjc-up-date">${esc(String(x.date).slice(5))}</span>
+        <div class="mjc-up-main">
+          <div class="mjc-up-name">${esc(x.local_name || x.name)}</div>
+          <div class="mjc-up-sub">${esc(x.weekday)} · ${esc(range)} · ${esc(x.name)}</div>
+        </div>
+        ${chip}
+      </div>`;
+    }).join("");
+  }
+
+  async function loadStatus() {
+    try {
+      const result = await api("/api/jp-holidays/status");
+      const d = result.data || {};
+      const ls = d.last_sync;
+      const syncTxt = ls ? `${ls.date || ""} ${String(ls.time || "").slice(11, 16)}`.trim() : "未同步";
+      const up = d.upcoming || [];
+      document.getElementById("mjcSub").innerHTML =
+        `库内 ${d.total ?? 0} 条<span class="m-psub-sep">·</span>同步 ${esc(syncTxt)}<span class="m-psub-sep">·</span><span class="m-psub-ok">未来90天 ${up.length} 个</span>`;
+      renderUpcoming(up);
+    } catch (e) {
+      toast(`加载状态失败: ${e.message}`, "error");
+    }
+  }
+
+  async function syncNow() {
+    const btn = document.getElementById("mjcSync");
+    if (!btn) return;
+    btn.disabled = true; btn.innerText = "⏳";
+    try {
+      const result = await api("/api/jp-holidays/sync", { method: "POST" });
+      toast(result.msg || "日历已同步");
+      loadStatus(); loadMonth();
+    } catch (e) {
+      toast(`同步失败: ${e.message}`, "error");
+    } finally {
+      btn.disabled = false; btn.innerText = "☁️";
+    }
+  }
+
+  // 初始化
+  const now = new Date();
+  state.year = now.getFullYear();
+  state.month = now.getMonth() + 1;
+  document.getElementById("mjcPrev").addEventListener("click", () => {
+    const p = addMonths(state.year, state.month, -1); state.year = p.year; state.month = p.month; loadMonth();
+  });
+  document.getElementById("mjcNext").addEventListener("click", () => {
+    const p = addMonths(state.year, state.month, 1); state.year = p.year; state.month = p.month; loadMonth();
+  });
+  document.getElementById("mjcToday").addEventListener("click", () => {
+    state.year = now.getFullYear(); state.month = now.getMonth() + 1; loadMonth();
+  });
+  document.getElementById("mjcRefresh").addEventListener("click", () => { loadStatus(); loadMonth(); });
+  if (IS_ADMIN) { const b = document.getElementById("mjcSync"); if (b) b.addEventListener("click", syncNow); }
+  loadStatus();
+  loadMonth();
+})();
+</script>
+{% endblock %}

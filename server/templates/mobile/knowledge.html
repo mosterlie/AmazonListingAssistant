@@ -1,0 +1,959 @@
+{% extends "base_mobile.html" %}
+
+{% block title %}知识库{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* 分段 Tab */
+  .m-seg { display:flex; gap:6px; padding:4px; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:12px; margin-bottom:12px; }
+  .m-seg-btn { flex:1; min-height:42px; border:none; background:transparent; border-radius:9px; font-size:0.82rem; font-weight:700; color:#64748b; cursor:pointer; white-space:nowrap; }
+  .m-seg-btn.active { background:#fff; color:#4f46e5; box-shadow:0 2px 6px rgba(15,23,42,0.08); }
+  .m-kb-panel { display:none; }
+  .m-kb-panel.active { display:block; }
+
+  /* 网站导航: 归属分组 */
+  .m-kb-group { margin-bottom:10px; }
+  .m-kb-ghead { display:flex; align-items:center; gap:8px; padding:4px 4px 8px; }
+  .m-kb-gico { width:22px; height:22px; border-radius:6px; object-fit:cover; border:1px solid #e2e8f0; background:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:0.78rem; flex-shrink:0; }
+  .m-kb-gname { font-size:0.82rem; font-weight:800; color:#334155; }
+  .m-kb-gcount { font-size:0.72rem; color:#94a3b8; margin-left:auto; }
+
+  /* 通用卡片内容 */
+  .m-kb-varin { display:flex; gap:8px; margin:9px 0 2px; }
+  .m-kb-varin .form-input { flex:1; min-width:0; min-height:42px; font-size:0.9rem; border-color:#f87171; background:#fffafa; }
+  .m-kb-varin .m-jump-btn { min-width:46px; height:42px; font-size:1rem; }
+  .var-pill-red { background:#fef2f2; color:#dc2626; border:1.5px solid #ef4444; padding:0 5px; border-radius:4px; font-weight:800; }
+  .m-kb-sub2 { font-size:0.72rem; color:#94a3b8; }
+
+  /* 文档 / 提示词 工具条 */
+  .m-doc-toolbar { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .m-doc-toolbar .m-doc-count { font-size:0.76rem; color:#64748b; font-weight:700; margin-right:auto; }
+  .m-doc-toolbar .btn { min-height:40px; font-size:0.8rem; }
+
+  /* 提示词 */
+  .m-pv-var { display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
+  .m-pv-var label { display:flex; align-items:center; gap:6px; font-size:0.78rem; }
+  .m-pv-var label span { color:#dc2626; font-weight:700; white-space:nowrap; }
+  .m-pv-var input { flex:1; min-width:0; min-height:40px; font-size:0.85rem; border:1.5px solid #f0abfc; background:#fffafa; }
+  .m-pv-pre { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.78rem; line-height:1.6; color:#334155; white-space:pre-wrap; word-break:break-word; max-height:200px; overflow:auto; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px; }
+  .m-pv-pre .filled { background:#f0fdf4; color:#15803d; font-weight:700; border-radius:4px; padding:0 3px; }
+  .m-pv-pre .miss { background:#fef2f2; color:#dc2626; font-weight:800; border-radius:4px; padding:0 3px; }
+
+  /* 归属图标网格 */
+  .m-cat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .m-cat-card { display:flex; flex-direction:column; align-items:center; gap:5px; padding:10px 6px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; }
+  .m-cat-card .m-cat-ico { width:38px; height:38px; border-radius:9px; object-fit:cover; border:1px solid #e2e8f0; background:#fff; display:flex; align-items:center; justify-content:center; font-size:1.1rem; }
+  .m-cat-card .m-cat-name { font-size:0.78rem; font-weight:700; color:#1e293b; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .m-cat-card .btn { min-height:32px; font-size:0.7rem; padding:2px 8px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 页面标题条 -->
+<div class="m-pagehead">
+  <div>
+    <h1 class="m-ptitle">📚 知识库</h1>
+    <div class="m-psub" id="mKbSub">正在加载…</div>
+  </div>
+  <div class="m-pactions">
+    <button type="button" class="m-icon-btn" id="mKbRefresh" title="刷新">🔄</button>
+    <button type="button" class="m-icon-btn m-primary" id="mKbAdd" style="display:none;" title="新增">➕</button>
+  </div>
+</div>
+
+<!-- 分段 Tab -->
+<div class="m-seg" id="mKbTabs">
+  <button type="button" class="m-seg-btn active" data-tab="sites">🔗 网站导航</button>
+  <button type="button" class="m-seg-btn" data-tab="docs">📄 文档库</button>
+  <button type="button" class="m-seg-btn" data-tab="prompts">📝 提示词</button>
+</div>
+
+<!-- ================= 网站导航 ================= -->
+<div class="m-kb-panel active" data-panel="sites">
+  <div class="m-searchbar">
+    <label class="m-search-input">
+      <span>🔍</span>
+      <input type="search" id="mSiteKw" placeholder="搜索用途 / 归属 / 网址" autocomplete="off">
+    </label>
+    <button type="button" class="m-filter-btn" id="mCatMgrBtn" style="display:none;" title="维护归属与图标">🏷️</button>
+  </div>
+  <div class="m-card-list" id="mSiteList"></div>
+</div>
+
+<!-- ================= 文档库 ================= -->
+<div class="m-kb-panel" data-panel="docs">
+  <div class="m-doc-toolbar">
+    <div class="m-doc-count" id="mDocCount">共 0 个文档</div>
+    <button type="button" class="btn btn-primary btn-sm" id="mDocUploadBtn" style="display:none;">⬆️ 上传</button>
+  </div>
+  <div class="m-card-list" id="mDocList"></div>
+</div>
+
+<!-- ================= 提示词模板 ================= -->
+<div class="m-kb-panel" data-panel="prompts">
+  <div class="m-doc-toolbar">
+    <div class="m-doc-count" id="mPromptCount">共 0 套模板</div>
+    <a class="btn btn-outline btn-sm" href="https://chat.deepseek.com/" target="_blank" rel="noopener noreferrer">↪ DS</a>
+    <button type="button" class="btn btn-primary btn-sm" id="mPromptAddBtn" style="display:none;">➕ 新增</button>
+  </div>
+  <div class="m-card-list" id="mPromptList"></div>
+</div>
+
+<!-- ================= 抽屉区 ================= -->
+<div class="m-sheet-mask" id="mKbMask"></div>
+
+<!-- 网站新增/编辑抽屉 -->
+<div class="m-sheet" id="mSheetSite">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title" id="mSiteSheetTitle">➕ 新增网站</div>
+  <div class="m-field">
+    <label class="m-field-label">🏷️ 网址归属 *</label>
+    <input type="text" class="form-input" id="mSiteCat" list="mCatList" placeholder="如: 亚马逊 / 拼多多 / 1688">
+    <datalist id="mCatList"></datalist>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">🌐 网址用途 *</label>
+    <input type="text" class="form-input" id="mSiteTitle" placeholder="如: 以图搜图 / 销量榜 / 通过asin搜">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">🔗 网址（固定 5 段按序拼接；需参数处填 {var}）</label>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <input type="text" class="form-input js-sp" id="mSiteP1" placeholder="分段① 如 https://www.amazon.co.jp/s?k=">
+      <input type="text" class="form-input js-sp" id="mSiteP2" placeholder="分段② 如 {var}">
+      <input type="text" class="form-input js-sp" id="mSiteP3" placeholder="分段③（可选）">
+      <input type="text" class="form-input js-sp" id="mSiteP4" placeholder="分段④（可选）">
+      <input type="text" class="form-input js-sp" id="mSiteP5" placeholder="分段⑤（可选）">
+    </div>
+    <div class="m-pv-pre" id="mSitePreview" style="margin-top:8px; max-height:84px;">拼接预览：（暂无输入）</div>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">📝 说明备注（可选）</label>
+    <input type="text" class="form-input" id="mSiteDesc" placeholder="如: 亚马逊日亚前台搜词，输入 ASIN 后直达">
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mSiteCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mSiteSave">💾 保存</button>
+  </div>
+</div>
+
+<!-- 归属管理抽屉 -->
+<div class="m-sheet" id="mSheetCat">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">🏷️ 网址归属与图标</div>
+  <div class="m-cat-grid" id="mCatGrid"></div>
+  <div class="m-field" style="margin-top:14px; padding-top:12px; border-top:1px dashed #e2e8f0;">
+    <label class="m-field-label">➕ 新建归属</label>
+    <input type="text" class="form-input" id="mCatNewName" placeholder="归属名称，如: Temu">
+    <label class="btn btn-outline btn-sm" style="margin-top:8px; display:inline-flex; align-items:center; cursor:pointer;">
+      🖼️ 选择图标(可选)
+      <input type="file" id="mCatNewIcon" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.ico" style="display:none;">
+      <span id="mCatNewIconLabel" style="margin-left:6px; color:#94a3b8;">未选择</span>
+    </label>
+    <button type="button" class="btn btn-primary" id="mCatNewSave" style="margin-top:10px;">💾 保存新归属</button>
+  </div>
+</div>
+
+<!-- 提示词模板新增/编辑抽屉 -->
+<div class="m-sheet" id="mSheetPrompt">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title" id="mPromptSheetTitle">➕ 新增提示词模板</div>
+  <div class="m-field">
+    <label class="m-field-label">模板名称 *</label>
+    <input type="text" class="form-input" id="mPromptName" maxlength="128" placeholder="如: 五点描述生成提示词">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">用途说明（可选）</label>
+    <input type="text" class="form-input" id="mPromptDesc" maxlength="256" placeholder="如: 输入商品特性生成五点描述">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">排序（越小越靠前）</label>
+    <input type="number" class="form-input" id="mPromptSort" value="0">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">提示词内容 *（支持 {参数名} 占位符）</label>
+    <textarea class="form-input" id="mPromptContent" rows="10" style="width:100%; box-sizing:border-box; font-family:ui-monospace,Menlo,monospace; font-size:0.85rem; line-height:1.6; resize:vertical;"></textarea>
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mPromptCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mPromptSave">💾 保存</button>
+  </div>
+</div>
+
+<!-- 提示词详情抽屉 -->
+<div class="m-sheet" id="mSheetPromptDetail">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title" id="mPromptDetailTitle">提示词详情</div>
+  <div id="mPromptDetailVars"></div>
+  <pre class="m-pv-pre" id="mPromptDetailBody" style="max-height:52vh;"></pre>
+  <div class="m-act-list" id="mPromptDetailActs" style="margin-top:12px;"></div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mPromptDetailClose">关闭</button>
+    <button type="button" class="btn btn-primary" id="mPromptDetailCopy">📋 复制</button>
+  </div>
+</div>
+
+<!-- 网址详情抽屉 -->
+<div class="m-sheet" id="mSheetSiteDetail">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">🔗 网址详情</div>
+  <div id="mSiteDetailBody"></div>
+  <div class="m-act-list" id="mSiteDetailActs" style="margin-top:12px;"></div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mSiteDetailClose">关闭</button>
+  </div>
+</div>
+
+<!-- 文档详情抽屉 -->
+<div class="m-sheet" id="mSheetDocDetail">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">📄 文档详情</div>
+  <div id="mDocDetailBody"></div>
+  <div class="m-act-list" id="mDocDetailActs" style="margin-top:12px;"></div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mDocDetailClose">关闭</button>
+  </div>
+</div>
+
+<!-- 文档上传抽屉 -->
+<div class="m-sheet" id="mSheetDoc">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">⬆️ 上传文档（可多选，单个 ≤ 20MB）</div>
+  <div class="m-field">
+    <label class="m-field-label">选择文件 *</label>
+    <label class="m-doc-drop" style="display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer; border:2px dashed #94a3b8; border-radius:12px; padding:20px; background:#f8fafc;">
+      <span style="font-size:1.6rem;">📂</span>
+      <span style="font-size:0.85rem; color:#334155; font-weight:600;">点击选择文件（可多选）</span>
+      <span id="mDocFileSummary" style="font-size:0.76rem; color:#94a3b8;">尚未选择文件</span>
+      <input type="file" id="mDocFile" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.zip,.rar,.7z,.png,.jpg,.jpeg,.gif,.webp,.svg" style="display:none;">
+    </label>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">文档说明（可选，应用于本批）</label>
+    <input type="text" class="form-input" id="mDocDesc" placeholder="如: 2026年Q4 选品调研资料">
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mDocCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mDocStart">🚀 开始上传</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const IS_ADMIN = {{ 'true' if current_user and current_user.role == 'admin' else 'false' }};
+
+  const KB = {
+    tab: 'sites',
+    sites: [], categories: [],
+    docs: [], docsLoaded: false,
+    prompts: [], promptsLoaded: false,
+    siteKw: '',
+    varVals: {},          // { siteId: 用户输入的参数 }
+    promptVals: {},       // { promptId: { 参数名: 值 } }
+    editingSiteId: null,
+    editingPromptId: null
+  };
+
+  /* ───────── 工具 ───────── */
+  function esc(s) {
+    return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, m => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[m]));
+  }
+  function fmtUrl(u) {
+    if (!u) return "#";
+    const t = String(u).trim();
+    return /^https?:\/\//i.test(t) ? t : "https://" + t;
+  }
+  async function api(url, opts) {
+    const resp = await fetch(url, opts);
+    if (resp.status === 401) { window.location.href = "/login"; throw new Error("未登录"); }
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok || body.code !== 0) throw new Error(body.detail || body.msg || "请求失败");
+    return body;
+  }
+  function emptyHtml(ico, txt) {
+    return `<div class="m-empty"><div class="m-empty-ico">${ico}</div><div class="m-empty-txt">${txt}</div></div>`;
+  }
+  function skeleton(n) {
+    let h = "";
+    for (let i = 0; i < (n || 3); i++) {
+      h += `<div class="m-skel-card"><div class="m-skel m-skel-thumb"></div>
+            <div class="m-skel-lines"><div class="m-skel" style="height:14px;width:80%"></div>
+            <div class="m-skel" style="height:12px;width:55%"></div>
+            <div class="m-skel" style="height:12px;width:65%"></div></div></div>`;
+    }
+    return h;
+  }
+  function setSub(t) { document.getElementById("mKbSub").innerText = t; }
+
+  /* ───────── 抽屉控制 ───────── */
+  function openSheet(id) {
+    document.getElementById(id).classList.add("open");
+    document.getElementById("mKbMask").classList.add("open");
+  }
+  function closeSheets() {
+    document.querySelectorAll(".m-sheet").forEach(s => s.classList.remove("open"));
+    document.getElementById("mKbMask").classList.remove("open");
+  }
+
+  /* =========================================================
+     Tab 切换
+     ========================================================= */
+  function switchTab(tab) {
+    KB.tab = tab;
+    document.querySelectorAll("#mKbTabs .m-seg-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+    document.querySelectorAll(".m-kb-panel").forEach(p => p.classList.toggle("active", p.dataset.panel === tab));
+    const addBtn = document.getElementById("mKbAdd");
+    if (addBtn) addBtn.style.display = IS_ADMIN ? "inline-flex" : "none";
+    if (tab === "docs" && !KB.docsLoaded) { KB.docsLoaded = true; loadDocs(); }
+    if (tab === "prompts" && !KB.promptsLoaded) { KB.promptsLoaded = true; loadPrompts(); }
+  }
+
+  /* =========================================================
+     网站导航
+     ========================================================= */
+  async function loadSites() {
+    const list = document.getElementById("mSiteList");
+    list.innerHTML = skeleton(3);
+    setSub("正在加载…");
+    try {
+      const r = await api("/api/knowledge");
+      KB.sites = r.data || [];
+      try {
+        const cr = await api("/api/knowledge/categories");
+        KB.categories = cr.data || [];
+      } catch (e) { /* 归属接口异常不影响主列表 */ }
+      renderSites();
+      setSub(`共 ${KB.sites.length} 个网址 · ${KB.categories.length} 个归属`);
+    } catch (e) {
+      list.innerHTML = emptyHtml("❌", "加载失败：" + esc(e.message));
+      setSub("加载失败");
+    }
+  }
+
+  function iconHtml(icon, size) {
+    const s = size || 22;
+    if (icon) return `<img class="m-kb-gico" src="${esc(icon)}" alt="" style="width:${s}px;height:${s}px;">`;
+    return `<span class="m-kb-gico" style="width:${s}px;height:${s}px;">🏷️</span>`;
+  }
+  function highlightVar(rawUrl, val) {
+    let h = esc(rawUrl || "");
+    if (val) return h.replaceAll("{var}", `<span class="var-pill-red">${esc(val)}</span>`);
+    return h.replaceAll("{var}", '<span class="var-pill-red">{var}</span>');
+  }
+
+  function renderSites() {
+    const list = document.getElementById("mSiteList");
+    const kw = KB.siteKw.trim().toLowerCase();
+    const items = KB.sites.filter(s => !kw ||
+      ((s.title || "") + " " + (s.category || "") + " " + (s.full_url || "") + " " + (s.description || "")).toLowerCase().includes(kw));
+
+    if (!items.length) {
+      list.innerHTML = emptyHtml("📭", KB.sites.length ? "没有匹配的网址" : "暂无知识库网址");
+      return;
+    }
+
+    // 按归属分组（保持后端返回顺序）
+    const groups = [];
+    const map = new Map();
+    items.forEach(s => {
+      const key = s.category || "未设置归属";
+      if (!map.has(key)) {
+        const g = { name: key, icon: s.category_icon || "", items: [] };
+        map.set(key, g);
+        groups.push(g);
+      }
+      map.get(key).items.push(s);
+    });
+
+    list.innerHTML = groups.map(g => `
+      <div class="m-kb-group">
+        <div class="m-kb-ghead">
+          ${iconHtml(g.icon)}
+          <span class="m-kb-gname">${esc(g.name)}</span>
+          <span class="m-kb-gcount">${g.items.length} 个</span>
+        </div>
+        <div class="m-card-list">
+          ${g.items.map(siteCard).join("")}
+        </div>
+      </div>
+    `).join("");
+
+    // 恢复已填参数
+    list.querySelectorAll(".js-var-in").forEach(inp => {
+      const id = inp.dataset.id;
+      if (KB.varVals[id]) inp.value = KB.varVals[id];
+    });
+  }
+
+  function siteCard(s) {
+    const varRow = s.has_var ? `
+      <div class="m-kb-varin">
+        <input type="text" class="form-input js-var-in" data-id="${s.id}" placeholder="输入参数替换 {var}" value="">
+        <button type="button" class="m-jump-btn js-open" data-id="${s.id}" title="填入参数并打开">🚀</button>
+      </div>` : "";
+    const mainBtn = s.has_var
+      ? `<button type="button" class="m-btn-main js-open" data-id="${s.id}">🚀 打开</button>`
+      : (s.full_url ? `<a class="m-btn-main" href="${fmtUrl(s.full_url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">↗️ 打开</a>` : "");
+    return `<div class="m-card">
+      <div class="m-card-title">${esc(s.title)}</div>
+      ${varRow}
+      <div class="m-card-foot">
+        ${mainBtn}
+        <button type="button" class="m-more-btn js-detail" data-id="${s.id}">⋯</button>
+      </div>
+    </div>`;
+  }
+
+  function onSiteInput(e) {
+    const inp = e.target.closest(".js-var-in");
+    if (!inp) return;
+    KB.varVals[inp.dataset.id] = inp.value;
+  }
+
+  function onSiteClick(e) {
+    const openBtn = e.target.closest(".js-open");
+    if (openBtn) { openDynamic(openBtn.dataset.id); return; }
+    const detBtn = e.target.closest(".js-detail");
+    if (detBtn) { openSiteDetail(Number(detBtn.dataset.id)); return; }
+    const editBtn = e.target.closest(".js-edit");
+    if (editBtn) { openSiteEditor(Number(editBtn.dataset.id)); return; }
+    const delBtn = e.target.closest(".js-del");
+    if (delBtn) { deleteSite(Number(delBtn.dataset.id), delBtn.dataset.name); return; }
+  }
+
+  function openSiteDetail(id) {
+    const s = KB.sites.find(x => String(x.id) === String(id));
+    if (!s) return;
+    const row = (k, v) => `<div class="m-info-row"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+    document.getElementById("mSiteDetailBody").innerHTML = `<div class="m-info-list">`
+      + row("网址用途", esc(s.title))
+      + row("归属", iconHtml(s.category_icon, 16) + " " + esc(s.category || "未设置"))
+      + row("完整网址", s.full_url ? esc(s.full_url) : "—")
+      + row("说明", esc(s.description || "—"))
+      + `</div>`;
+    let h = `<button type="button" class="m-act-item" id="mSdCopy"><span class="m-act-ico">📋</span>复制链接<span class="m-act-arrow">›</span></button>`;
+    if (IS_ADMIN) h += `<button type="button" class="m-act-item" id="mSdEdit"><span class="m-act-ico">✏️</span>编辑网址<span class="m-act-arrow">›</span></button>`
+      + `<button type="button" class="m-act-item danger" id="mSdDel"><span class="m-act-ico">🗑️</span>删除网址<span class="m-act-arrow">›</span></button>`;
+    document.getElementById("mSiteDetailActs").innerHTML = h;
+    document.getElementById("mSdCopy").onclick = () => copySite(s.id);
+    const eb = document.getElementById("mSdEdit");
+    if (eb) eb.onclick = () => { closeSheets(); openSiteEditor(s.id); };
+    const db = document.getElementById("mSdDel");
+    if (db) db.onclick = () => { closeSheets(); deleteSite(s.id, s.title); };
+    openSheet("mSheetSiteDetail");
+  }
+
+  function targetUrlOf(s) {
+    const val = (KB.varVals[s.id] || "").trim();
+    if (s.has_var && val) return fmtUrl(String(s.full_url).replaceAll("{var}", encodeURIComponent(val)));
+    return fmtUrl(s.full_url);
+  }
+  function copySite(id) {
+    const s = KB.sites.find(x => String(x.id) === String(id));
+    if (!s) return;
+    const t = targetUrlOf(s);
+    copyToClipboard(t, "网址 ");
+  }
+  function openDynamic(id) {
+    const s = KB.sites.find(x => String(x.id) === String(id));
+    if (!s) return;
+    const val = (KB.varVals[s.id] || "").trim();
+    if (s.has_var && !val) {
+      showToast("请先输入参数（替换 {var}）再打开", "error");
+      const inp = document.querySelector(`.js-var-in[data-id="${id}"]`);
+      if (inp) inp.focus();
+      return;
+    }
+    window.open(targetUrlOf(s), "_blank", "noopener,noreferrer");
+  }
+
+  /* ───────── 网站编辑抽屉 ───────── */
+  function rebuildCatDatalist() {
+    const dl = document.getElementById("mCatList");
+    if (dl) dl.innerHTML = KB.categories.map(c => `<option value="${esc(c.name)}"></option>`).join("");
+  }
+  function updateSitePreview() {
+    const joined = ["mSiteP1", "mSiteP2", "mSiteP3", "mSiteP4", "mSiteP5"]
+      .map(id => (document.getElementById(id).value || "").trim()).join("");
+    const el = document.getElementById("mSitePreview");
+    el.innerHTML = joined ? highlightVar(joined, "") : "拼接预览：（暂无输入）";
+  }
+  function openSiteEditor(id) {
+    KB.editingSiteId = id || null;
+    rebuildCatDatalist();
+    const isEdit = !!id;
+    document.getElementById("mSiteSheetTitle").innerText = isEdit ? "✏️ 编辑网站" : "➕ 新增网站";
+    let d = { category: "", title: "", url_parts: ["", "", "", "", ""], description: "" };
+    if (isEdit) {
+      const s = KB.sites.find(x => x.id === id);
+      if (s) d = s;
+    }
+    document.getElementById("mSiteCat").value = d.category || "";
+    document.getElementById("mSiteTitle").value = d.title || "";
+    const parts = d.url_parts || ["", "", "", "", ""];
+    ["mSiteP1", "mSiteP2", "mSiteP3", "mSiteP4", "mSiteP5"].forEach((pid, i) => {
+      document.getElementById(pid).value = parts[i] || "";
+    });
+    document.getElementById("mSiteDesc").value = d.description || "";
+    updateSitePreview();
+    openSheet("mSheetSite");
+  }
+  async function saveSite() {
+    const category = document.getElementById("mSiteCat").value.trim();
+    const title = document.getElementById("mSiteTitle").value.trim();
+    if (!category) { showToast("网址归属为必填项！", "error"); return; }
+    if (!title) { showToast("网址用途为必填项！", "error"); return; }
+    const parts = ["mSiteP1", "mSiteP2", "mSiteP3", "mSiteP4", "mSiteP5"].map(id => document.getElementById(id).value.trim());
+    if (!parts.join("")) { showToast("网址内容不能为空，请在 5 段中至少填一段！", "error"); return; }
+    const payload = {
+      category, title, url_parts: parts,
+      description: document.getElementById("mSiteDesc").value.trim(),
+      sort_order: 0
+    };
+    const isEdit = !!KB.editingSiteId;
+    try {
+      await api(isEdit ? `/api/knowledge/${KB.editingSiteId}` : "/api/knowledge", {
+        method: isEdit ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      showToast(`🎉 网站「${title}」${isEdit ? "更新" : "添加"}成功！`);
+      closeSheets();
+      await loadSites();
+    } catch (e) { showToast("保存失败：" + e.message, "error"); }
+  }
+  async function deleteSite(id, name) {
+    if (!confirm(`确定要删除知识库网站「${name}」吗？删除后不可恢复。`)) return;
+    try {
+      await api(`/api/knowledge/${id}`, { method: "DELETE" });
+      showToast(`已删除「${name}」`);
+      await loadSites();
+    } catch (e) { showToast("删除失败：" + e.message, "error"); }
+  }
+
+  /* ───────── 归属管理抽屉 ───────── */
+  function openCatManager() {
+    renderCatGrid();
+    document.getElementById("mCatNewName").value = "";
+    document.getElementById("mCatNewIcon").value = "";
+    document.getElementById("mCatNewIconLabel").innerText = "未选择";
+    openSheet("mSheetCat");
+  }
+  function renderCatGrid() {
+    const grid = document.getElementById("mCatGrid");
+    if (!KB.categories.length) {
+      grid.innerHTML = `<div class="m-kb-sub2" style="grid-column:1/-1;">暂无归属，可在下方新建</div>`;
+      return;
+    }
+    grid.innerHTML = KB.categories.map(c => `
+      <div class="m-cat-card">
+        ${c.icon_path ? `<img class="m-cat-ico" src="${esc(c.icon_path)}" alt="">` : `<span class="m-cat-ico">🏷️</span>`}
+        <div class="m-cat-name" title="${esc(c.name)}">${esc(c.name)}</div>
+        <div class="m-kb-sub2">${c.site_count || 0} 个网址</div>
+        <label class="btn btn-outline btn-sm" style="cursor:pointer; margin:0;">
+          📤 图标
+          <input type="file" class="js-cat-icon" data-name="${esc(c.name)}" accept=".png,.jpg,.jpeg,.gif,.webp,.svg,.ico" style="display:none;">
+        </label>
+        ${!(c.site_count) ? `<button type="button" class="btn btn-danger btn-sm js-cat-del" data-id="${c.id}" data-name="${esc(c.name)}">🗑️</button>` : ""}
+      </div>`).join("");
+  }
+  async function uploadCatIcon(name, file) {
+    const fd = new FormData();
+    fd.append("name", name);
+    fd.append("icon", file);
+    try {
+      const r = await api("/api/knowledge/categories", { method: "POST", body: fd });
+      showToast(`🎉 归属「${name}」图标已更新！`);
+      await loadSites();
+      renderCatGrid();
+    } catch (e) { showToast("图标上传失败：" + e.message, "error"); }
+  }
+  async function createCategory() {
+    const name = document.getElementById("mCatNewName").value.trim();
+    if (!name) { showToast("请先输入归属名称！", "error"); return; }
+    const fd = new FormData();
+    fd.append("name", name);
+    const f = document.getElementById("mCatNewIcon").files[0];
+    if (f) fd.append("icon", f);
+    try {
+      await api("/api/knowledge/categories", { method: "POST", body: fd });
+      showToast(`🎉 归属「${name}」保存成功！`);
+      document.getElementById("mCatNewName").value = "";
+      document.getElementById("mCatNewIcon").value = "";
+      document.getElementById("mCatNewIconLabel").innerText = "未选择";
+      await loadSites();
+      renderCatGrid();
+    } catch (e) { showToast("保存失败：" + e.message, "error"); }
+  }
+  async function deleteCategory(id, name) {
+    if (!confirm(`确定要删除归属「${name}」吗？`)) return;
+    try {
+      await api(`/api/knowledge/categories/${id}`, { method: "DELETE" });
+      showToast(`已删除归属「${name}」`);
+      await loadSites();
+      renderCatGrid();
+    } catch (e) { showToast("删除失败：" + e.message, "error"); }
+  }
+
+  /* =========================================================
+     文档库
+     ========================================================= */
+  async function loadDocs() {
+    const list = document.getElementById("mDocList");
+    list.innerHTML = skeleton(3);
+    try {
+      const r = await api("/api/knowledge/documents");
+      KB.docs = r.data || [];
+      renderDocs();
+    } catch (e) {
+      list.innerHTML = emptyHtml("❌", "加载失败：" + esc(e.message));
+    }
+  }
+  function docIcon(ext) {
+    const map = {
+      ".pdf": "📕", ".doc": "📘", ".docx": "📘", ".xls": "📗", ".xlsx": "📗", ".csv": "📊",
+      ".ppt": "📙", ".pptx": "📙", ".txt": "📄", ".md": "📝",
+      ".zip": "🗜️", ".rar": "🗜️", ".7z": "🗜️",
+      ".png": "🖼️", ".jpg": "🖼️", ".jpeg": "🖼️", ".gif": "🖼️", ".webp": "🖼️", ".svg": "🖼️"
+    };
+    return map[ext] || "📎";
+  }
+  function fmtSize(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+    return (n / 1024 / 1024).toFixed(2) + " MB";
+  }
+  function renderDocs() {
+    const list = document.getElementById("mDocList");
+    document.getElementById("mDocCount").innerText = `共 ${KB.docs.length} 个文档`;
+    if (!KB.docs.length) {
+      list.innerHTML = emptyHtml("📭", "暂无文档" + (IS_ADMIN ? "，点右上角「⬆️ 上传」添加" : ""));
+      return;
+    }
+    list.innerHTML = KB.docs.map(d => {
+      return `<div class="m-card">
+        <div class="m-card-title">${docIcon(d.ext)} ${esc(d.name)}</div>
+        <div class="m-card-sub">
+          <span class="m-schip blue">${esc(d.ext_label || "文件")}</span>
+          <span class="m-schip">${fmtSize(d.size)}</span>
+        </div>
+        <div class="m-card-foot">
+          <a class="m-btn-main" href="${d.download_url}" style="text-decoration:none;">⬇️ 下载</a>
+          <button type="button" class="m-more-btn js-doc-detail" data-id="${d.id}">⋯</button>
+        </div>
+      </div>`;
+    }).join("");
+  }
+  function openDocDetail(id) {
+    const d = KB.docs.find(x => String(x.id) === String(id));
+    if (!d) return;
+    const time = (d.created_at || "").replace("T", " ").slice(0, 16);
+    const row = (k, v) => `<div class="m-info-row"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+    document.getElementById("mDocDetailBody").innerHTML = `<div class="m-info-list">`
+      + row("文档名", esc(d.name))
+      + row("类型", esc(d.ext_label || "文件"))
+      + row("大小", fmtSize(d.size))
+      + row("说明", esc(d.description || "—"))
+      + row("上传人", esc(d.uploaded_by || "—"))
+      + row("上传时间", esc(time || "—"))
+      + `</div>`;
+    const acts = document.getElementById("mDocDetailActs");
+    acts.innerHTML = IS_ADMIN
+      ? `<button type="button" class="m-act-item danger" id="mDdDel"><span class="m-act-ico">🗑️</span>删除文档<span class="m-act-arrow">›</span></button>`
+      : "";
+    const db = document.getElementById("mDdDel");
+    if (db) db.onclick = () => { closeSheets(); deleteDoc(d.id, d.name); };
+    openSheet("mSheetDocDetail");
+  }
+  function openDocSheet() {
+    document.getElementById("mDocFile").value = "";
+    document.getElementById("mDocDesc").value = "";
+    document.getElementById("mDocFileSummary").innerText = "尚未选择文件";
+    openSheet("mSheetDoc");
+  }
+  async function uploadDocs() {
+    const input = document.getElementById("mDocFile");
+    const files = Array.from(input.files || []);
+    if (!files.length) { showToast("请先选择要上传的文档文件！", "error"); return; }
+    const IMG = ["png", "jpg", "jpeg", "gif", "webp", "svg"];
+    const over = files.filter(f => {
+      const ext = (f.name.split(".").pop() || "").toLowerCase();
+      return f.size > (IMG.includes(ext) ? 5 * 1024 * 1024 : 20 * 1024 * 1024);
+    });
+    if (over.length) {
+      showToast("超出上限(图片5MB/其他20MB)：" + over.map(f => f.name).join("、"), "error");
+      return;
+    }
+    const fd = new FormData();
+    files.forEach(f => fd.append("files", f));
+    fd.append("description", document.getElementById("mDocDesc").value.trim());
+    const btn = document.getElementById("mDocStart");
+    btn.disabled = true; btn.innerText = "上传中…";
+    try {
+      const r = await api("/api/knowledge/documents", { method: "POST", body: fd });
+      showToast("🎉 " + (r.msg || "上传成功"));
+      closeSheets();
+      await loadDocs();
+    } catch (e) {
+      showToast("上传失败：" + e.message, "error");
+    } finally {
+      btn.disabled = false; btn.innerText = "🚀 开始上传";
+    }
+  }
+  async function deleteDoc(id, name) {
+    if (!confirm(`确定要删除文档「${name}」吗？删除后不可恢复。`)) return;
+    try {
+      await api(`/api/knowledge/documents/${id}`, { method: "DELETE" });
+      showToast(`已删除「${name}」`);
+      await loadDocs();
+    } catch (e) { showToast("删除失败：" + e.message, "error"); }
+  }
+
+  /* =========================================================
+     提示词模板
+     ========================================================= */
+  async function loadPrompts() {
+    const list = document.getElementById("mPromptList");
+    list.innerHTML = skeleton(3);
+    try {
+      const r = await api("/api/prompts");
+      KB.prompts = r.data || [];
+      renderPrompts();
+    } catch (e) {
+      list.innerHTML = emptyHtml("❌", "加载失败：" + esc(e.message));
+    }
+  }
+  function extractVars(content) {
+    const vars = [];
+    const re = /\{([^{}\n]+)\}/g;
+    let m;
+    while ((m = re.exec(content || "")) !== null) {
+      const n = m[1].trim();
+      if (n && !vars.includes(n)) vars.push(n);
+    }
+    return vars;
+  }
+  function genText(content, values) {
+    return (content || "").replace(/\{([^{}\n]+)\}/g, (full, raw) => {
+      const n = raw.trim();
+      const v = ((values || {})[n] || "").trim();
+      return v ? v : `{${n}}`;
+    });
+  }
+  function renderPv(content, values) {
+    return esc(content).replace(/\{([^{}\n]+)\}/g, (full, raw) => {
+      const n = raw.trim();
+      const v = ((values || {})[n] || "").trim();
+      return v ? `<span class="filled">${esc(v)}</span>` : `<span class="miss">{${esc(n)}}</span>`;
+    });
+  }
+  function renderPrompts() {
+    const list = document.getElementById("mPromptList");
+    document.getElementById("mPromptCount").innerText = `共 ${KB.prompts.length} 套模板`;
+    if (!KB.prompts.length) {
+      list.innerHTML = emptyHtml("📭", "暂无提示词模板" + (IS_ADMIN ? "，点「➕ 新增」添加" : ""));
+      return;
+    }
+    list.innerHTML = KB.prompts.map(p => {
+      const vars = extractVars(p.content);
+      return `<div class="m-card">
+        <div class="m-card-title">📝 ${esc(p.name)} ${vars.length ? `<span class="m-badge b-blue">🧩 ${vars.length}</span>` : ""}</div>
+        <div class="m-card-foot">
+          <button type="button" class="m-btn-main js-pv-copy" data-id="${p.id}">📋 复制</button>
+          <button type="button" class="m-more-btn js-pv-detail" data-id="${p.id}">⋯</button>
+        </div>
+      </div>`;
+    }).join("");
+  }
+  function onPromptClick(e) {
+    const c = e.target.closest(".js-pv-copy");
+    if (c) { copyPrompt(Number(c.dataset.id)); return; }
+    const d = e.target.closest(".js-pv-detail");
+    if (d) { showPromptDetail(Number(d.dataset.id)); return; }
+  }
+  function copyPrompt(id) {
+    const p = KB.prompts.find(x => x.id === id);
+    if (!p) return;
+    copyToClipboard(genText(p.content, KB.promptVals[id] || {}), "提示词 ");
+  }
+  function showPromptDetail(id) {
+    const p = KB.prompts.find(x => x.id === id);
+    if (!p) return;
+    const vals = KB.promptVals[p.id] || {};
+    const vars = extractVars(p.content);
+    const vEl = document.getElementById("mPromptDetailVars");
+    if (vars.length) {
+      vEl.style.display = "";
+      vEl.innerHTML = `<div class="m-pv-var">${vars.map(v => `
+        <label><span>${esc(v)}:</span>
+          <input type="text" class="form-input js-pvd-in" data-var="${esc(v)}" value="${esc(vals[v] || "")}" placeholder="填入${esc(v)}">
+        </label>`).join("")}</div>`;
+      vEl.oninput = e => {
+        const inp = e.target.closest(".js-pvd-in");
+        if (!inp) return;
+        if (!KB.promptVals[p.id]) KB.promptVals[p.id] = {};
+        KB.promptVals[p.id][inp.dataset.var] = inp.value;
+        refresh();
+      };
+    } else { vEl.style.display = "none"; vEl.innerHTML = ""; }
+    const refresh = () => {
+      document.getElementById("mPromptDetailBody").innerHTML = renderPv(p.content, KB.promptVals[p.id] || {});
+    };
+    refresh();
+    document.getElementById("mPromptDetailTitle").innerText = "📝 " + p.name;
+    document.getElementById("mPromptDetailCopy").onclick = () => copyToClipboard(genText(p.content, KB.promptVals[p.id] || {}), "提示词 ");
+    const acts = document.getElementById("mPromptDetailActs");
+    acts.innerHTML = IS_ADMIN ? `
+      <button type="button" class="m-act-item" id="mPvdEdit"><span class="m-act-ico">✏️</span>编辑模板<span class="m-act-arrow">›</span></button>
+      <button type="button" class="m-act-item danger" id="mPvdDel"><span class="m-act-ico">🗑️</span>删除模板<span class="m-act-arrow">›</span></button>` : "";
+    const eb = document.getElementById("mPvdEdit");
+    if (eb) eb.onclick = () => { closeSheets(); openPromptEditor(p.id); };
+    const db = document.getElementById("mPvdDel");
+    if (db) db.onclick = () => { closeSheets(); deletePrompt(p.id, p.name); };
+    openSheet("mSheetPromptDetail");
+  }
+  function openPromptEditor(id) {
+    KB.editingPromptId = id || null;
+    const isEdit = !!id;
+    document.getElementById("mPromptSheetTitle").innerText = isEdit ? "✏️ 编辑提示词模板" : "➕ 新增提示词模板";
+    let p = { name: "", description: "", content: "", sort_order: 0 };
+    if (isEdit) {
+      const found = KB.prompts.find(x => x.id === id);
+      if (found) p = found;
+    }
+    document.getElementById("mPromptName").value = p.name || "";
+    document.getElementById("mPromptDesc").value = p.description || "";
+    document.getElementById("mPromptSort").value = p.sort_order || 0;
+    document.getElementById("mPromptContent").value = p.content || "";
+    openSheet("mSheetPrompt");
+  }
+  async function savePrompt() {
+    const name = document.getElementById("mPromptName").value.trim();
+    const content = document.getElementById("mPromptContent").value.trim();
+    if (!name) { showToast("请输入模板名称！", "error"); return; }
+    if (!content) { showToast("提示词内容不能为空！", "error"); return; }
+    const payload = {
+      name, content,
+      description: document.getElementById("mPromptDesc").value.trim(),
+      sort_order: parseInt(document.getElementById("mPromptSort").value, 10) || 0
+    };
+    const isEdit = !!KB.editingPromptId;
+    try {
+      await api(isEdit ? `/api/prompts/${KB.editingPromptId}` : "/api/prompts", {
+        method: isEdit ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      showToast(isEdit ? "✏️ 提示词模板已更新！" : "✨ 提示词模板添加成功！");
+      closeSheets();
+      await loadPrompts();
+    } catch (e) { showToast("保存失败：" + e.message, "error"); }
+  }
+  async function deletePrompt(id, name) {
+    if (!confirm(`确定要删除提示词模板「${name}」吗？删除后不可恢复！`)) return;
+    try {
+      await api(`/api/prompts/${id}`, { method: "DELETE" });
+      showToast(`已删除「${name}」`);
+      delete KB.promptVals[id];
+      await loadPrompts();
+    } catch (e) { showToast("删除失败：" + e.message, "error"); }
+  }
+
+  /* =========================================================
+     初始化与事件绑定
+     ========================================================= */
+  document.addEventListener("DOMContentLoaded", () => {
+    // 管理按钮可见性
+    document.getElementById("mCatMgrBtn").style.display = IS_ADMIN ? "inline-flex" : "none";
+    document.getElementById("mDocUploadBtn").style.display = IS_ADMIN ? "inline-flex" : "none";
+    document.getElementById("mPromptAddBtn").style.display = IS_ADMIN ? "inline-flex" : "none";
+    document.getElementById("mKbAdd").style.display = IS_ADMIN ? "inline-flex" : "none";
+
+    // Tab 切换
+    document.getElementById("mKbTabs").addEventListener("click", e => {
+      const b = e.target.closest(".m-seg-btn");
+      if (b) switchTab(b.dataset.tab);
+    });
+
+    // 刷新 / 新增
+    document.getElementById("mKbRefresh").addEventListener("click", () => {
+      if (KB.tab === "sites") loadSites();
+      else if (KB.tab === "docs") loadDocs();
+      else loadPrompts();
+    });
+    document.getElementById("mKbAdd").addEventListener("click", () => {
+      if (KB.tab === "sites") openSiteEditor(null);
+      else if (KB.tab === "docs") openDocSheet();
+      else openPromptEditor(null);
+    });
+
+    // 网站导航
+    const siteList = document.getElementById("mSiteList");
+    siteList.addEventListener("click", onSiteClick);
+    siteList.addEventListener("input", onSiteInput);
+    siteList.addEventListener("keydown", e => {
+      if (e.key === "Enter" && e.target.classList.contains("js-var-in")) {
+        openDynamic(e.target.dataset.id);
+      }
+    });
+    let kwTimer = null;
+    document.getElementById("mSiteKw").addEventListener("input", e => {
+      clearTimeout(kwTimer);
+      kwTimer = setTimeout(() => { KB.siteKw = e.target.value; renderSites(); }, 300);
+    });
+
+    // 网站编辑抽屉
+    document.querySelectorAll("#mSheetSite .js-sp").forEach(inp => inp.addEventListener("input", updateSitePreview));
+    document.getElementById("mSiteCancel").addEventListener("click", closeSheets);
+    document.getElementById("mSiteSave").addEventListener("click", saveSite);
+
+    // 归属管理抽屉
+    document.getElementById("mCatMgrBtn").addEventListener("click", openCatManager);
+    document.getElementById("mCatNewSave").addEventListener("click", createCategory);
+    document.getElementById("mCatNewIcon").addEventListener("change", e => {
+      document.getElementById("mCatNewIconLabel").innerText = e.target.files[0] ? e.target.files[0].name : "未选择";
+    });
+    document.getElementById("mCatGrid").addEventListener("click", e => {
+      const del = e.target.closest(".js-cat-del");
+      if (del) deleteCategory(Number(del.dataset.id), del.dataset.name);
+    });
+    document.getElementById("mCatGrid").addEventListener("change", e => {
+      const inp = e.target.closest(".js-cat-icon");
+      if (inp && inp.files[0]) uploadCatIcon(inp.dataset.name, inp.files[0]);
+    });
+
+    // 文档库
+    document.getElementById("mDocUploadBtn").addEventListener("click", openDocSheet);
+    document.getElementById("mDocCancel").addEventListener("click", closeSheets);
+    document.getElementById("mDocStart").addEventListener("click", uploadDocs);
+    document.getElementById("mDocFile").addEventListener("change", e => {
+      const n = (e.target.files || []).length;
+      document.getElementById("mDocFileSummary").innerText =
+        n === 0 ? "尚未选择文件" : (n === 1 ? "已选择 1 个文件" : `已选择 ${n} 个文件`);
+    });
+    document.getElementById("mDocList").addEventListener("click", e => {
+      const det = e.target.closest(".js-doc-detail");
+      if (det) openDocDetail(String(det.dataset.id));
+    });
+    document.getElementById("mSiteDetailClose").addEventListener("click", closeSheets);
+    document.getElementById("mDocDetailClose").addEventListener("click", closeSheets);
+
+    // 提示词
+    document.getElementById("mPromptAddBtn").addEventListener("click", () => openPromptEditor(null));
+    const promptList = document.getElementById("mPromptList");
+    promptList.addEventListener("click", onPromptClick);
+    document.getElementById("mPromptCancel").addEventListener("click", closeSheets);
+    document.getElementById("mPromptSave").addEventListener("click", savePrompt);
+    document.getElementById("mPromptDetailClose").addEventListener("click", closeSheets);
+
+    // 抽屉遮罩
+    document.getElementById("mKbMask").addEventListener("click", closeSheets);
+
+    // 首次加载: 网站导航
+    loadSites();
+  });
+</script>
+{% endblock %}

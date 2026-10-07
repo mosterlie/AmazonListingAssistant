@@ -8,7 +8,7 @@
   <link rel="alternate icon" href="/static/favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="stylesheet" href="/static/css/app.css?v=20260928_fwd2">
-  <link rel="stylesheet" href="/static/css/mobile.css?v=20260930_m1">
+  <link rel="stylesheet" href="/static/css/mobile.css?v=20261004_m3">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -87,6 +87,49 @@
     async function handleSystemLogout() {
       try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) {}
       window.location.href = "/login";
+    }
+
+    // 手机版全局轻提示 (居中偏上, 各手机页共用; 页面如需覆盖可在 extra_scripts 重新定义)
+    function showToast(msg, type = "success") {
+      if (typeof msg === "undefined" || msg === null) return;
+      const t = document.createElement("div");
+      t.className = "m-toast " + (type === "error" ? "err" : type === "info" ? "info" : "ok");
+      t.innerText = String(msg);
+      document.body.appendChild(t);
+      requestAnimationFrame(() => t.classList.add("show"));
+      setTimeout(() => {
+        t.classList.remove("show");
+        setTimeout(() => t.remove(), 240);
+      }, 2600);
+    }
+
+    // 全局错误兜底: 任何未捕获 JS 错误都以 toast 呈现, 避免「点击无效」无从排查
+    window.addEventListener("error", e => {
+      if (e && e.message) showToast("⚠️ " + String(e.message).slice(0, 120), "error");
+    });
+    window.addEventListener("unhandledrejection", e => {
+      const r = e && e.reason;
+      const msg = r && r.message ? r.message : String(r || "");
+      if (msg && msg !== "未登录") showToast("⚠️ " + msg.slice(0, 120), "error");
+    });
+
+    // 手机版全局复制 (https 用 Clipboard API, http 降级 execCommand)
+    function copyToClipboard(text, label = "") {
+      if (!text) return;
+      const done = () => showToast((label ? label + "已复制: " : "已复制: ") + text);
+      const fallback = () => {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); done(); }
+        catch (e) { showToast("复制失败, 请手动复制", "error"); }
+        document.body.removeChild(ta);
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done).catch(fallback);
+      } else {
+        fallback();
+      }
     }
 
     // "更多"弹出菜单开关

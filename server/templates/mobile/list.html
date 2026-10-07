@@ -1,0 +1,435 @@
+{% extends "base_mobile.html" %}
+
+{% block title %}商品列表{% endblock %}
+
+{% block content %}
+<!-- 页面标题条 -->
+<div class="m-pagehead">
+  <div>
+    <h1 class="m-ptitle">📦 商品</h1>
+    <div class="m-psub" id="mProdSub">正在加载…</div>
+  </div>
+  <div class="m-pactions">
+    <button type="button" class="m-icon-btn" id="mRefreshBtn" title="刷新">🔄</button>
+    {% if 'product:create' in user_perms %}
+    <a href="/entry" class="m-icon-btn m-primary" title="录入商品">➕</a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- 吸顶搜索栏 -->
+<div class="m-searchbar">
+  <label class="m-search-input">
+    <span>🔍</span>
+    <input type="search" id="mKw" placeholder="搜索标题 / SKU / 型号" enterkeyhint="search" autocomplete="off">
+  </label>
+  <button type="button" class="m-filter-btn" id="mFilterBtn">筛选<span class="m-filter-dot"></span></button>
+</div>
+
+<!-- 下拉刷新指示 -->
+<div class="m-ptr" id="mPtr"><span class="m-ptr-spin">🔄</span><span id="mPtrTxt">下拉可刷新</span></div>
+
+<!-- 商品卡片列表 -->
+<div class="m-card-list" id="mProdList"></div>
+
+<!-- 筛选抽屉 -->
+<div class="m-sheet-mask" id="mFilterMask"></div>
+<div class="m-sheet m-filter-sheet" id="mFilterSheet">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">筛选与排序</div>
+  <div class="m-field">
+    <label class="m-field-label">🏬 店铺</label>
+    <select class="form-select" id="mFilterStore"><option value="">全部店铺</option></select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">👤 维护人</label>
+    <select class="form-select" id="mFilterCreator"><option value="">全部维护人</option></select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">↕️ 排序</label>
+    <select class="form-select" id="mFilterSort">
+      <option value="newest">最近维护优先</option>
+      <option value="oldest">最早维护优先</option>
+      <option value="id_desc">ID 从大到小</option>
+      <option value="id_asc">ID 从小到大</option>
+      <option value="variants_desc">变体数从多到少</option>
+    </select>
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mFilterReset">重置</button>
+    <button type="button" class="btn btn-primary" id="mFilterApply">应用筛选</button>
+  </div>
+</div>
+
+<!-- 商品详情弹层 (紧凑) -->
+<div class="m-sheet-mask" id="mDetailMask"></div>
+<div class="m-sheet" id="mDetailSheet">
+  <div class="m-sheet-grab"></div>
+  <div id="mDetailBody">
+    <div class="m-empty"><div class="m-empty-ico">⏳</div><div class="m-empty-txt">正在加载商品详情…</div></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const IS_ADMIN = {{ 'true' if current_user and current_user.role == 'admin' else 'false' }};
+  const CUR_USERNAME = {{ (current_user.username if current_user else '') | tojson }};
+  const USER_PERMS = {{ user_perms | tojson }};
+  function hasPerm(key) { return IS_ADMIN || USER_PERMS.includes(key); }
+  function canEditProduct(createdBy) {
+    if (!hasPerm('product:edit')) return false;
+    return IS_ADMIN || (CUR_USERNAME && CUR_USERNAME === createdBy);
+  }
+  function canDeleteProduct() { return hasPerm('product:delete'); }
+
+  const state = { list: [], kw: '', store: '', creator: '', sort: 'newest' };
+
+  function esc(s) {
+    return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, m => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[m]));
+  }
+
+  async function apiFetch(url, options) {
+    const resp = await fetch(url, Object.assign({ headers: { "Content-Type": "application/json" } }, options || {}));
+    if (resp.status === 401) { window.location.href = "/login"; throw new Error("未登录"); }
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok || body.code !== 0) throw new Error(body.detail || body.msg || "请求失败");
+    return body;
+  }
+
+  /* ───────── 平台来源图标 (与 PC 版规则一致, 手机页自包含不依赖 app.js) ───────── */
+  function srcPlatform(url) {
+    const u = (url || "").trim().toLowerCase();
+    if (!u) return "";
+    if (u.includes("1688.com")) return "p1688";
+    if (u.includes("pinduoduo.com") || u.includes("yangkeduo.com") || u.includes("pdd.com") || u.includes("mobilepdd.com")) return "pdd";
+    return "";
+  }
+  function srcBadge(url, size) {
+    const s = size || 18;
+    const p = srcPlatform(url);
+    if (p === "p1688") {
+      return `<span title="1688 采购平台" style="display:inline-flex;flex-shrink:0;line-height:0;"><svg width="${s}" height="${s}" viewBox="0 0 48 48"><defs><linearGradient id="mplf1688" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff8a00"/><stop offset="1" stop-color="#ff4a00"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="url(#mplf1688)"/><path d="M11 20c4.5 7.5 21.5 7.5 26 0" stroke="#fff" stroke-width="4" fill="none" stroke-linecap="round"/><circle cx="15" cy="13.5" r="2.6" fill="#fff"/><circle cx="33" cy="13.5" r="2.6" fill="#fff"/><text x="24" y="40" font-size="13.5" font-weight="800" fill="#fff" text-anchor="middle" font-family="Arial,'PingFang SC',sans-serif">1688</text></svg></span>`;
+    }
+    if (p === "pdd") {
+      return `<span title="拼多多采购平台" style="display:inline-flex;flex-shrink:0;line-height:0;"><svg width="${s}" height="${s}" viewBox="0 0 48 48"><defs><linearGradient id="mplfpdd" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f0412f"/><stop offset="1" stop-color="#d9251d"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="url(#mplfpdd)"/><text x="24" y="34" font-size="26" font-weight="800" fill="#fff" text-anchor="middle" font-family="'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif">拼</text></svg></span>`;
+    }
+    return "";
+  }
+  function imgUrl(path) { return "/api/images/preview?path=" + encodeURIComponent(path); }
+
+  /* ───────── 列表加载与渲染 ───────── */
+  function skeletonHtml(n) {
+    let h = "";
+    for (let i = 0; i < n; i++) {
+      h += `<div class="m-skel-card">
+        <div class="m-skel m-skel-thumb"></div>
+        <div class="m-skel-lines">
+          <div class="m-skel" style="height:14px;width:88%;"></div>
+          <div class="m-skel" style="height:12px;width:56%;"></div>
+          <div class="m-skel" style="height:12px;width:40%;"></div>
+        </div>
+      </div>`;
+    }
+    return h;
+  }
+
+  function sortList(list) {
+    const arr = list.slice();
+    const t = p => String(p.updated_at || p.created_at || "");
+    switch (state.sort) {
+      case "oldest": arr.sort((a, b) => t(a).localeCompare(t(b))); break;
+      case "id_asc": arr.sort((a, b) => (a.id || 0) - (b.id || 0)); break;
+      case "id_desc": arr.sort((a, b) => (b.id || 0) - (a.id || 0)); break;
+      case "variants_desc": arr.sort((a, b) => (b.variation_count || 0) - (a.variation_count || 0)); break;
+      default: arr.sort((a, b) => t(b).localeCompare(t(a)));
+    }
+    return arr;
+  }
+
+  async function loadProducts(silent) {
+    const listEl = document.getElementById("mProdList");
+    const subEl = document.getElementById("mProdSub");
+    if (!silent) { listEl.innerHTML = skeletonHtml(5); subEl.innerText = "正在加载…"; }
+    const params = new URLSearchParams();
+    if (state.kw) params.append("keyword", state.kw);
+    if (state.store) params.append("store_account", state.store);
+    if (state.creator) params.append("created_by", state.creator);
+    params.append("limit", "100");
+    try {
+      const body = await apiFetch("/api/products?" + params.toString());
+      state.list = body.data || [];
+      renderProducts();
+    } catch (e) {
+      if (e.message !== "未登录") {
+        listEl.innerHTML = `<div class="m-empty"><div class="m-empty-ico">❌</div><div class="m-empty-txt">加载失败：${esc(e.message)}</div></div>`;
+        subEl.innerText = "加载失败";
+      }
+    }
+  }
+
+  function renderProducts() {
+    const listEl = document.getElementById("mProdList");
+    const subEl = document.getElementById("mProdSub");
+    const arr = sortList(state.list);
+    const filtered = !!(state.kw || state.store || state.creator);
+    subEl.innerText = `共 ${arr.length} 个商品` + (filtered ? "（已筛选）" : "");
+    if (!arr.length) {
+      listEl.innerHTML = `<div class="m-empty">
+        <div class="m-empty-ico">${filtered ? "🔍" : "📭"}</div>
+        <div class="m-empty-txt">${filtered ? "未找到符合条件的商品，试试调整关键词或重置筛选" : "暂无已录入商品，点击右上角 ➕ 录入"}</div>
+      </div>`;
+      return;
+    }
+    listEl.innerHTML = arr.map(p => {
+      const sku = p.parent_sku || p.sku || "-";
+      const thumb = p.main_image
+        ? `<div class="m-pc-thumb" onclick="event.stopPropagation();previewImg('${esc(p.main_image)}')"><img src="${imgUrl(p.main_image)}" alt="" loading="lazy" onerror="this.style.display='none';this.parentNode.innerHTML='<span class=\\'m-pc-noimg\\'>🖼️</span>'"></div>`
+        : `<div class="m-pc-thumb"><span class="m-pc-noimg">📦</span></div>`;
+      const idTag = p.product_identifier
+        ? `<span class="m-badge b-blue">🤖 ${esc(p.product_identifier)}</span>` : "";
+      return `<div class="m-product-card" onclick="openDetail(${p.id})">
+        ${thumb}
+        <div class="m-pc-main">
+          <div class="m-pc-title">${esc(p.title || "未命名商品")}</div>
+          <div class="m-pc-meta">
+            <span class="m-pc-sku" data-sku="${esc(sku)}" onclick="event.stopPropagation();copyToClipboard(this.dataset.sku,'SKU ')">${esc(sku)}</span>
+            ${idTag}
+            <span class="m-pc-store">${esc(p.store_account || "未设店铺")}</span>
+          </div>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  /* ───────── 图片预览 ───────── */
+  function previewImg(path) { window.open(imgUrl(path), "_blank"); }
+
+  /* ───────── 详情弹层 ───────── */
+  function openSheet(sheetId, maskId) {
+    document.getElementById(sheetId).classList.add("open");
+    document.getElementById(maskId).classList.add("open");
+  }
+  function closeSheet(sheetId, maskId) {
+    document.getElementById(sheetId).classList.remove("open");
+    document.getElementById(maskId).classList.remove("open");
+  }
+
+  async function openDetail(id) {
+    const bodyEl = document.getElementById("mDetailBody");
+    bodyEl.innerHTML = `<div class="m-empty"><div class="m-empty-ico">⏳</div><div class="m-empty-txt">正在加载商品详情…</div></div>`;
+    openSheet("mDetailSheet", "mDetailMask");
+    try {
+      const body = await apiFetch("/api/products/" + id);
+      renderDetail(body.data || {});
+    } catch (e) {
+      if (e.message !== "未登录") {
+        bodyEl.innerHTML = `<div class="m-empty"><div class="m-empty-ico">❌</div><div class="m-empty-txt">加载失败：${esc(e.message)}</div></div>`;
+      }
+    }
+  }
+
+  function renderDetail(p) {
+    const sku = p.parent_sku || p.sku || "-";
+    const heroImg = p.main_image
+      ? `<div class="m-dh-img" onclick="previewImg('${esc(p.main_image)}')"><img src="${imgUrl(p.main_image)}" alt=""></div>`
+      : `<div class="m-dh-img">📦</div>`;
+    const srcVal = p.source_link
+      ? `<a href="${esc(p.source_link)}" target="_blank" rel="noopener" style="color:#2563eb;font-weight:600;">${srcBadge(p.source_link, 15)} ${esc(p.source_link)}</a>`
+      : "—";
+    const amzVal = p.amazon_link
+      ? `<a href="${esc(p.amazon_link)}" target="_blank" rel="noopener" style="color:#2563eb;font-weight:600;">🔗 ${esc(p.amazon_link)}</a>`
+      : "—";
+    const rows = [
+      ["店铺", esc(p.store_account || "—")],
+      ["Parent SKU", `<span class="m-pc-sku" data-sku="${esc(sku)}" onclick="copyToClipboard(this.dataset.sku,'SKU ')">${esc(sku)}</span>`],
+      ["商品标识", p.product_identifier ? esc(p.product_identifier) + (p.identifier_translation ? ` <span style="color:#94a3b8;">(${esc(p.identifier_translation)})</span>` : "") : "—"],
+      ["变体数", (p.variation_count || 0) + " 个"],
+      ["源链接", srcVal],
+      ["Amazon", amzVal],
+      ["维护人", esc(p.created_by || "admin")],
+      ["维护时间", esc((p.updated_at || p.created_at || "").replace("T", " ").slice(0, 16)) || "—"]
+    ];
+    const actions = [];
+    if (canEditProduct(p.created_by)) {
+      actions.push(`<a href="/entry?id=${p.id}" class="btn btn-primary" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">✏️ 编辑</a>`);
+    }
+    if (hasPerm('publish:run')) {
+      actions.push(`<button type="button" class="btn btn-success" id="mPubBtn" onclick="pubProduct(${p.id})">🚀 上件</button>`);
+    }
+    actions.push(`<button type="button" class="btn btn-outline" onclick="copyToClipboard('${esc(sku)}','SKU ')">📋 复制 SKU</button>`);
+    if (canDeleteProduct()) {
+      actions.push(`<button type="button" class="btn btn-outline" style="color:#dc2626;border-color:#fecaca;" onclick="delProduct(${p.id},'${esc(sku)}')">🗑️ 删除</button>`);
+    }
+    actions.push(`<button type="button" class="btn btn-outline" onclick="closeSheet('mDetailSheet','mDetailMask')">关闭</button>`);
+
+    document.getElementById("mDetailBody").innerHTML = `
+      <div class="m-detail-hero">
+        ${heroImg}
+        <div style="flex:1;min-width:0;">
+          <div class="m-dh-title">${esc(p.title || "未命名商品")}</div>
+          <div style="margin-top:6px;color:#94a3b8;font-size:0.72rem;">#${p.id}</div>
+        </div>
+      </div>
+      <div class="m-detail-rows">
+        ${rows.map(r => `<div class="m-detail-row"><div class="m-dr-label">${r[0]}</div><div class="m-dr-val">${r[1]}</div></div>`).join("")}
+      </div>
+      <div class="m-detail-actions">${actions.join("")}</div>
+      <div class="m-pub-status" id="mPubStatus"></div>`;
+  }
+
+  /* ───────── 上件 (触发 + 轮询状态) ───────── */
+  async function pubProduct(id) {
+    const btn = document.getElementById("mPubBtn");
+    const st = document.getElementById("mPubStatus");
+    if (btn) { btn.disabled = true; btn.innerText = "⏳ 上件中"; }
+    if (st) { st.style.display = "block"; st.innerText = "🚀 正在启动上件任务…"; }
+    try {
+      const body = await apiFetch("/api/automation/publish/" + id, { method: "POST" });
+      showToast(body.msg || "上件任务已启动", "info");
+      pollPublish(id);
+    } catch (e) {
+      if (e.message !== "未登录") {
+        showToast("上件失败：" + e.message, "error");
+        if (st) st.innerText = "❌ " + e.message;
+        if (btn) { btn.disabled = false; btn.innerText = "🚀 上件"; }
+      }
+    }
+  }
+
+  async function pollPublish(id) {
+    const btn = document.getElementById("mPubBtn");
+    const st = document.getElementById("mPubStatus");
+    let since = 0, tries = 0;
+    const timer = setInterval(async () => {
+      tries++;
+      try {
+        const body = await apiFetch(`/api/automation/publish-status/${id}?since=${since}`);
+        const d = body.data || {};
+        since = d.total_log_lines || since;
+        if (st && d.new_logs && d.new_logs.length) {
+          st.innerText = d.new_logs.slice(-4).join("\n");
+          st.scrollTop = st.scrollHeight;
+        }
+        if (d.done) {
+          clearInterval(timer);
+          const ok = !!d.success;
+          showToast(ok ? "✅ 上件完成" : "❌ 上件失败：" + (d.result_msg || ""), ok ? "success" : "error");
+          if (st) st.innerText = (ok ? "✅ " : "❌ ") + (d.result_msg || "");
+          if (btn) { btn.disabled = false; btn.innerText = "🚀 重新上件"; }
+          loadProducts(true);
+        }
+      } catch (e) { /* 轮询错误静默重试 */ }
+      if (tries >= 80) { clearInterval(timer); if (btn) { btn.disabled = false; btn.innerText = "🚀 上件"; } }
+    }, 3000);
+  }
+
+  /* ───────── 删除 ───────── */
+  async function delProduct(id, name) {
+    if (!confirm(`确定彻底删除商品【${name}】吗？\n\n将同时清理变体数据、任务记录与本地图片文件夹，不可恢复！`)) return;
+    try {
+      const body = await apiFetch("/api/products/" + id, { method: "DELETE" });
+      showToast("✅ " + (body.msg || "商品已彻底删除"));
+      closeSheet("mDetailSheet", "mDetailMask");
+      loadProducts(true);
+    } catch (e) {
+      if (e.message !== "未登录") showToast("删除失败：" + e.message, "error");
+    }
+  }
+
+  /* ───────── 筛选下拉选项 ───────── */
+  async function loadFilterOptions() {
+    try {
+      const body = await apiFetch("/api/products/filter-options");
+      const d = body.data || {};
+      const storeSel = document.getElementById("mFilterStore");
+      if (storeSel && d.stores) {
+        storeSel.innerHTML = '<option value="">全部店铺</option>' +
+          d.stores.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+      }
+      const creatorSel = document.getElementById("mFilterCreator");
+      if (creatorSel && d.creators) {
+        creatorSel.innerHTML = '<option value="">全部维护人</option>' +
+          d.creators.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+      }
+    } catch (e) { /* 选项加载失败不阻塞列表 */ }
+  }
+
+  function syncFilterUI() {
+    const active = !!(state.store || state.creator || state.sort !== "newest");
+    document.getElementById("mFilterBtn").classList.toggle("active", active);
+    document.getElementById("mFilterStore").value = state.store;
+    document.getElementById("mFilterCreator").value = state.creator;
+    document.getElementById("mFilterSort").value = state.sort;
+    const kwEl = document.getElementById("mKw");
+    if (kwEl) kwEl.value = state.kw;
+  }
+
+  /* ───────── 下拉刷新 ───────── */
+  (function initPullRefresh() {
+    const ptr = document.getElementById("mPtr");
+    const txt = document.getElementById("mPtrTxt");
+    let startY = 0, pulling = false, dist = 0;
+    window.addEventListener("touchstart", e => {
+      if (window.scrollY <= 0 && e.touches.length === 1) { startY = e.touches[0].clientY; pulling = true; dist = 0; }
+    }, { passive: true });
+    window.addEventListener("touchmove", e => {
+      if (!pulling) return;
+      dist = e.touches[0].clientY - startY;
+      if (dist > 0 && window.scrollY <= 0) {
+        const h = Math.min(dist * 0.5, 64);
+        ptr.style.height = h + "px";
+        txt.innerText = h >= 50 ? "松开立即刷新" : "下拉可刷新";
+      } else { ptr.style.height = "0px"; }
+    }, { passive: true });
+    window.addEventListener("touchend", () => {
+      if (!pulling) return;
+      pulling = false;
+      if (ptr.clientHeight >= 50) {
+        ptr.classList.add("loading"); ptr.style.height = "44px"; txt.innerText = "正在刷新…";
+        loadProducts(true).finally(() => {
+          setTimeout(() => { ptr.classList.remove("loading"); ptr.style.height = "0px"; txt.innerText = "下拉可刷新"; }, 400);
+        });
+      } else { ptr.style.height = "0px"; }
+    }, { passive: true });
+  })();
+
+  /* ───────── 事件绑定 ───────── */
+  document.getElementById("mFilterBtn").addEventListener("click", () => openSheet("mFilterSheet", "mFilterMask"));
+  document.getElementById("mFilterMask").addEventListener("click", () => closeSheet("mFilterSheet", "mFilterMask"));
+  document.getElementById("mDetailMask").addEventListener("click", () => closeSheet("mDetailSheet", "mDetailMask"));
+  document.getElementById("mFilterApply").addEventListener("click", () => {
+    state.store = document.getElementById("mFilterStore").value;
+    state.creator = document.getElementById("mFilterCreator").value;
+    state.sort = document.getElementById("mFilterSort").value;
+    closeSheet("mFilterSheet", "mFilterMask");
+    syncFilterUI();
+    loadProducts();
+  });
+  document.getElementById("mFilterReset").addEventListener("click", () => {
+    state.store = ""; state.creator = ""; state.sort = "newest";
+    syncFilterUI();
+    closeSheet("mFilterSheet", "mFilterMask");
+    loadProducts();
+    showToast("已重置筛选条件", "info");
+  });
+  document.getElementById("mRefreshBtn").addEventListener("click", () => loadProducts());
+
+  let kwTimer = null;
+  document.getElementById("mKw").addEventListener("input", e => {
+    state.kw = e.target.value.trim();
+    clearTimeout(kwTimer);
+    kwTimer = setTimeout(() => loadProducts(), 350);
+  });
+  document.getElementById("mKw").addEventListener("search", e => {
+    state.kw = e.target.value.trim();
+    loadProducts();
+  });
+
+  loadFilterOptions();
+  syncFilterUI();
+  loadProducts();
+</script>
+{% endblock %}

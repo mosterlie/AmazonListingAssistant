@@ -1,0 +1,480 @@
+{% extends "base_mobile.html" %}
+
+{% block title %}商品录入{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* 手机版录入工作台: 复用 PC 版全部控件 id 与 app.js 逻辑, 仅重排为移动端折叠布局 */
+  .me-bar {
+    position: sticky; top: var(--me-bar-top, 48px); z-index: 150;
+    display: flex; align-items: center; gap: 8px;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 8px 10px; margin-bottom: 12px;
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+  }
+  .me-bar .me-info { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; font-weight: 800; color: #0f172a; font-size: 0.9rem; }
+  .me-bar .me-info .me-lab { white-space: nowrap; flex-shrink: 0; }
+  .me-bar .me-info .me-sub { font-weight: 600; font-size: 0.72rem; color: #64748b; }
+  .me-bar .me-acts { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
+  .me-bar .me-acts .btn { min-height: 40px; padding: 6px 10px; font-size: 0.82rem; white-space: nowrap; }
+  #editModeBanner { display: none; align-items: center; gap: 6px; min-width: 0; }
+  #editModeHintText { display: inline-block; max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .me-sec { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; margin-bottom: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(15,23,42,0.04); }
+  .me-sec > summary { list-style: none; cursor: pointer; padding: 12px 14px; display: flex; align-items: center; gap: 10px; font-weight: 700; color: #0f172a; font-size: 0.9rem; }
+  .me-sec > summary::-webkit-details-marker { display: none; }
+  .me-sec > summary .me-num { width: 24px; height: 24px; border-radius: 8px; background: #eef2ff; color: #4338ca; display: inline-flex; align-items: center; justify-content: center; font-size: 0.78rem; font-weight: 800; flex-shrink: 0; }
+  .me-sec > summary .me-tag { margin-left: auto; font-size: 0.68rem; font-weight: 700; color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+  .me-sec > summary .me-arrow { color: #94a3b8; font-size: 0.8rem; transition: transform 0.2s; flex-shrink: 0; }
+  .me-sec[open] > summary { border-bottom: 1px solid #f1f5f9; }
+  .me-sec[open] > summary .me-arrow { transform: rotate(90deg); }
+  .me-sec .me-body { padding: 14px; }
+
+  /* 手机端表单控件触控优化 */
+  .me-sec .form-input, .me-sec .form-select, .me-sec .form-textarea { min-height: 44px; font-size: 1rem; box-sizing: border-box; }
+  .me-sec .form-textarea { min-height: 96px; }
+  .me-sec .form-label { font-size: 0.82rem; }
+  .me-sec .grid-2 { grid-template-columns: 1fr !important; }
+  .me-sec .radio-label { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; }
+
+  /* 尺寸输入行允许换行 */
+  .me-sec .form-group > div[style*="display:flex"] { flex-wrap: wrap; }
+
+  /* 变体矩阵: 横向滚动 */
+  .me-matrix { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 0 0 14px 14px; }
+  .me-matrix .matrix-table { min-width: 940px; }
+
+  /* 属性输入框网格与附图区在手机上换行 */
+  .me-sec .attr-boxes-grid { flex-wrap: wrap; }
+  .me-sec .attr-img-cards-grid { grid-template-columns: 1fr !important; }
+  .me-sec .gallery-container { gap: 10px; }
+
+  /* 五点描述操作区换行 */
+  .me-sec .card-header { flex-wrap: wrap; gap: 8px; }
+
+  /* 图片主图区在手机上占满整行 */
+  .me-sec .img-slot { touch-action: manipulation; }
+</style>
+{% endblock %}
+
+{% block content %}
+<input type="file" id="globalFileInput" style="display:none;" accept="image/*">
+<input type="file" id="batchExtraFileInput" style="display:none;" accept="image/*" multiple>
+
+<!-- 顶部操作条 -->
+<div class="me-bar">
+  <div class="me-info">
+    <span>🛠️</span>
+    <span class="me-lab">商品录入</span>
+    <span id="editModeBanner">
+      <span class="me-sub" id="editModeHintText">✏️ 编辑模式</span>
+    </span>
+  </div>
+  <div class="me-acts">
+    <button class="btn btn-outline" type="button" onclick="openPromptPickerModal()" title="从提示词模板快速生成并复制提示词" style="color:#7c3aed; border-color:#ddd6fe; background:#f5f3ff;">📝</button>
+    <a href="/list" class="btn btn-outline" style="text-decoration:none;">返回</a>
+    <button class="btn btn-primary" id="saveProductBtn" type="button">保存</button>
+  </div>
+</div>
+
+<!-- 1. 店铺与基础配置 -->
+<details class="me-sec" open>
+  <summary><span class="me-num">1</span><span>店铺与基础配置</span><span class="me-arrow">▶</span></summary>
+  <div class="me-body">
+    <div class="grid-2">
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label required">店铺账号</label>
+        <select class="form-select" id="storeAccountSelect">
+          <option value="" disabled selected>正在加载店铺配置...</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0; margin-top:14px;">
+        <label class="form-label required">品牌 (Brand)</label>
+        <input type="text" class="form-input" id="brandInput" readonly placeholder="选择店铺后自动录入" style="background:#f8fafc; font-weight:700; color:#1e293b;" title="由所选店铺 1 对 1 绑定关系自动带入">
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-top:14px;">
+      <label class="form-label required">
+        产品标题
+        <span id="titleEditLockBadge" style="display:none; margin-left:8px; font-size:0.75rem; color:#1d4ed8; background:#eff6ff; border:1px solid #bfdbfe; padding:1px 6px; border-radius:4px; font-weight:600;">✏️ 标题可编辑</span>
+      </label>
+      <input type="text" class="form-input" id="titleInput" value="" placeholder="请输入 Amazon 产品标题">
+      <div class="bullet-point-cn-hint" style="margin-top:8px; margin-left:0; display:flex; align-items:center; gap:6px;">
+        <span style="color:#6366f1; font-weight:600; font-size:0.75rem; flex-shrink:0;">🤖 中文翻译:</span>
+        <input type="text" class="form-input" id="titleTranslationInput" value="" placeholder="输入标题后自动翻译..." style="flex:1; min-width:0; padding:3px 8px; font-size:0.78rem; background:transparent; border:1px dashed #cbd5e1;">
+        <button class="btn btn-outline btn-sm" id="translateTitleBtn" type="button" style="flex-shrink:0; padding:6px 8px; color:#7c3aed; border-color:#ddd6fe; background:#f5f3ff;" title="重新调用本地 Ollama 翻译标题">🔄</button>
+        <button class="btn btn-outline btn-sm js-view-prompt" data-mode="title_translation" type="button" style="flex-shrink:0; padding:6px 8px; color:#475569; border-color:#cbd5e1; background:#f8fafc;" title="查看标题翻译使用的 Ollama 提示词">📝</button>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-top:14px;">
+      <label class="form-label">
+        商品标识
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(标题翻译提炼成一个中文词，自动处理)</span>
+      </label>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <input type="text" class="form-input" id="productIdentifierInput" value="" placeholder="如: 犬用厕所垫" style="flex:1; min-width:0;">
+        <button class="btn btn-outline btn-sm" id="extractIdentifierBtn" type="button" style="flex-shrink:0; padding:6px 8px; color:#7c3aed; border-color:#ddd6fe; background:#f5f3ff;" title="调用本地 Ollama 提炼">🤖</button>
+        <button class="btn btn-outline btn-sm js-view-prompt" data-mode="identifier" type="button" style="flex-shrink:0; padding:6px 8px; color:#475569; border-color:#cbd5e1; background:#f8fafc;" title="查看提示词">📝</button>
+      </div>
+      <div class="bullet-point-cn-hint" style="margin-top:8px; margin-left:0; display:flex; align-items:center; gap:6px;">
+        <span style="color:#6366f1; font-weight:600; font-size:0.75rem; flex-shrink:0;">🇬🇧 英文 <span style="color:#ef4444; font-weight:700;">*</span>:</span>
+        <input type="text" class="form-input" id="identifierTranslationInput" value="" placeholder="商品标识确认后自动翻译..." style="flex:1; min-width:0; padding:3px 8px; font-size:0.78rem; background:transparent; border:1px dashed #cbd5e1;">
+        <button class="btn btn-outline btn-sm" id="translateIdentifierBtn" type="button" style="flex-shrink:0; padding:6px 8px; color:#7c3aed; border-color:#ddd6fe; background:#f5f3ff;" title="重新调用本地 Ollama 翻译商品标识">🔄</button>
+        <button class="btn btn-outline btn-sm js-view-prompt" data-mode="identifier_translation" type="button" style="flex-shrink:0; padding:6px 8px; color:#475569; border-color:#cbd5e1; background:#f8fafc;" title="查看提示词">📝</button>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-top:14px;">
+      <label class="form-label">
+        产品分类
+        <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(层级用 › 分隔)</span>
+      </label>
+      <input type="text" class="form-input" id="categoryNameInput" placeholder="如: 産業・研究開発用品›物流・保管用品›...">
+    </div>
+
+    <div class="form-group" style="margin-top:14px; margin-bottom:0;">
+      <label class="form-label required">售卖形式</label>
+      <div style="display:flex; gap:24px; align-items:center; margin-top:6px;">
+        <label class="radio-label" style="font-weight:600; cursor:pointer;">
+          <input type="radio" name="saleTypeRadio" value="variation" checked>
+          <span>多变体</span>
+        </label>
+        <label class="radio-label" style="font-weight:600; cursor:pointer;">
+          <input type="radio" name="saleTypeRadio" value="single">
+          <span>单品</span>
+        </label>
+      </div>
+    </div>
+  </div>
+</details>
+
+<!-- 2. 商品链接 -->
+<details class="me-sec">
+  <summary><span class="me-num">2</span><span>商品链接</span><span class="me-tag">自动识别 1688/拼多多</span><span class="me-arrow">▶</span></summary>
+  <div class="me-body">
+    <div class="form-group" style="margin-bottom:0;">
+      <label class="form-label">Amazon 链接</label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="text" class="form-input" id="amazonLinkInput" value="" placeholder="https://www.amazon.co.jp/dp/XXXXXXX" style="flex:1; min-width:0;">
+        <a id="amazonLinkOpenBtn" href="javascript:void(0);" target="_blank" rel="noopener" title="打开 Amazon 链接" style="display:none; flex-shrink:0; font-size:1.2rem; text-decoration:none;" onclick="return openProductLink(event, 'amazonLinkInput')">🔗</a>
+      </div>
+    </div>
+    <div class="form-group" style="margin-top:14px; margin-bottom:0;">
+      <label class="form-label">源链接 (采购来源)</label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span id="sourceLinkPlatformBadge" title="自动识别平台" style="flex-shrink:0; display:none;"></span>
+        <input type="text" class="form-input" id="sourceLinkInput" value="" placeholder="粘贴 1688 / 拼多多链接" style="flex:1; min-width:0;" oninput="updateSourceLinkBadge()">
+        <a id="sourceLinkOpenBtn" href="javascript:void(0);" target="_blank" rel="noopener" title="打开源链接" style="display:none; flex-shrink:0; font-size:1.2rem; text-decoration:none;" onclick="return openProductLink(event, 'sourceLinkInput')">🔗</a>
+      </div>
+    </div>
+  </div>
+</details>
+
+<!-- 3. 产品信息 (Parent SKU) -->
+<details class="me-sec">
+  <summary><span class="me-num">3</span><span>产品信息</span><span class="me-arrow">▶</span></summary>
+  <div class="me-body">
+    <div class="form-group" style="margin-bottom:0;">
+      <label class="form-label">Parent SKU (父SKU) <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(修改后自动联动子SKU)</span></label>
+      <input type="text" class="form-input" id="parentSkuInput" value="" placeholder="如: admin1-DogToilet">
+    </div>
+  </div>
+</details>
+
+<!-- 4. 产品属性 -->
+<details class="me-sec">
+  <summary><span class="me-num">4</span><span>产品属性</span><span class="me-tag">Amazon 核心属性</span><span class="me-arrow">▶</span></summary>
+  <div class="me-body">
+    <div class="grid-2" style="margin-bottom:14px;">
+      <div class="form-group">
+        <label class="form-label">品番・型番(型号) <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(自动填入品牌)</span></label>
+        <input type="text" class="form-input" id="modelNumberInput" placeholder="自动填入品牌，如: JINWU">
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">モデル名(型号名称) <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(自动生成)</span></label>
+        <input type="text" class="form-input" id="modelNameInput" placeholder="如: JINWU1">
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="form-group">
+        <label class="form-label">品目寸法（L x W x H）</label>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input type="text" inputmode="decimal" class="form-input" id="itemLengthInput" placeholder="长" style="flex:1; min-width:52px; text-align:center;">
+          <span style="color:var(--text-muted);">×</span>
+          <input type="text" inputmode="decimal" class="form-input" id="itemWidthInput" placeholder="宽" style="flex:1; min-width:52px; text-align:center;">
+          <span style="color:var(--text-muted);">×</span>
+          <input type="text" inputmode="decimal" class="form-input" id="itemHeightInput" placeholder="高" style="flex:1; min-width:52px; text-align:center;">
+          <select class="form-select" id="itemDimUnitSelect" style="width:72px; flex-shrink:0;">
+            <option value="cm" selected>cm</option>
+            <option value="mm">mm</option>
+            <option value="m">m</option>
+            <option value="inch">inch</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:0;">
+        <label class="form-label">パッケージ寸法 (包装尺寸) <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(只读, 自动抓取)</span></label>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input type="text" readonly class="form-input" id="pkgLengthInput" placeholder="长" style="flex:1; min-width:52px; text-align:center; background:#f1f5f9; color:#475569;" title="自动抓取变体SKU长宽高乘积最大项">
+          <span style="color:var(--text-muted);">×</span>
+          <input type="text" readonly class="form-input" id="pkgWidthInput" placeholder="宽" style="flex:1; min-width:52px; text-align:center; background:#f1f5f9; color:#475569;" title="自动抓取变体SKU长宽高乘积最大项">
+          <span style="color:var(--text-muted);">×</span>
+          <input type="text" readonly class="form-input" id="pkgHeightInput" placeholder="高" style="flex:1; min-width:52px; text-align:center; background:#f1f5f9; color:#475569;" title="自动抓取变体SKU长宽高乘积最大项">
+          <select class="form-select" id="pkgDimUnitSelect" style="width:72px; flex-shrink:0; background:#f1f5f9; pointer-events:none;" tabindex="-1">
+            <option value="cm" selected>cm</option>
+            <option value="mm">mm</option>
+            <option value="m">m</option>
+            <option value="inch">inch</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-top:14px; margin-bottom:0;">
+      <label class="form-label" style="font-weight:700;">包装時の重さ (包装重量) <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(只读, 自动抓取)</span></label>
+      <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:var(--radius-sm); padding:12px;">
+        <div class="grid-2">
+          <div>
+            <label style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:4px;">商品パッケージ重量</label>
+            <input type="text" readonly class="form-input" id="pkgWeightInput" placeholder="自动计算" style="width:100%; background:#f1f5f9; color:#475569;" title="自动抓取, 不可编辑">
+          </div>
+          <div>
+            <label style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:4px;">重量の単位</label>
+            <select class="form-select" id="pkgWeightUnitSelect" style="width:100%; background:#f1f5f9; pointer-events:none;" tabindex="-1">
+              <option value="kg" selected>kg</option>
+              <option value="g">g</option>
+              <option value="lb">lb</option>
+              <option value="oz">oz</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</details>
+
+<!-- 5. 产品图片 -->
+<details class="me-sec">
+  <summary><span class="me-num">5</span><span>产品图片 (主图与附图)</span><span class="me-arrow">▶</span></summary>
+  <div class="me-body">
+    <div style="background:#f0f9ff; border:2px solid #3b82f6; border-radius:var(--radius-md); padding:14px; text-align:center;">
+      <div style="font-size:0.85rem; font-weight:700; color:#1d4ed8; margin-bottom:10px;">★ 产品主图</div>
+      <div class="img-slot" id="mainProductImgSlot" onclick="triggerProductImgUpload(0)" style="width:120px; height:120px; margin:0 auto; border:2px dashed #3b82f6; background:#fff; border-radius:var(--radius-sm);">
+        <span style="font-size:1.6rem;">📷</span>
+        <span class="img-slot-label" style="font-size:11px; color:#1d4ed8; font-weight:700;">点击上传主图</span>
+      </div>
+      <div style="font-size:0.72rem; color:#64748b; margin-top:8px;">Amazon 搜索主展示 (单张)</div>
+    </div>
+
+    <div style="margin-top:14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:var(--radius-md); padding:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; gap:8px; flex-wrap:wrap;">
+        <div>
+          <span style="font-size:0.85rem; font-weight:700; color:#1e293b;">产品附图 (最多 8 张)</span>
+          <span style="font-size:0.75rem; color:var(--text-muted); margin-left:6px;" id="extraImgCountBadge">已上传 0/8 张</span>
+        </div>
+        <button class="btn btn-outline btn-sm" id="clearAllExtraBtn" type="button" style="padding:5px 8px; font-size:0.72rem; color:#ef4444; display:none;">清空全部</button>
+      </div>
+      <div class="gallery-container" id="extraImagesGalleryList" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start;">
+        <!-- renderProductGallery() 渲染 -->
+      </div>
+    </div>
+  </div>
+</details>
+
+<!-- 6. 变体属性设定 (颜色 & 尺寸) -->
+<details class="me-sec">
+  <summary><span class="me-num">6</span><span>变体属性设定 (颜色 & 尺寸)</span><span class="me-arrow">▶</span></summary>
+  <div class="me-body">
+    <div class="form-group" style="margin-bottom:20px;">
+      <label class="form-label required">变种主题 (Variation Theme)</label>
+      <select class="form-select" id="variationThemeSelect">
+        <option value="カラー/サイズ" selected>カラー/サイズ</option>
+      </select>
+    </div>
+
+    <div class="form-group" style="margin-bottom:24px;">
+      <label class="form-label required">カラー (颜色) 选项输入</label>
+      <div class="attr-boxes-wrapper">
+        <div class="attr-boxes-grid" id="colorBoxesGrid"></div>
+        <button class="btn-add-box" id="addMoreColorBoxBtn" type="button" title="新增颜色输入框">➕</button>
+      </div>
+      <div class="attr-preview-badge">
+        <span>已识别有效颜色:</span>
+        <span class="attr-joined-str" id="colorJoinedPreview">未输入</span>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom:0;">
+      <label class="form-label required">サイズ (尺寸) 选项输入</label>
+      <div class="attr-boxes-wrapper">
+        <div class="attr-boxes-grid" id="sizeBoxesGrid"></div>
+        <button class="btn-add-box" id="addMoreSizeBoxBtn" type="button" title="新增尺寸输入框">➕</button>
+      </div>
+      <div class="attr-preview-badge">
+        <span>已识别有效尺寸:</span>
+        <span class="attr-joined-str" id="sizeJoinedPreview">未输入</span>
+      </div>
+    </div>
+  </div>
+</details>
+
+<!-- 7. 变体 SKU 图片录入 -->
+<details class="me-sec">
+  <summary><span class="me-num">7</span><span>变体 SKU 图片录入</span><span class="me-arrow">▶</span></summary>
+  <div class="me-body">
+    <div class="dimension-switch-group" style="flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+      <label class="radio-label">
+        <input type="radio" name="imageDimensionRadio" value="color" checked>
+        <span>🎨 按カラー录入</span>
+      </label>
+      <label class="radio-label">
+        <input type="radio" name="imageDimensionRadio" value="size">
+        <span>📏 按サイズ录入</span>
+      </label>
+    </div>
+    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">💡 为每个属性上传图片后, 系统自动同步应用至对应变体 SKU。</p>
+    <div class="attr-img-cards-grid" id="attrImgCardsGrid"></div>
+  </div>
+</details>
+
+<!-- 8. 变体明细矩阵 -->
+<details class="me-sec">
+  <summary><span class="me-num">8</span><span>变体明细表格</span><span class="me-tag" id="variationCountBadge">0 个组合</span><span class="me-arrow">▶</span></summary>
+  <div class="me-matrix">
+    <table class="matrix-table matrix-center">
+      <thead>
+        <tr>
+          <th style="width:40px; text-align:center;">序号</th>
+          <th style="width:60px; text-align:center;">图片</th>
+          <th style="width:60px; text-align:center;">颜色</th>
+          <th style="width:60px; text-align:center;">尺寸</th>
+          <th class="bulk-th" style="width:78px;">
+            <div class="bulk-th-top"><span>长(cm)</span><button type="button" class="bulk-th-apply" tabindex="-1" onclick="applyBulkColumnToAll('length_cm', 'bulkLenInput')" title="批量填入该列">⬇</button></div>
+            <div class="bulk-th-bottom"><input type="text" inputmode="decimal" class="bulk-th-inp" id="bulkLenInput" placeholder="批量"></div>
+          </th>
+          <th class="bulk-th" style="width:78px;">
+            <div class="bulk-th-top"><span>宽(cm)</span><button type="button" class="bulk-th-apply" tabindex="-1" onclick="applyBulkColumnToAll('width_cm', 'bulkWidthInput')" title="批量填入该列">⬇</button></div>
+            <div class="bulk-th-bottom"><input type="text" inputmode="decimal" class="bulk-th-inp" id="bulkWidthInput" placeholder="批量"></div>
+          </th>
+          <th class="bulk-th" style="width:78px;">
+            <div class="bulk-th-top"><span>高(cm)</span><button type="button" class="bulk-th-apply" tabindex="-1" onclick="applyBulkColumnToAll('height_cm', 'bulkHeightInput')" title="批量填入该列">⬇</button></div>
+            <div class="bulk-th-bottom"><input type="text" inputmode="decimal" class="bulk-th-inp" id="bulkHeightInput" placeholder="批量"></div>
+          </th>
+          <th class="bulk-th" style="width:78px;">
+            <div class="bulk-th-top"><span>重量(kg)</span><button type="button" class="bulk-th-apply" tabindex="-1" onclick="applyBulkColumnToAll('weight', 'bulkWeightInput')" title="批量填入该列">⬇</button></div>
+            <div class="bulk-th-bottom"><input type="text" inputmode="decimal" class="bulk-th-inp" id="bulkWeightInput" placeholder="批量"></div>
+          </th>
+          <th class="bulk-th" style="width:78px;">
+            <div class="bulk-th-top"><span>采购价(¥)</span><button type="button" class="bulk-th-apply" tabindex="-1" onclick="applyBulkColumnToAll('purchase_price', 'bulkPurchasePriceInput')" title="批量填入该列">⬇</button></div>
+            <div class="bulk-th-bottom"><input type="text" inputmode="decimal" class="bulk-th-inp" id="bulkPurchasePriceInput" placeholder="批量"></div>
+          </th>
+          <th class="bulk-th" style="width:124px;">
+            <div class="bulk-th-top"><span>系数</span><button type="button" class="bulk-th-apply" tabindex="-1" onclick="applyBulkColumnToAll('profit_coefficient', 'bulkProfitCoeffInput')" title="批量填入该列">⬇</button></div>
+            <div class="bulk-th-bottom">
+              <div class="bulk-step">
+                <input type="text" inputmode="decimal" class="bulk-th-inp" id="bulkProfitCoeffInput" placeholder="批量">
+                <div class="bulk-step-btns">
+                  <button type="button" class="bulk-step-btn" tabindex="-1" onclick="stepBulkCoeff(0.1)" title="增大 0.1">▲</button>
+                  <button type="button" class="bulk-step-btn" tabindex="-1" onclick="stepBulkCoeff(-0.1)" title="减小 0.1">▼</button>
+                </div>
+              </div>
+              <button type="button" class="bulk-th-clear" tabindex="-1" onclick="clearAllBulkThInputs()" title="清空批量输入框">🧹</button>
+              <button type="button" class="bulk-th-calc" tabindex="-1" onclick="openRowTrialCalc()" title="带入运费/售价试算">🧮</button>
+            </div>
+          </th>
+          <th style="width:85px; text-align:center;">快递选择</th>
+          <th style="width:85px; text-align:center;">价格(JPY)</th>
+          <th style="width:55px; text-align:center;">库存</th>
+          <th style="width:102px;">EAN 条码</th>
+          <th style="width:75px;">SKU 编码</th>
+        </tr>
+      </thead>
+      <tbody id="matrixTableBody"></tbody>
+    </table>
+  </div>
+</details>
+
+<!-- 9. 描述信息 -->
+<details class="me-sec">
+  <summary><span class="me-num">9</span><span>描述信息 (商品描述 / 五点)</span><span class="me-arrow">▶</span></summary>
+  <div class="me-body">
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">
+      <button class="btn btn-primary btn-sm" id="generatePromptBtn" type="button" style="background:#7c3aed; border-color:#7c3aed; font-size:0.8rem; padding:6px 12px;" title="获取统一提示词模板并复制到剪贴板">✨ 生成提示词</button>
+      <button class="btn btn-outline btn-sm" id="jumpDeepSeekOnlyBtn" type="button" style="color:#059669; border-color:#a7f3d0; background:#ecfdf5; font-size:0.8rem; padding:6px 10px;" title="复制提示词并打开 DeepSeek">🚀 跳转DS</button>
+      <button class="btn btn-outline btn-sm js-view-prompt" data-mode="bullets" type="button" style="padding:6px 10px; color:#475569;" title="查看五点描述提示词">📝</button>
+    </div>
+
+    <div class="form-group" style="margin-bottom:20px;">
+      <label class="form-label" style="font-weight:700;">商品描述 (Product Description) <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(按行自动拆分填充五点描述)</span></label>
+      <textarea class="form-textarea" id="descriptionInput" style="min-height:120px; width:100%;" placeholder="请输入或粘贴商品描述内容..."></textarea>
+    </div>
+
+    <div class="form-group" style="margin-bottom:0;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px; flex-wrap:wrap;">
+        <label class="form-label" style="margin-bottom:0; font-weight:700;">五点描述 (Bullet Points)</label>
+        <button class="btn btn-outline btn-sm" id="addBulletPointBtn" type="button" style="font-size:0.72rem; padding:5px 8px;">➕ 添加</button>
+      </div>
+      <div id="bulletPointsContainer" style="display:flex; flex-direction:column; gap:10px;">
+        {% for i in range(1, 6) %}
+        <div class="bullet-point-item" style="display:flex; flex-direction:column; gap:4px;">
+          <div class="bullet-point-row" style="display:flex; gap:8px; align-items:center;">
+            <span style="font-size:0.8rem; font-weight:600; color:var(--text-muted); width:20px;">{{ i }}.</span>
+            <input type="text" class="form-input bullet-point-inp" placeholder="Bullet Point {{ i }}">
+          </div>
+          <div class="bullet-point-cn-hint" style="margin-left:28px; font-size:0.78rem; color:#475569; background:#f8fafc; border:1px dashed #cbd5e1; border-radius:4px; padding:3px 8px; display:flex; align-items:center; gap:6px;">
+            <span style="color:#6366f1; font-weight:600; font-size:0.75rem; flex-shrink:0;">🇨🇳 中文:</span>
+            <span class="cn-text" style="color:var(--text-muted); line-height:1.4;">(暂无翻译)</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</details>
+
+<!-- 10. 运输信息 -->
+<details class="me-sec">
+  <summary><span class="me-num">10</span><span>运输信息</span><span class="me-arrow">▶</span></summary>
+  <div class="me-body">
+    <div class="form-group" style="margin-bottom:0;">
+      <label class="form-label required">配送渠道 (Fulfillment Channel)</label>
+      <select class="form-select" id="fulfillmentChannelSelect">
+        <option value="FBM" selected>FBM</option>
+      </select>
+    </div>
+  </div>
+</details>
+
+<!-- 11. 关键词信息 -->
+<details class="me-sec">
+  <summary><span class="me-num">11</span><span>关键词信息</span><span class="me-arrow">▶</span></summary>
+  <div class="me-body">
+    <div class="form-group" style="margin-bottom:0;">
+      <label class="form-label">Search Terms (搜索关键词) <span style="font-weight:400; color:var(--text-muted); font-size:0.78rem;">(自动同步产品标题)</span></label>
+      <input type="text" class="form-input" id="searchTermsInput" placeholder="Search Terms...">
+    </div>
+  </div>
+</details>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // 顶部操作条吸附位置 = 手机顶栏实际高度 (避免遮挡/缝隙)
+  (function () {
+    function sync() {
+      const h = document.querySelector(".m-header");
+      if (h) document.documentElement.style.setProperty("--me-bar-top", h.offsetHeight + "px");
+    }
+    sync();
+    window.addEventListener("resize", sync);
+    window.addEventListener("orientationchange", sync);
+  })();
+</script>
+<script src="/static/js/pricing_tool.js?v=20260930_pt12"></script>
+<script src="/static/js/app.js?v=20260930_img5m1"></script>
+<script src="/static/js/prompts.js?v=20260919_prompt_v11"></script>
+{% endblock %}

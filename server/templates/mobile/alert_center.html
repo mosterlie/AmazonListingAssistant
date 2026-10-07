@@ -1,0 +1,256 @@
+{% extends "base_mobile.html" %}
+
+{% block title %}告警中心{% endblock %}
+
+{% block extra_head %}
+<style>
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="m-pagehead">
+  <div>
+    <h1 class="m-ptitle">🚨 告警中心</h1>
+    <div class="m-psub" id="mAcSub">加载中…</div>
+  </div>
+  <div class="m-pactions">
+    {% if current_user and current_user.role == 'admin' %}
+    <a href="/alert-tasks" class="m-icon-btn" title="告警任务">🔔</a>
+    {% endif %}
+    <button type="button" class="m-icon-btn" id="mAcRefresh" title="刷新">🔄</button>
+  </div>
+</div>
+
+<!-- 吸顶搜索栏 -->
+<div class="m-searchbar">
+  <label class="m-search-input">
+    <span>🔍</span>
+    <input type="search" id="mAcKw" placeholder="订单号 / 店铺 / 货代 / 产品名" enterkeyhint="search" autocomplete="off">
+  </label>
+  <button type="button" class="m-filter-btn" id="mAcFilterBtn">筛选<span class="m-filter-dot"></span></button>
+</div>
+
+<!-- 告警卡片列表 -->
+<div class="m-card-list" id="mAcList"></div>
+
+<!-- 分页 -->
+<div class="m-loadmore" id="mAcPager" style="display:none;">
+  <button class="btn btn-outline" id="mAcPrev" type="button">← 上一页</button>
+  <small id="mAcPageInfo">第 1 / 1 页</small>
+  <button class="btn btn-outline" id="mAcNext" type="button">下一页 →</button>
+</div>
+
+<!-- 筛选抽屉 -->
+<div class="m-sheet-mask" id="mAcFilterMask"></div>
+<div class="m-sheet m-filter-sheet" id="mAcFilterSheet">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">告警筛选</div>
+  <div class="m-field">
+    <label class="m-field-label">来源</label>
+    <select class="form-select" id="mAcSource">
+      <option value="">全部来源</option>
+      <option value="forwarder">🚢 货代文档采集</option>
+      <option value="dxm">📦 店小秘订单采集</option>
+    </select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">级别</label>
+    <select class="form-select" id="mAcLevel">
+      <option value="">全部级别</option>
+      <option value="1">🟡 黄色</option>
+      <option value="2">🔴 红色/超时</option>
+    </select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">业务日期</label>
+    <input type="date" class="form-input" id="mAcDate">
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mAcReset">重置</button>
+    <button type="button" class="btn btn-primary" id="mAcApply">应用筛选</button>
+  </div>
+</div>
+
+<!-- ⋯ 告警详情抽屉 -->
+<div class="m-sheet" id="mAcDetailSheet">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title" id="mAcDetailTitle">告警详情</div>
+  <div id="mAcDetailBody"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const acState = { page: 1, pageSize: 20, total: 0, kw: "", source: "", level: "", date: "" };
+
+  function esc(s) {
+    return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, m => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[m]));
+  }
+
+  async function apiFetch(url, options) {
+    const resp = await fetch(url, Object.assign({ headers: { "Content-Type": "application/json" } }, options || {}));
+    if (resp.status === 401) { window.location.href = "/login"; throw new Error("未登录"); }
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok || body.code !== 0) throw new Error(body.detail || body.msg || "请求失败");
+    return body;
+  }
+
+  /* ───────── 统计并入副标题 ───────── */
+  async function loadSummary() {
+    const sub = document.getElementById("mAcSub");
+    try {
+      const body = await apiFetch("/api/alerts/summary");
+      const d = body.data || {};
+      const fwd = d.forwarder?.today_alerts ?? 0;
+      const yellow = d.dxm?.yellow ?? 0;
+      const red = (d.dxm?.red ?? 0) + (d.dxm?.expired ?? 0);
+      sub.innerHTML =
+        `🚢 货代超期 <b style="color:#1d4ed8;">${fwd}</b>` +
+        `<span class="m-psub-sep">·</span>📦 黄色 <b style="color:#d97706;">${yellow}</b>` +
+        `<span class="m-psub-sep">·</span>🔴 红/超时 <b style="color:#dc2626;">${red}</b>` +
+        (fwd + yellow + red === 0 ? `<span class="m-psub-sep">·</span><span class="m-psub-ok">今日无告警</span>` : "");
+    } catch (e) {
+      if (e.message !== "未登录") { sub.innerText = "统计加载异常"; }
+    }
+  }
+
+  /* ───────── 告警列表 ───────── */
+  async function loadAlerts() {
+    const listEl = document.getElementById("mAcList");
+    const pager = document.getElementById("mAcPager");
+    listEl.innerHTML = `<div class="m-skel-card"><div class="m-skel m-skel-thumb"></div><div class="m-skel-lines"><div class="m-skel" style="height:14px;width:90%;"></div><div class="m-skel" style="height:12px;width:60%;"></div><div class="m-skel" style="height:12px;width:44%;"></div></div></div>
+      <div class="m-skel-card"><div class="m-skel m-skel-thumb"></div><div class="m-skel-lines"><div class="m-skel" style="height:14px;width:84%;"></div><div class="m-skel" style="height:12px;width:52%;"></div></div></div>`;
+    pager.style.display = "none";
+
+    const qs = new URLSearchParams({ page: acState.page, page_size: acState.pageSize, keyword: acState.kw });
+    if (acState.source) qs.set("source", acState.source);
+    if (acState.level !== "") qs.set("alert_level", acState.level);
+    if (acState.date) qs.set("biz_date", acState.date);
+
+    try {
+      const body = await apiFetch("/api/alerts/list?" + qs.toString());
+      const data = body.data || {};
+      acState.total = data.total || 0;
+      const totalPages = Math.max(1, Math.ceil(acState.total / acState.pageSize));
+      if (acState.page > totalPages) acState.page = totalPages;
+      const items = data.items || [];
+      acState.items = items;
+      if (!items.length) {
+        listEl.innerHTML = `<div class="m-empty"><div class="m-empty-ico">✅</div><div class="m-empty-txt">暂无符合条件的告警信息</div></div>`;
+        return;
+      }
+      listEl.innerHTML = items.map((it, i) => renderAlertCard(it, i)).join("");
+      pager.style.display = "flex";
+      document.getElementById("mAcPageInfo").innerText = `第 ${acState.page} / ${totalPages} 页 · 共 ${acState.total} 条`;
+      document.getElementById("mAcPrev").disabled = acState.page <= 1;
+      document.getElementById("mAcNext").disabled = acState.page >= totalPages;
+    } catch (e) {
+      if (e.message !== "未登录") {
+        listEl.innerHTML = `<div class="m-empty"><div class="m-empty-ico">❌</div><div class="m-empty-txt">加载失败：${esc(e.message)}</div></div>`;
+      }
+    }
+  }
+
+  function acInfoRow(k, v) { return `<div class="m-info-row"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
+
+  /* 卡片三行封顶: 标题+级别徽章 / 来源+日期 chips / ⋯ 详情抽屉 */
+  function renderAlertCard(it, i) {
+    const lvBadge = it.level === 2
+      ? `<span class="m-badge b-red">红色/超时</span>`
+      : `<span class="m-badge b-amber">黄色预警</span>`;
+    const srcIcon = it.source === "forwarder" ? "🚢" : "📦";
+    return `<div class="m-card m-ac-card">
+      <div class="m-card-title">${esc(it.title || "—")} ${lvBadge}</div>
+      <div class="m-card-sub">
+        <span class="m-schip blue">${srcIcon} ${esc(it.source_name || "")}</span>
+        <span class="m-schip">📅 ${esc(it.biz_date || "—")}</span>
+      </div>
+      <div class="m-card-foot">
+        <button class="m-more-btn" type="button" onclick="openAcDetail(${i})">⋯</button>
+      </div>
+    </div>`;
+  }
+
+  /* ⋯ 详情抽屉: 完整明细字段 */
+  function openAcDetail(i) {
+    const it = (acState.items || [])[i];
+    if (!it) return;
+    const d = it.detail || {};
+    let rows = acInfoRow("标题", esc(it.title || "—")) +
+      acInfoRow("来源", esc(it.source_name || "—")) +
+      acInfoRow("级别", it.level === 2 ? "🔴 红色/超时" : "🟡 黄色预警") +
+      acInfoRow("业务日期", esc(it.biz_date || "—"));
+    if (it.source === "forwarder") {
+      rows += acInfoRow("货代", esc(d.forwarder_name || "—")) +
+        acInfoRow("采购日期", esc(d.purchase_date || "—")) +
+        acInfoRow("未发货", `<b style="color:#dc2626;">${esc(String(d.days_elapsed ?? "—"))} 天</b>`) +
+        acInfoRow("表名", esc(d.sheet_name || "—"));
+    } else {
+      rows += acInfoRow("店铺", esc(d.shop_name || "—")) +
+        acInfoRow("站点", esc(d.site || "—")) +
+        acInfoRow("剩余", esc(String(d.remaining ?? "—"))) +
+        acInfoRow("截止", esc(d.deadline_at || "—")) +
+        (d.order_status ? acInfoRow("订单状态", esc(d.order_status)) : "");
+    }
+    rows += acInfoRow("时间", esc(String(it.ts || "—").slice(0, 16)));
+    document.getElementById("mAcDetailTitle").innerText = "🚨 告警详情";
+    document.getElementById("mAcDetailBody").innerHTML = `<div class="m-info-list">${rows}</div>`;
+    document.getElementById("mAcDetailSheet").classList.add("open");
+    document.getElementById("mAcFilterMask").classList.add("open");
+  }
+
+  /* ───────── 抽屉 / 事件 ───────── */
+  function openSheet() {
+    document.getElementById("mAcFilterSheet").classList.add("open");
+    document.getElementById("mAcFilterMask").classList.add("open");
+  }
+  function closeSheet() {
+    document.getElementById("mAcFilterSheet").classList.remove("open");
+    document.getElementById("mAcDetailSheet").classList.remove("open");
+    document.getElementById("mAcFilterMask").classList.remove("open");
+  }
+  function syncFilterUI() {
+    const active = !!(acState.source || acState.level !== "" || acState.date);
+    document.getElementById("mAcFilterBtn").classList.toggle("active", active);
+    document.getElementById("mAcSource").value = acState.source;
+    document.getElementById("mAcLevel").value = acState.level;
+    document.getElementById("mAcDate").value = acState.date;
+  }
+
+  document.getElementById("mAcFilterBtn").addEventListener("click", openSheet);
+  document.getElementById("mAcFilterMask").addEventListener("click", closeSheet);
+  document.getElementById("mAcApply").addEventListener("click", () => {
+    acState.source = document.getElementById("mAcSource").value;
+    acState.level = document.getElementById("mAcLevel").value;
+    acState.date = document.getElementById("mAcDate").value;
+    acState.page = 1;
+    syncFilterUI();
+    closeSheet();
+    loadAlerts();
+  });
+  document.getElementById("mAcReset").addEventListener("click", () => {
+    acState.source = ""; acState.level = ""; acState.date = ""; acState.kw = "";
+    acState.page = 1;
+    document.getElementById("mAcKw").value = "";
+    syncFilterUI();
+    closeSheet();
+    loadAlerts();
+    showToast("已重置筛选条件", "info");
+  });
+  document.getElementById("mAcRefresh").addEventListener("click", () => { loadSummary(); loadAlerts(); });
+  document.getElementById("mAcPrev").addEventListener("click", () => { if (acState.page > 1) { acState.page--; loadAlerts(); window.scrollTo({ top: 0, behavior: "smooth" }); } });
+  document.getElementById("mAcNext").addEventListener("click", () => { acState.page++; loadAlerts(); window.scrollTo({ top: 0, behavior: "smooth" }); });
+
+  let acKwTimer = null;
+  document.getElementById("mAcKw").addEventListener("input", e => {
+    acState.kw = e.target.value.trim();
+    clearTimeout(acKwTimer);
+    acKwTimer = setTimeout(() => { acState.page = 1; loadAlerts(); }, 350);
+  });
+
+  loadSummary();
+  loadAlerts();
+</script>
+{% endblock %}

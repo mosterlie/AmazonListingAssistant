@@ -1,0 +1,360 @@
+{% extends "base_mobile.html" %}
+
+{% block title %}用户管理{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* 角色勾选 */
+  .m-role-checks { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .m-role-checks label { display:inline-flex; align-items:center; gap:6px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:9px; padding:8px 12px; font-size:0.82rem; min-height:42px; }
+  .m-role-checks input { width:18px; height:18px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="m-pagehead">
+  <div>
+    <h1 class="m-ptitle">👥 用户管理</h1>
+    <div class="m-psub" id="mUserSub">正在加载…</div>
+  </div>
+  <div class="m-pactions">
+    <button type="button" class="m-icon-btn" id="mUserRefresh" title="刷新">🔄</button>
+    <button type="button" class="m-icon-btn m-primary" id="mUserAdd" title="新增用户">➕</button>
+  </div>
+</div>
+
+<div class="m-card-list" id="mUserList"></div>
+
+<!-- ================= 抽屉区 ================= -->
+<div class="m-sheet-mask" id="mUserMask"></div>
+
+<!-- 新增用户 -->
+<div class="m-sheet" id="mSheetUserAdd">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">➕ 新增系统用户</div>
+  <div class="m-field">
+    <label class="m-field-label">用户名（登录唯一账号）*</label>
+    <input type="text" class="form-input" id="mNewUsername" placeholder="如: zhangsan" autocomplete="off">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">初始登录密码 *</label>
+    <input type="password" class="form-input" id="mNewPassword" placeholder="至少4位字符密码" autocomplete="new-password">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">昵称 / 姓名备注</label>
+    <input type="text" class="form-input" id="mNewDisplay" placeholder="如: 张三 (运营一号)">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">角色权限 *</label>
+    <select class="form-select" id="mNewRole">
+      <option value="user" selected>普通用户 (仅录入与看板)</option>
+      <option value="admin">系统管理员 (全权管理)</option>
+    </select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">账号状态 *</label>
+    <select class="form-select" id="mNewStatus">
+      <option value="active" selected>🟢 正常使用</option>
+      <option value="disabled">🔴 禁用账号</option>
+    </select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">🛡️ 功能角色 (RBAC)（可多选；不选则默认「普通用户」）</label>
+    <div class="m-role-checks" id="mNewRoles"></div>
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mNewCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mNewSave">💾 保存并创建</button>
+  </div>
+</div>
+
+<!-- 编辑用户 -->
+<div class="m-sheet" id="mSheetUserEdit">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">✏️ 编辑用户信息与权限</div>
+  <div class="m-field">
+    <label class="m-field-label">用户名（不可更改）</label>
+    <input type="text" class="form-input" id="mEditUsername" readonly style="background:#f1f5f9; color:#64748b;">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">昵称 / 姓名备注</label>
+    <input type="text" class="form-input" id="mEditDisplay" placeholder="如: 张三">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">重置密码（留空则保持不变）</label>
+    <input type="password" class="form-input" id="mEditPassword" placeholder="输入新密码以重置…" autocomplete="new-password">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">角色权限 *</label>
+    <select class="form-select" id="mEditRole">
+      <option value="user">普通用户 (仅录入与看板)</option>
+      <option value="admin">系统管理员 (全权管理)</option>
+    </select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">账号状态 *</label>
+    <select class="form-select" id="mEditStatus">
+      <option value="active">🟢 正常使用</option>
+      <option value="disabled">🔴 禁用账号</option>
+    </select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">🛡️ 功能角色 (RBAC)（可多选，权限取并集）</label>
+    <div class="m-role-checks" id="mEditRoles"></div>
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mEditCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mEditSave">💾 保存修改</button>
+  </div>
+</div>
+
+<!-- 通用确认 -->
+<div class="m-sheet" id="mSheetConfirm">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title" id="mConfirmTitle">确认操作</div>
+  <div id="mConfirmBody" style="font-size:0.86rem; color:#475569; line-height:1.7; margin-bottom:6px;"></div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mConfirmCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mConfirmOk" style="background:#dc2626; border-color:#dc2626;">确定删除</button>
+  </div>
+</div>
+
+<!-- ⋯ 用户详情/操作抽屉 -->
+<div class="m-sheet" id="mSheetUserActs">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">👤 用户详情</div>
+  <div id="mUserActsInfo"></div>
+  <div class="m-act-list" style="margin-top:12px;" id="mUserActsBtns"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const IS_ADMIN = {{ 'true' if current_user and current_user.role == 'admin' else 'false' }};
+
+let mUsers = [];
+let mRbacRoles = [];
+let mUserRolesMap = {};
+
+function esc(s) {
+  if (s === null || s === undefined) return "";
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+}
+async function api(url, opt) {
+  const r = await fetch(url, opt);
+  try { return await r.json(); }
+  catch (e) { return { code: -1, msg: "响应解析失败 (" + r.status + ")" }; }
+}
+
+/* ============ 抽屉控制 ============ */
+const mUserMask = document.getElementById("mUserMask");
+const mSheets = ["mSheetUserAdd", "mSheetUserEdit", "mSheetConfirm"].map(id => document.getElementById(id));
+function openSheet(el) {
+  mUserMask.classList.add("open");
+  el.classList.add("open");
+}
+function closeAllSheets() {
+  mUserMask.classList.remove("open");
+  mSheets.forEach(s => s.classList.remove("open"));
+}
+mUserMask.addEventListener("click", closeAllSheets);
+
+/* ============ 加载 ============ */
+async function loadUsers() {
+  const box = document.getElementById("mUserList");
+  box.innerHTML = '<div class="m-empty">⏳ 正在加载用户数据…</div>';
+  const j = await api("/api/users");
+  if (j.code !== 0) {
+    box.innerHTML = '<div class="m-empty">加载失败：' + esc(j.msg || "未知错误") + '</div>';
+    return;
+  }
+  mUsers = j.data || [];
+  document.getElementById("mUserSub").innerText = "共 " + mUsers.length + " 个用户";
+  try {
+    const r1 = await api("/api/rbac/roles");
+    if (r1.roles) mRbacRoles = r1.roles;
+    const r2 = await api("/api/rbac/user-roles-map");
+    if (r2.map) mUserRolesMap = r2.map;
+  } catch (e) { /* 角色数据失败不阻塞 */ }
+  renderUsers();
+}
+
+/* 卡片三行封顶: 用户名+内置徽章 / 角色+状态 chips / 编辑主按钮 + ⋯ */
+function renderUsers() {
+  const box = document.getElementById("mUserList");
+  if (!mUsers.length) { box.innerHTML = '<div class="m-empty">暂无用户数据</div>'; return; }
+  box.innerHTML = mUsers.map(u => {
+    const isAdmin = u.role === "admin";
+    const isProtected = u.username === "admin";
+    return '<div class="m-card">'
+      + '<div class="m-card-title">' + esc(u.username)
+      + (isProtected ? ' <span class="m-badge b-gray">初始内置</span>' : '') + '</div>'
+      + '<div class="m-card-sub">'
+      + (isAdmin ? '<span class="m-schip blue">👑 系统管理员</span>' : '<span class="m-schip">👤 普通用户</span>')
+      + (u.status === "active" ? '<span class="m-badge b-green">🟢 正常</span>' : '<span class="m-badge b-red">🔴 禁用</span>')
+      + '</div>'
+      + '<div class="m-card-foot">'
+      + '<button type="button" class="m-btn-main js-edit" data-id="' + u.id + '">✏️ 编辑</button>'
+      + '<button type="button" class="m-more-btn js-more" data-id="' + u.id + '">⋯</button>'
+      + '</div></div>';
+  }).join("");
+
+  box.querySelectorAll(".js-edit").forEach(b => b.addEventListener("click", () => openEdit(parseInt(b.dataset.id, 10))));
+  box.querySelectorAll(".js-more").forEach(b => b.addEventListener("click", () => openUserActions(parseInt(b.dataset.id, 10))));
+}
+
+/* ⋯ 详情/操作抽屉: 昵称/ID/创建时间/RBAC角色 + 删除 */
+function uInfoRow(k, v) { return '<div class="m-info-row"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>'; }
+function openUserActions(id) {
+  const u = mUsers.find(x => x.id === id);
+  if (!u) return;
+  const isProtected = u.username === "admin";
+  const bound = (mUserRolesMap[String(u.id)] || []);
+  document.getElementById("mUserActsInfo").innerHTML = '<div class="m-info-list">'
+    + uInfoRow("用户名", esc(u.username))
+    + uInfoRow("昵称", esc(u.display_name || "—"))
+    + uInfoRow("角色", u.role === "admin" ? "👑 系统管理员" : "👤 普通用户")
+    + uInfoRow("状态", u.status === "active" ? "🟢 正常" : "🔴 禁用")
+    + uInfoRow("RBAC角色", bound.length ? bound.map(r => esc(r.role_name)).join("、") : "（未绑定，走兜底）")
+    + uInfoRow("ID / 创建", u.id + " · " + esc(u.created_at || "—"))
+    + '</div>';
+  const btns = ['<button type="button" class="m-act-item" onclick="closeAllSheets(); openEdit(' + u.id + ');"><span class="m-act-ico">✏️</span>编辑用户<span class="m-act-arrow">›</span></button>'];
+  if (!isProtected) {
+    btns.push('<button type="button" class="m-act-item danger" onclick="closeAllSheets(); askDelete(' + u.id + ');"><span class="m-act-ico">🗑️</span>删除用户<span class="m-act-arrow">›</span></button>');
+  } else {
+    btns.push('<button type="button" class="m-act-item" disabled style="opacity:.45;"><span class="m-act-ico">🔒</span>内置账号受保护</button>');
+  }
+  document.getElementById("mUserActsBtns").innerHTML = btns.join("");
+  openSheet(document.getElementById("mSheetUserActs"));
+}
+
+/* ============ 角色勾选 ============ */
+function renderRoleChecks(containerId, checkedIds) {
+  const box = document.getElementById(containerId);
+  const list = mRbacRoles.filter(r => r.code !== "admin");
+  box.innerHTML = list.length
+    ? list.map(r => '<label><input type="checkbox" class="js-role-cb" value="' + r.id + '"' + (checkedIds.includes(r.id) ? " checked" : "") + '>🛡️ ' + esc(r.name) + '</label>').join("")
+    : '<span style="font-size:0.8rem; color:#94a3b8;">角色加载失败或暂无角色</span>';
+}
+function collectRoleChecks(containerId) {
+  return Array.from(document.querySelectorAll("#" + containerId + " .js-role-cb:checked")).map(cb => parseInt(cb.value, 10));
+}
+
+/* ============ 新增 ============ */
+document.getElementById("mUserAdd").addEventListener("click", () => {
+  document.getElementById("mNewUsername").value = "";
+  document.getElementById("mNewPassword").value = "";
+  document.getElementById("mNewDisplay").value = "";
+  document.getElementById("mNewRole").value = "user";
+  document.getElementById("mNewStatus").value = "active";
+  renderRoleChecks("mNewRoles", []);
+  openSheet(document.getElementById("mSheetUserAdd"));
+});
+document.getElementById("mNewCancel").addEventListener("click", closeAllSheets);
+document.getElementById("mNewSave").addEventListener("click", async () => {
+  const username = document.getElementById("mNewUsername").value.trim();
+  const password = document.getElementById("mNewPassword").value;
+  const display_name = document.getElementById("mNewDisplay").value.trim();
+  const role = document.getElementById("mNewRole").value;
+  const status = document.getElementById("mNewStatus").value;
+  if (!username || !password) { showToast("请填写用户名和密码", "error"); return; }
+  const btn = document.getElementById("mNewSave");
+  btn.disabled = true; btn.innerText = "正在创建…";
+  const j = await api("/api/users", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password, display_name, role, status })
+  });
+  if (j.code === 0) {
+    await api("/api/rbac/users/" + j.data.id + "/roles", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role_ids: collectRoleChecks("mNewRoles") })
+    });
+    showToast("🎉 用户【" + username + "】创建成功");
+    closeAllSheets();
+    loadUsers();
+  } else {
+    showToast("创建失败：" + (j.msg || "未知错误"), "error");
+  }
+  btn.disabled = false; btn.innerText = "💾 保存并创建";
+});
+
+/* ============ 编辑 ============ */
+let mEditUserId = null;
+function openEdit(id) {
+  const u = mUsers.find(x => x.id === id);
+  if (!u) return;
+  mEditUserId = id;
+  document.getElementById("mEditUsername").value = u.username;
+  document.getElementById("mEditDisplay").value = u.display_name || "";
+  document.getElementById("mEditPassword").value = "";
+  document.getElementById("mEditRole").value = u.role || "user";
+  document.getElementById("mEditStatus").value = u.status || "active";
+  const isProtected = u.username === "admin";
+  document.getElementById("mEditRole").disabled = isProtected;
+  document.getElementById("mEditStatus").disabled = isProtected;
+  const boundIds = (mUserRolesMap[String(u.id)] || []).map(r => r.role_id);
+  renderRoleChecks("mEditRoles", boundIds);
+  openSheet(document.getElementById("mSheetUserEdit"));
+}
+document.getElementById("mEditCancel").addEventListener("click", closeAllSheets);
+document.getElementById("mEditSave").addEventListener("click", async () => {
+  if (mEditUserId === null) return;
+  const u = mUsers.find(x => x.id === mEditUserId);
+  const isProtected = u && u.username === "admin";
+  const password = document.getElementById("mEditPassword").value;
+  const payload = {
+    display_name: document.getElementById("mEditDisplay").value.trim(),
+    role: document.getElementById("mEditRole").value,
+    status: document.getElementById("mEditStatus").value
+  };
+  if (password) payload.password = password;
+  const btn = document.getElementById("mEditSave");
+  btn.disabled = true; btn.innerText = "正在保存…";
+  const j = await api("/api/users/" + mEditUserId, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (j.code === 0) {
+    if (!isProtected) {
+      await api("/api/rbac/users/" + mEditUserId + "/roles", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role_ids: collectRoleChecks("mEditRoles") })
+      });
+    }
+    showToast("✅ 用户信息已更新");
+    closeAllSheets();
+    loadUsers();
+  } else {
+    showToast("更新失败：" + (j.msg || "未知错误"), "error");
+  }
+  btn.disabled = false; btn.innerText = "💾 保存修改";
+});
+
+/* ============ 删除确认 ============ */
+let mPendingDelete = null;
+function askDelete(id) {
+  const u = mUsers.find(x => x.id === id);
+  if (!u) return;
+  mPendingDelete = id;
+  document.getElementById("mConfirmTitle").innerText = "🗑️ 删除用户";
+  document.getElementById("mConfirmBody").innerHTML =
+    '确定删除用户【<b>' + esc(u.username) + '</b>】吗？删除后该用户将无法再登录系统。';
+  openSheet(document.getElementById("mSheetConfirm"));
+}
+document.getElementById("mConfirmCancel").addEventListener("click", closeAllSheets);
+document.getElementById("mConfirmOk").addEventListener("click", async () => {
+  if (mPendingDelete === null) return;
+  const btn = document.getElementById("mConfirmOk");
+  btn.disabled = true; btn.innerText = "删除中…";
+  const j = await api("/api/users/" + mPendingDelete, { method: "DELETE" });
+  if (j.code === 0) { showToast("🗑️ 用户已删除"); closeAllSheets(); loadUsers(); }
+  else { showToast("删除失败：" + (j.msg || "未知错误"), "error"); }
+  btn.disabled = false; btn.innerText = "确定删除";
+  mPendingDelete = null;
+});
+
+document.getElementById("mUserRefresh").addEventListener("click", loadUsers);
+loadUsers();
+</script>
+{% endblock %}

@@ -1,0 +1,557 @@
+{% extends "base_mobile.html" %}
+
+{% block title %}货代管理{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* 采集状态条 (默认单行, 点击展开操作) */
+  .m-sync-bar { padding:8px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; margin-bottom:12px; }
+  .m-sync-head { display:flex; align-items:center; gap:6px; cursor:pointer; }
+  .m-sync-text { font-size:0.76rem; color:#334155; line-height:1.5; flex:1; min-width:0; }
+  .m-sync-head .m-sync-caret { flex-shrink:0; color:#94a3b8; font-size:0.72rem; transition:transform 0.18s; }
+  .m-sync-bar.m-open .m-sync-caret { transform:rotate(180deg); }
+  .m-sync-actions { display:none; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .m-sync-bar.m-open .m-sync-actions { display:flex; }
+  .m-sync-actions .btn { min-height:40px; font-size:0.8rem; }
+
+  /* 货代卡片 */
+  .m-fwd-name { display:flex; align-items:center; gap:6px; font-size:0.95rem; font-weight:800; color:#0f172a; margin-bottom:8px; word-break:break-word; }
+  .m-fwd-row { display:flex; align-items:flex-start; gap:8px; margin-bottom:7px; font-size:0.8rem; }
+  .m-fwd-lbl { color:#94a3b8; min-width:60px; flex-shrink:0; padding-top:1px; }
+  .m-fwd-val { color:#334155; word-break:break-all; line-height:1.5; min-width:0; flex:1; }
+  .m-copy { color:#1d4ed8; border-bottom:1px dashed #60a5fa; cursor:pointer; }
+  .m-fwd-links { display:flex; flex-wrap:wrap; gap:6px; margin:2px 0 8px; }
+  .m-fwd-link { display:inline-flex; align-items:center; gap:3px; padding:5px 10px; font-size:0.74rem; font-weight:600; border-radius:999px; text-decoration:none; max-width:100%; }
+  .m-fwd-link.site { color:#15803d; background:#f0fdf4; border:1px solid #bbf7d0; }
+  .m-fwd-link.web { color:#0369a1; background:#f0f9ff; border:1px solid #bae6fd; }
+  .m-fwd-link .lbl { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:150px; }
+  .m-fwd-foot { display:flex; gap:8px; flex-wrap:wrap; padding-top:10px; border-top:1px dashed #e2e8f0; }
+  .m-fwd-foot .btn { flex:1 1 40%; min-height:40px; font-size:0.78rem; }
+  .m-pwd-wrap { display:flex; align-items:center; gap:6px; }
+  .m-pwd-wrap input { flex:1; min-width:0; }
+
+  /* 动态链接行 */
+  .m-link-row { display:flex; gap:6px; margin-bottom:8px; align-items:center; }
+  .m-link-row input { flex:1; min-width:0; min-height:40px; font-size:0.82rem; }
+  .m-link-row .m-link-lbl { flex:0 0 32%; }
+  .m-link-row .btn { min-height:40px; padding:0 10px; }
+  /* 采集结果动态表 */
+  .m-rec-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid #e2e8f0; border-radius:10px; }
+  .m-rec-wrap table { border-collapse:collapse; font-size:0.76rem; min-width:100%; }
+  .m-rec-wrap th, .m-rec-wrap td { border-bottom:1px solid #f1f5f9; padding:7px 9px; text-align:left; white-space:nowrap; }
+  .m-rec-wrap th { background:#f8fafc; font-weight:700; color:#475569; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="m-pagehead">
+  <div>
+    <h1 class="m-ptitle">🚢 货代管理</h1>
+    <div class="m-psub" id="mFwdSub">正在加载…</div>
+  </div>
+  <div class="m-pactions">
+    <button type="button" class="m-icon-btn" id="mFwdRefresh" title="刷新">🔄</button>
+    <button type="button" class="m-icon-btn m-primary" id="mFwdAdd" style="display:none;" title="新增货代">➕</button>
+  </div>
+</div>
+
+<!-- 采集状态条 (默认单行, 点击展开操作) -->
+<div class="m-sync-bar" id="mSyncBar">
+  <div class="m-sync-head" id="mSyncHead">
+    <div class="m-sync-text" id="mSyncText">📡 文档监控加载中…</div>
+    <span class="m-sync-caret">▼</span>
+  </div>
+  <div class="m-sync-actions">
+    <button type="button" class="btn btn-outline btn-sm" id="mAlertsBtn">🚨 查看告警</button>
+    <button type="button" class="btn btn-primary btn-sm" id="mRunSyncBtn" style="display:none;">📡 立即采集</button>
+  </div>
+</div>
+
+<div class="m-card-list" id="mFwdList"></div>
+
+<!-- ================= 抽屉区 ================= -->
+<div class="m-sheet-mask" id="mFwdMask"></div>
+
+<!-- 详情 -->
+<div class="m-sheet" id="mSheetFwdDetail">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">🚢 货代详情</div>
+  <div id="mFwdDetailBody"></div>
+  <div class="m-act-list" style="margin-top:12px;" id="mFwdDetailActs"></div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mDetailClose">关闭</button>
+  </div>
+</div>
+
+<!-- 新增/编辑 -->
+<div class="m-sheet" id="mSheetFwdForm">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title" id="mFwdFormTitle">➕ 新增货代</div>
+  <div class="m-field">
+    <label class="m-field-label">货代名称 *</label>
+    <input type="text" class="form-input" id="mFwdName" maxlength="128" placeholder="如: 华贸国际物流">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">联系人</label>
+    <input type="text" class="form-input" id="mFwdContact" maxlength="64" placeholder="姓名">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">联系电话</label>
+    <input type="text" class="form-input" id="mFwdPhone" maxlength="64" placeholder="手机 / 微信">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">货代网址</label>
+    <input type="text" class="form-input" id="mFwdWebsite" maxlength="512" placeholder="https://www.example.com">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">注册用户（仅管理员可见）</label>
+    <input type="text" class="form-input" id="mFwdRegUser" maxlength="128" placeholder="货代系统登录账号">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">密码（仅管理员可见）</label>
+    <div class="m-pwd-wrap">
+      <input type="password" class="form-input" id="mFwdPwd" maxlength="128" placeholder="货代系统登录密码" autocomplete="new-password">
+      <button type="button" class="btn btn-outline btn-sm" id="mFwdPwdEye" style="min-height:42px;">👁</button>
+    </div>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">结算方式</label>
+    <input type="text" class="form-input" id="mFwdSettlement" maxlength="128" placeholder="如: 月结 / 预付 / 到付">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">收货地址</label>
+    <textarea class="form-input" id="mFwdAddr" rows="2" maxlength="512" placeholder="仓库收货地址" style="resize:vertical;"></textarea>
+  </div>
+  <div class="m-field">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <label class="m-field-label" style="margin:0;">在线链接（点击新页签打开）</label>
+      <button type="button" class="btn btn-outline btn-sm" id="mAddLinkBtn" style="min-height:34px; font-size:0.74rem;">➕ 添加链接</button>
+    </div>
+    <div id="mFwdLinks" style="margin-top:8px;"></div>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">备注</label>
+    <textarea class="form-input" id="mFwdRemark" rows="2" maxlength="512" placeholder="渠道说明、结算方式等" style="resize:vertical;"></textarea>
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mFwdCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mFwdSave">💾 保存</button>
+  </div>
+</div>
+
+<!-- 采集结果 -->
+<div class="m-sheet" id="mSheetRecords">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">📋 采集结果 · <span id="mRecFwdName">—</span></div>
+  <div class="m-field" style="display:flex; gap:8px;">
+    <select class="form-select" id="mRecDate" style="flex:1;"></select>
+    <select class="form-select" id="mRecSheet" style="flex:1;"></select>
+  </div>
+  <div id="mRecCount" style="font-size:0.74rem; color:#94a3b8; margin-bottom:8px;"></div>
+  <div class="m-rec-wrap" id="mRecWrap"></div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mRecClose">关闭</button>
+  </div>
+</div>
+
+<!-- 告警 -->
+<div class="m-sheet" id="mSheetAlerts">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">🚨 超期未发货告警</div>
+  <div class="m-field">
+    <label class="m-field-label">采集日期</label>
+    <select class="form-select" id="mAlertDate"></select>
+  </div>
+  <div class="m-card-list" id="mAlertList"></div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mAlertsClose">关闭</button>
+  </div>
+</div>
+
+<!-- 通用确认 -->
+<div class="m-sheet" id="mSheetConfirm">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">🗑️ 删除确认</div>
+  <div id="mConfirmBody" style="font-size:0.86rem; color:#475569; line-height:1.7; margin-bottom:6px;"></div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mConfirmCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mConfirmOk" style="background:#dc2626; border-color:#dc2626;">确定删除</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const IS_ADMIN = {{ 'true' if current_user and current_user.role == 'admin' else 'false' }};
+
+let mFwdList = [];
+let mRecState = { fwdId: null, items: [] };
+
+function esc(s) {
+  return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, m => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[m]));
+}
+async function api(url, options) {
+  const resp = await fetch(url, Object.assign({ headers: { "Content-Type": "application/json" } }, options || {}));
+  if (resp.status === 401) { window.location.href = "/login"; throw new Error("未登录"); }
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok || body.code !== 0) throw new Error(body.detail || body.msg || "请求失败");
+  return body;
+}
+
+/* ============ 抽屉控制 ============ */
+const mFwdMask = document.getElementById("mFwdMask");
+const mFwdSheets = ["mSheetFwdDetail", "mSheetFwdForm", "mSheetRecords", "mSheetAlerts", "mSheetConfirm"]
+  .map(id => document.getElementById(id));
+function openSheet(el) { mFwdMask.classList.add("open"); el.classList.add("open"); }
+function closeSheets() { mFwdMask.classList.remove("open"); mFwdSheets.forEach(s => s.classList.remove("open")); }
+mFwdMask.addEventListener("click", closeSheets);
+["mDetailClose", "mFwdCancel", "mRecClose", "mAlertsClose", "mConfirmCancel"].forEach(id => {
+  const el = document.getElementById(id); if (el) el.addEventListener("click", closeSheets);
+});
+
+/* ============ 列表 ============ */
+function linkChip(url, label, cls, icon) {
+  const text = label || (url || "").replace(/^https?:\/\//, "").split("/")[0];
+  return '<a class="m-fwd-link ' + cls + '" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">'
+    + icon + ' <span class="lbl">' + esc(text) + '</span> ↗</a>';
+}
+
+async function loadForwarders() {
+  const box = document.getElementById("mFwdList");
+  box.innerHTML = '<div class="m-empty">⏳ 正在加载货代数据…</div>';
+  try {
+    const body = await api("/api/forwarders");
+    mFwdList = body.data || [];
+    document.getElementById("mFwdSub").innerText = "共 " + mFwdList.length + " 家货代";
+    if (!mFwdList.length) {
+      box.innerHTML = '<div class="m-empty">🚢 暂无货代' + (IS_ADMIN ? "，点击右上角 ➕ 添加" : "") + '</div>';
+      return;
+    }
+    box.innerHTML = mFwdList.map(f => {
+      return '<div class="m-card">'
+        + '<div class="m-card-title">🚢 ' + esc(f.name) + '</div>'
+        + '<div class="m-card-sub">'
+        + '<span class="m-schip">👤 ' + esc(f.contact || "—") + '</span>'
+        + '<span class="m-schip blue">📞 ' + esc(f.phone || "—") + '</span>'
+        + '</div>'
+        + '<div class="m-card-foot">'
+        + '<button type="button" class="m-btn-main js-records" data-id="' + f.id + '">📋 采集结果</button>'
+        + '<button type="button" class="m-more-btn js-detail" data-id="' + f.id + '">⋯</button>'
+        + '</div></div>';
+    }).join("");
+
+    box.querySelectorAll(".js-detail").forEach(b => b.addEventListener("click", () => openDetail(parseInt(b.dataset.id, 10))));
+    box.querySelectorAll(".js-records").forEach(b => b.addEventListener("click", () => openRecords(parseInt(b.dataset.id, 10))));
+  } catch (e) {
+    if (e.message !== "未登录") {
+      box.innerHTML = '<div class="m-empty">❌ 加载失败：' + esc(e.message) + '</div>';
+      showToast("货代列表加载失败：" + e.message, "error");
+    }
+  }
+}
+
+/* ============ 详情 ============ */
+function detailRow(label, valHtml, copyText2) {
+  const btn = copyText2
+    ? '<button type="button" class="btn btn-outline btn-sm js-copy" data-v="' + esc(copyText2) + '" style="min-height:32px; font-size:0.7rem; margin-left:6px;">📋</button>'
+    : "";
+  return '<div class="m-fwd-row"><span class="m-fwd-lbl">' + label + '</span><span class="m-fwd-val">' + valHtml + btn + '</span></div>';
+}
+function openDetail(id) {
+  const f = mFwdList.find(x => x.id === id);
+  if (!f) { showToast("货代数据不存在", "error"); return; }
+  const v = x => (x ? esc(x) : '<span style="color:#cbd5e1;">—</span>');
+  const links = (f.links || []).map(lk => linkChip(lk.url, lk.label, "site", "🔗")).join("")
+    || '<span style="color:#cbd5e1;">暂无</span>';
+  let html = "";
+  html += detailRow("货代名称", "<b>🚢 " + esc(f.name) + "</b>", f.name);
+  html += detailRow("联系人", v(f.contact), f.contact);
+  html += detailRow("联系电话", v(f.phone), f.phone);
+  html += detailRow("结算方式", v(f.settlement_method), f.settlement_method);
+  html += detailRow("收货地址", f.shipping_address ? '<span style="white-space:pre-wrap;">' + esc(f.shipping_address) + '</span>' : '<span style="color:#cbd5e1;">—</span>', f.shipping_address);
+  html += detailRow("货代官网", f.website ? linkChip(f.website, "", "web", "🌐") : '<span style="color:#cbd5e1;">—</span>', f.website);
+  html += detailRow("在线链接", links);
+  html += detailRow("备注", f.remark ? '<span style="white-space:pre-wrap;">' + esc(f.remark) + '</span>' : '<span style="color:#cbd5e1;">—</span>', f.remark);
+  if (IS_ADMIN) {
+    html += detailRow("注册用户", v(f.reg_user), f.reg_user);
+    html += detailRow("密码", f.reg_password ? '<span style="letter-spacing:2px;">' + esc(f.reg_password) + '</span>' : '<span style="color:#cbd5e1;">—</span>', f.reg_password);
+  }
+  const body = document.getElementById("mFwdDetailBody");
+  body.innerHTML = html;
+  body.querySelectorAll(".js-copy").forEach(b => b.addEventListener("click", () => copyToClipboard(b.dataset.v)));
+  // 管理员操作 (⋯ 抽屉内)
+  const acts = document.getElementById("mFwdDetailActs");
+  if (IS_ADMIN) {
+    acts.innerHTML = '<button type="button" class="m-act-item js-edit">✏️<span style="margin-left:10px;">编辑货代</span><span class="m-act-arrow">›</span></button>'
+      + '<button type="button" class="m-act-item danger js-del">🗑️<span style="margin-left:10px;">删除货代</span><span class="m-act-arrow">›</span></button>';
+    acts.querySelector(".js-edit").addEventListener("click", () => { closeSheets(); openForm(f.id); });
+    acts.querySelector(".js-del").addEventListener("click", () => { closeSheets(); askDelete(f.id); });
+  } else {
+    acts.innerHTML = "";
+  }
+  openSheet(document.getElementById("mSheetFwdDetail"));
+}
+
+/* ============ 新增 / 编辑 ============ */
+let mEditId = null;
+function appendLinkRow(label, url) {
+  const box = document.getElementById("mFwdLinks");
+  if (box.children.length >= 20) { showToast("最多 20 条链接", "error"); return; }
+  const row = document.createElement("div");
+  row.className = "m-link-row";
+  row.innerHTML = '<input type="text" class="form-input m-link-lbl" maxlength="64" placeholder="链接名称" value="' + esc(label || "") + '">'
+    + '<input type="text" class="form-input m-link-url" maxlength="1024" placeholder="https://..." value="' + esc(url || "") + '">'
+    + '<button type="button" class="btn btn-outline btn-sm" style="color:#ef4444; border-color:#fecaca;">✕</button>';
+  row.querySelector("button").addEventListener("click", () => row.remove());
+  box.appendChild(row);
+}
+function openForm(id) {
+  mEditId = id || null;
+  ["mFwdName", "mFwdContact", "mFwdPhone", "mFwdWebsite", "mFwdRegUser", "mFwdPwd", "mFwdSettlement", "mFwdAddr", "mFwdRemark"]
+    .forEach(i => document.getElementById(i).value = "");
+  document.getElementById("mFwdLinks").innerHTML = "";
+  document.getElementById("mFwdFormTitle").innerText = id ? "✏️ 编辑货代" : "➕ 新增货代";
+  if (id) {
+    const f = mFwdList.find(x => x.id === id);
+    if (!f) { showToast("货代数据不存在", "error"); return; }
+    document.getElementById("mFwdName").value = f.name || "";
+    document.getElementById("mFwdContact").value = f.contact || "";
+    document.getElementById("mFwdPhone").value = f.phone || "";
+    document.getElementById("mFwdWebsite").value = f.website || "";
+    document.getElementById("mFwdRegUser").value = f.reg_user || "";
+    document.getElementById("mFwdPwd").value = f.reg_password || "";
+    document.getElementById("mFwdSettlement").value = f.settlement_method || "";
+    document.getElementById("mFwdAddr").value = f.shipping_address || "";
+    document.getElementById("mFwdRemark").value = f.remark || "";
+    (f.links || []).forEach(lk => appendLinkRow(lk.label, lk.url));
+  } else {
+    appendLinkRow("", "");
+  }
+  openSheet(document.getElementById("mSheetFwdForm"));
+}
+document.getElementById("mFwdAdd").addEventListener("click", () => openForm(null));
+document.getElementById("mAddLinkBtn").addEventListener("click", () => appendLinkRow("", ""));
+document.getElementById("mFwdPwdEye").addEventListener("click", () => {
+  const inp = document.getElementById("mFwdPwd");
+  const show = inp.type === "password";
+  inp.type = show ? "text" : "password";
+  document.getElementById("mFwdPwdEye").innerText = show ? "🙈" : "👁";
+});
+document.getElementById("mFwdSave").addEventListener("click", async () => {
+  const links = Array.from(document.querySelectorAll("#mFwdLinks .m-link-row")).map(row => ({
+    label: row.querySelector(".m-link-lbl").value.trim(),
+    url: row.querySelector(".m-link-url").value.trim()
+  })).filter(lk => lk.url);
+  const payload = {
+    name: document.getElementById("mFwdName").value.trim(),
+    contact: document.getElementById("mFwdContact").value.trim(),
+    phone: document.getElementById("mFwdPhone").value.trim(),
+    website: document.getElementById("mFwdWebsite").value.trim(),
+    reg_user: document.getElementById("mFwdRegUser").value.trim(),
+    reg_password: document.getElementById("mFwdPwd").value,
+    shipping_address: document.getElementById("mFwdAddr").value.trim(),
+    settlement_method: document.getElementById("mFwdSettlement").value.trim(),
+    remark: document.getElementById("mFwdRemark").value.trim(),
+    sort_order: 0,
+    links
+  };
+  if (!payload.name) { showToast("请填写货代名称", "error"); return; }
+  const btn = document.getElementById("mFwdSave");
+  btn.disabled = true; btn.innerText = "保存中…";
+  try {
+    await api(mEditId ? "/api/forwarders/" + mEditId : "/api/forwarders", {
+      method: mEditId ? "PUT" : "POST", body: JSON.stringify(payload)
+    });
+    showToast(mEditId ? "货代已更新" : "货代已新增");
+    closeSheets();
+    loadForwarders();
+  } catch (e) {
+    if (e.message !== "未登录") showToast("保存失败：" + e.message, "error");
+  }
+  btn.disabled = false; btn.innerText = "💾 保存";
+});
+
+/* ============ 删除 ============ */
+let mDelId = null;
+function askDelete(id) {
+  const f = mFwdList.find(x => x.id === id);
+  mDelId = id;
+  document.getElementById("mConfirmBody").innerHTML = '确定删除货代「<b>' + esc(f ? f.name : id) + '</b>」吗？删除后不可恢复。';
+  openSheet(document.getElementById("mSheetConfirm"));
+}
+document.getElementById("mConfirmOk").addEventListener("click", async () => {
+  if (!mDelId) return;
+  const btn = document.getElementById("mConfirmOk");
+  btn.disabled = true; btn.innerText = "删除中…";
+  try {
+    await api("/api/forwarders/" + mDelId, { method: "DELETE" });
+    showToast("货代已删除");
+    closeSheets();
+    loadForwarders();
+  } catch (e) {
+    if (e.message !== "未登录") showToast("删除失败：" + e.message, "error");
+  }
+  btn.disabled = false; btn.innerText = "确定删除";
+  mDelId = null;
+});
+
+/* ============ 文档采集状态 ============ */
+async function loadSyncStatus() {
+  try {
+    const body = await api("/api/forwarder-docs/status");
+    const st = body.data || {};
+    const el = document.getElementById("mSyncText");
+    if (st.running) {
+      el.innerHTML = "📡 文档采集中" + (st.running_trigger === "scheduled" ? "（定时触发）…" : "…");
+      el.style.color = "#2563eb";
+    } else if (st.last_log) {
+      const lg = st.last_log;
+      const ok = lg.status === "success" || lg.status === "partial";
+      el.innerHTML = "📡 最近采集：<b>" + esc(lg.biz_date) + " " + esc((lg.finished_at || "").slice(11, 16) || "") + "</b>"
+        + ' <span style="color:' + (ok ? "#16a34a" : "#dc2626") + ';font-weight:600;">'
+        + (lg.status === "success" ? "✅成功" : lg.status === "partial" ? "⚠️部分成功" : "❌失败") + "</span>"
+        + " · " + lg.rows_total + " 行";
+      el.style.color = "#334155";
+    } else {
+      el.innerText = "📡 尚未采集过（等待定时或手动触发）";
+      el.style.color = "#94a3b8";
+    }
+    const ab = document.getElementById("mAlertsBtn");
+    ab.innerText = st.today_alert_count > 0 ? "🚨 今日告警 " + st.today_alert_count + " 行" : "🚨 查看告警";
+    ab.style.color = st.today_alert_count > 0 ? "#dc2626" : "";
+    ab.style.borderColor = st.today_alert_count > 0 ? "#fecaca" : "";
+  } catch (e) { /* 非关键 */ }
+}
+
+document.getElementById("mRunSyncBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("mRunSyncBtn");
+  btn.disabled = true; btn.innerText = "⏳ 采集中…";
+  try {
+    const body = await api("/api/forwarder-docs/run", { method: "POST" });
+    showToast(body.msg || "采集批次已启动");
+    for (let i = 0; i < 160; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      const st = await api("/api/forwarder-docs/status");
+      if (!st.data.running) break;
+    }
+    showToast("📡 采集批次已结束");
+  } catch (e) {
+    if (e.message !== "未登录") showToast("触发采集失败：" + e.message, "error");
+  }
+  btn.disabled = false; btn.innerText = "📡 立即采集";
+  loadSyncStatus();
+});
+
+/* ============ 告警抽屉 ============ */
+document.getElementById("mAlertsBtn").addEventListener("click", async () => {
+  const sel = document.getElementById("mAlertDate");
+  try {
+    const body = await api("/api/forwarder-docs/dates");
+    const dates = body.data || [];
+    if (!dates.length) dates.push(new Date().toISOString().slice(0, 10));
+    sel.innerHTML = dates.map(d => '<option value="' + esc(d) + '">' + esc(d) + '</option>').join("");
+  } catch (e) { /* 忽略 */ }
+  openSheet(document.getElementById("mSheetAlerts"));
+  loadAlerts();
+});
+document.getElementById("mAlertDate").addEventListener("change", loadAlerts);
+async function loadAlerts() {
+  const box = document.getElementById("mAlertList");
+  const bizDate = document.getElementById("mAlertDate").value;
+  box.innerHTML = '<div class="m-empty">⏳ 加载中…</div>';
+  try {
+    const body = await api("/api/forwarder-docs/alerts" + (bizDate ? "?biz_date=" + encodeURIComponent(bizDate) : ""));
+    const alerts = body.data || [];
+    if (!alerts.length) { box.innerHTML = '<div class="m-empty">✅ 该日期无超期未发货记录</div>'; return; }
+    box.innerHTML = alerts.map(a => {
+      const d = a.row_data || {};
+      return '<div class="m-card">'
+        + '<div class="m-fwd-name" style="font-size:0.88rem;">🚢 ' + esc(a.forwarder_name) + '</div>'
+        + '<div class="m-fwd-row"><span class="m-fwd-lbl">采购日期</span><span class="m-fwd-val">' + esc(a.purchase_date) + '</span></div>'
+        + '<div class="m-fwd-row"><span class="m-fwd-lbl">未发货</span><span class="m-fwd-val" style="color:#dc2626; font-weight:700;">' + a.days_elapsed + ' 天</span></div>'
+        + '<div class="m-fwd-row"><span class="m-fwd-lbl">产品</span><span class="m-fwd-val">' + esc(d["产品名称及备注"] || "—") + '</span></div>'
+        + '<div class="m-fwd-row"><span class="m-fwd-lbl">国际单号</span><span class="m-fwd-val">' + esc(d["国际单号"] || "—") + '</span></div>'
+        + '<div class="m-fwd-row"><span class="m-fwd-lbl">订单号</span><span class="m-fwd-val">' + esc(d["订单号"] || "—") + '</span></div>'
+        + '</div>';
+    }).join("");
+  } catch (e) {
+    if (e.message !== "未登录") box.innerHTML = '<div class="m-empty">❌ 加载失败：' + esc(e.message) + '</div>';
+  }
+}
+
+/* ============ 采集结果抽屉 ============ */
+async function openRecords(fwdId) {
+  mRecState.fwdId = fwdId;
+  const f = mFwdList.find(x => x.id === fwdId);
+  document.getElementById("mRecFwdName").innerText = f ? f.name : ("#" + fwdId);
+  document.getElementById("mRecWrap").innerHTML = "";
+  document.getElementById("mRecCount").innerText = "";
+  openSheet(document.getElementById("mSheetRecords"));
+  const sel = document.getElementById("mRecDate");
+  sel.innerHTML = '<option value="">加载中…</option>';
+  try {
+    const body = await api("/api/forwarder-docs/dates");
+    const dates = body.data || [];
+    if (!dates.length) dates.push(new Date().toISOString().slice(0, 10));
+    sel.innerHTML = dates.map(d => '<option value="' + esc(d) + '">' + esc(d) + '</option>').join("");
+  } catch (e) { /* 忽略 */ }
+  loadRecords();
+}
+document.getElementById("mRecDate").addEventListener("change", loadRecords);
+document.getElementById("mRecSheet").addEventListener("change", () => renderRecords());
+async function loadRecords() {
+  const wrap = document.getElementById("mRecWrap");
+  const bizDate = document.getElementById("mRecDate").value;
+  if (!mRecState.fwdId || !bizDate) return;
+  wrap.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8;">⏳ 加载中…</div>';
+  try {
+    const body = await api("/api/forwarder-docs/records?forwarder_id=" + mRecState.fwdId
+      + "&biz_date=" + encodeURIComponent(bizDate) + "&page=1&page_size=500");
+    mRecState.items = ((body.data && body.data.items) || []).filter(i => (i.row_index || 0) > 0);
+    const apiSheets = (body.data && body.data.sheets) || [];
+    const sheets = apiSheets.length ? apiSheets
+      : [...new Set(mRecState.items.map(i => i.sheet_name).filter(Boolean))];
+    const selS = document.getElementById("mRecSheet");
+    const prev = selS.value;
+    selS.innerHTML = '<option value="">全部（' + sheets.length + ' 个 Sheet）</option>'
+      + sheets.map(s => '<option value="' + esc(s) + '">' + esc(s) + '</option>').join("");
+    if (prev && sheets.includes(prev)) selS.value = prev;
+    renderRecords();
+  } catch (e) {
+    if (e.message !== "未登录") wrap.innerHTML = '<div style="padding:20px; text-align:center; color:#dc2626;">❌ 加载失败：' + esc(e.message) + '</div>';
+  }
+}
+function renderRecords() {
+  const wrap = document.getElementById("mRecWrap");
+  const cnt = document.getElementById("mRecCount");
+  cnt.innerText = "共 " + mRecState.items.length + " 行";
+  const sheet = document.getElementById("mRecSheet").value;
+  const rows = sheet ? mRecState.items.filter(i => i.sheet_name === sheet) : mRecState.items;
+  if (!rows.length) { wrap.innerHTML = '<div style="padding:20px; text-align:center; color:#94a3b8;">该日期暂无采集数据</div>'; return; }
+  const cols = [];
+  rows.forEach(r => Object.keys(r.row_data || {}).forEach(k => { if (!cols.includes(k)) cols.push(k); }));
+  const head = "<th>Sheet</th>" + cols.map(c => "<th>" + esc(c) + "</th>").join("");
+  const body = rows.map(r => {
+    const d = r.row_data || {};
+    return "<tr><td>" + esc(r.sheet_name || "—") + "</td>"
+      + cols.map(c => "<td>" + (esc(d[c] == null ? "" : String(d[c])) || "—") + "</td>").join("") + "</tr>";
+  }).join("");
+  wrap.innerHTML = "<table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table>";
+}
+
+/* ============ 初始化 ============ */
+if (IS_ADMIN) {
+  document.getElementById("mFwdAdd").style.display = "";
+  document.getElementById("mRunSyncBtn").style.display = "";
+}
+// 采集状态条: 点击单行展开/收起操作按钮
+document.getElementById("mSyncHead").addEventListener("click", () => {
+  document.getElementById("mSyncBar").classList.toggle("m-open");
+});
+document.getElementById("mFwdRefresh").addEventListener("click", () => { loadForwarders(); loadSyncStatus(); });
+loadSyncStatus();
+loadForwarders();
+</script>
+{% endblock %}

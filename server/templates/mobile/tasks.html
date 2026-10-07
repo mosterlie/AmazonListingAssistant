@@ -1,0 +1,756 @@
+{% extends "base_mobile.html" %}
+
+{% block title %}任务管理{% endblock %}
+
+{% block extra_head %}
+<style>
+  .m-prod-link { display:flex; gap:9px; align-items:center; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:8px 10px; margin-top:8px; cursor:pointer; }
+  .m-prod-link:active { background:#dcfce7; }
+  .m-prod-link img { width:40px; height:40px; border-radius:6px; object-fit:cover; border:1px solid #86efac; flex-shrink:0; }
+  .m-prod-link .mpl-t { font-size:0.78rem; font-weight:700; color:#166534; }
+  .m-prod-link .mpl-s { font-size:0.7rem; color:#15803d; font-family:ui-monospace,monospace; margin-top:2px; }
+  .m-item-row { border:1px solid #e2e8f0; border-radius:10px; padding:10px; margin-bottom:10px; background:#f8fafc; }
+  .m-item-row .mir-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .m-item-row .mir-idx { font-size:0.78rem; font-weight:700; color:#2563eb; }
+  .m-prod-list { border:1px solid #cbd5e1; border-radius:10px; max-height:220px; overflow-y:auto; background:#fff; margin-top:8px; }
+  .m-prod-opt { display:flex; gap:10px; align-items:center; padding:8px 8px; border-bottom:1px solid #f1f5f9; cursor:pointer; }
+  .m-prod-opt:last-child { border-bottom:none; }
+  .m-prod-opt.sel { background:#ecfdf5; }
+  .m-prod-opt img { width:38px; height:38px; border-radius:6px; object-fit:cover; border:1px solid #e2e8f0; flex-shrink:0; }
+  .m-prod-opt .mpo-t { font-size:0.78rem; font-weight:700; color:#1e293b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .m-prod-opt .mpo-s { font-size:0.7rem; color:#64748b; font-family:ui-monospace,monospace; margin-top:2px; }
+  .m-chk { display:flex; align-items:center; gap:8px; font-size:0.78rem; color:#334155; margin:10px 0 4px; }
+  .m-chk input { width:20px; height:20px; }
+  .m-ref-box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:10px 12px; margin-bottom:14px; font-size:0.78rem; color:#475569; line-height:1.6; word-break:break-all; }
+  .m-ref-box a { color:#2563eb; text-decoration:none; font-weight:600; }
+  .m-hint { background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:9px 11px; font-size:0.75rem; color:#1e40af; line-height:1.6; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="m-pagehead">
+  <div>
+    <h1 class="m-ptitle">📌 任务</h1>
+    <div class="m-psub" id="mTaskSub">正在加载…</div>
+  </div>
+  <div class="m-pactions">
+    <button type="button" class="m-icon-btn" id="mTaskRefresh" title="刷新">🔄</button>
+    {% if current_user and current_user.role == 'admin' %}
+    <button type="button" class="m-icon-btn m-primary" id="mTaskNewBtn" title="新建任务">➕</button>
+    {% endif %}
+  </div>
+</div>
+
+<!-- 搜索栏 -->
+<div class="m-searchbar">
+  <label class="m-search-input">
+    <span>🔍</span>
+    <input type="search" id="mTaskKw" placeholder="搜索标题 / 说明 / 链接 / 关联品" enterkeyhint="search" autocomplete="off">
+  </label>
+  <button type="button" class="m-filter-btn" id="mTaskFilterBtn">筛选<span class="m-filter-dot"></span></button>
+</div>
+
+<!-- 下拉刷新 -->
+<div class="m-ptr" id="mTaskPtr"><span class="m-ptr-spin">🔄</span><span id="mTaskPtrTxt">下拉可刷新</span></div>
+
+<!-- 任务卡片列表 -->
+<div class="m-card-list" id="mTaskList"></div>
+
+<!-- ============ 筛选抽屉 ============ -->
+<div class="m-sheet-mask" id="mTfMask"></div>
+<div class="m-sheet m-filter-sheet" id="mTfSheet">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">任务筛选</div>
+  <div class="m-field">
+    <label class="m-field-label">📌 状态</label>
+    <select class="form-select" id="mTfStatus">
+      <option value="all">全部</option>
+      <option value="pending">⏳ 待处理</option>
+      <option value="completed">✅ 已完成</option>
+    </select>
+  </div>
+  {% if current_user and current_user.role == 'admin' %}
+  <div class="m-field">
+    <label class="m-field-label">👤 执行人</label>
+    <select class="form-select" id="mTfAssignee"><option value="">全部执行人</option></select>
+  </div>
+  {% endif %}
+  <div class="m-field">
+    <label class="m-field-label">📅 派发日期起</label>
+    <input type="date" class="form-input" id="mTfDateFrom">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">📅 派发日期止</label>
+    <input type="date" class="form-input" id="mTfDateTo">
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mTfReset">重置</button>
+    <button type="button" class="btn btn-primary" id="mTfApply">应用筛选</button>
+  </div>
+</div>
+
+<!-- ============ 派发新任务抽屉 (管理员) ============ -->
+{% if current_user and current_user.role == 'admin' %}
+<div class="m-sheet-mask" id="mDpMask"></div>
+<div class="m-sheet m-filter-sheet" id="mDpSheet">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">📋 派发新任务</div>
+  <div class="m-field">
+    <label class="m-field-label">指派给谁 (执行人) *</label>
+    <select class="form-select" id="mDpAssignee"><option value="">-- 请选择成员 --</option></select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">派发日期 (默认当天)</label>
+    <input type="date" class="form-input" id="mDpDate">
+  </div>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin:4px 0 8px;">
+    <span class="m-field-label" style="margin:0;">任务明细 (链接 / 说明和要求) *</span>
+    <button type="button" class="btn btn-outline btn-sm" id="mDpAddRow">➕ 添加一条</button>
+  </div>
+  <div id="mDpItems"></div>
+  <div class="m-hint">💡 每条明细由「链接」(必填) 与「说明和要求」组成，完全留空的明细不会提交；提交后每条明细生成一个独立任务。</div>
+  <div class="m-sheet-actions" style="margin-top:12px;">
+    <button type="button" class="btn btn-outline" id="mDpCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mDpSubmit">🚀 确认派发</button>
+  </div>
+</div>
+{% endif %}
+
+<!-- ============ 登记成果抽屉 ============ -->
+<div class="m-sheet-mask" id="mSubMask"></div>
+<div class="m-sheet m-filter-sheet" id="mSubSheet">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">📝 登记成果与关联商品</div>
+  <div class="m-ref-box" id="mSubRefBox">—</div>
+  <div class="m-field">
+    <label class="m-field-label">1. 成品链接 (Result URL) *</label>
+    <input type="url" class="form-input" id="mSubResultUrl" placeholder="设计稿 / 盘点表 / 网盘 / 成品链接">
+  </div>
+  <div class="m-field" style="margin-bottom:6px;">
+    <label class="m-field-label">2. 关联的品 (选填)</label>
+    <div id="mSubProdPreview" style="display:none; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:8px 10px; margin-bottom:8px; align-items:center; gap:10px;">
+      <img id="mSubProdImg" src="" alt="" style="width:42px;height:42px;border-radius:6px;object-fit:cover;border:1px solid #86efac;flex-shrink:0;">
+      <div style="flex:1;min-width:0;">
+        <div class="mpl-t" id="mSubProdTitle" style="font-size:0.8rem;font-weight:700;color:#166534;"></div>
+        <div class="mpl-s" id="mSubProdSku" style="font-size:0.7rem;color:#15803d;font-family:ui-monospace,monospace;margin-top:2px;"></div>
+      </div>
+      <button type="button" class="btn btn-outline btn-sm" id="mSubProdClear">✕ 移除</button>
+    </div>
+    <input type="search" class="form-input" id="mSubProdSearch" placeholder="🔍 输入 SKU / 标题 / 店铺关键词筛选" autocomplete="off">
+    <label class="m-chk">
+      <input type="checkbox" id="mSubOnlyMine" checked>
+      <span>仅显示我名下录入的、且尚未被关联的商品</span>
+    </label>
+    <div class="m-prod-list" id="mSubProdList" style="display:none;"></div>
+  </div>
+  <div class="m-hint">💡 成品链接为必填；登记成功后该任务状态自动流转为「✅ 已完成」。</div>
+  <div class="m-sheet-actions" style="margin-top:12px;">
+    <button type="button" class="btn btn-outline" id="mSubCancel">取消</button>
+    <button type="button" class="btn btn-success" id="mSubSave">保存</button>
+  </div>
+</div>
+
+<!-- ============ 编辑任务抽屉 (管理员) ============ -->
+{% if current_user and current_user.role == 'admin' %}
+<div class="m-sheet-mask" id="mEdMask"></div>
+<div class="m-sheet m-filter-sheet" id="mEdSheet">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">✏️ 修改任务派发信息</div>
+  <div class="m-field">
+    <label class="m-field-label">指派给谁 (执行人) *</label>
+    <select class="form-select" id="mEdAssignee"></select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">任务标题 / 简述</label>
+    <input type="text" class="form-input" id="mEdTitle">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">1. 参考链接 *</label>
+    <input type="url" class="form-input" id="mEdRefUrl">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">2. 任务说明与具体要求</label>
+    <textarea class="form-input" id="mEdInstructions" rows="4" style="min-height:96px;"></textarea>
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mEdCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mEdSave">保存</button>
+  </div>
+</div>
+{% endif %}
+
+<!-- ============ 关联商品详情抽屉 ============ -->
+<div class="m-sheet-mask" id="mPdMask"></div>
+<div class="m-sheet" id="mPdSheet">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">📦 商品详情</div>
+  <div id="mPdBody">
+    <div class="m-empty"><div class="m-empty-ico">⏳</div><div class="m-empty-txt">正在加载…</div></div>
+  </div>
+</div>
+
+<!-- ============ ⋯ 任务详情/操作抽屉 ============ -->
+<div class="m-sheet-mask" id="mTaMask"></div>
+<div class="m-sheet" id="mTaSheet">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">📌 任务详情</div>
+  <div id="mTaInfo"></div>
+  <div class="m-act-list" style="margin-top:12px;" id="mTaActs"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const IS_ADMIN = {{ 'true' if current_user and current_user.role == 'admin' else 'false' }};
+  const CUR_USERNAME = {{ (current_user.username if current_user else '') | tojson }};
+
+  const TS = { status: 'all', kw: '', assignee: '', dateFrom: '', dateTo: '',
+               tasks: [], users: [], products: [], selProductId: 0, subTaskId: 0 };
+
+  function esc(s) {
+    return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, m => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[m]));
+  }
+
+  async function apiFetch(url, options) {
+    const resp = await fetch(url, Object.assign({ headers: { "Content-Type": "application/json" } }, options || {}));
+    if (resp.status === 401) { window.location.href = "/login"; throw new Error("未登录"); }
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok || body.code !== 0) throw new Error(body.detail || body.msg || "请求失败");
+    return body;
+  }
+
+  function fmtDate(dt) { if (!dt) return "-"; const s = String(dt).replace("T", " "); return s.slice(0, 10); }
+  function fmtTime(dt) { if (!dt) return ""; const s = String(dt).replace("T", " "); return s.length >= 16 ? s.slice(11, 16) : ""; }
+  function today() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
+  function imgUrl(p) { return "/api/images/preview?path=" + encodeURIComponent(p); }
+
+  function openSheet(s, m) { document.getElementById(s).classList.add("open"); document.getElementById(m).classList.add("open"); }
+  function closeSheet(s, m) { document.getElementById(s).classList.remove("open"); document.getElementById(m).classList.remove("open"); }
+
+  /* ───────── 列表加载 ───────── */
+  function skeletonHtml(n) {
+    let h = "";
+    for (let i = 0; i < n; i++) {
+      h += `<div class="m-skel-card"><div class="m-skel m-skel-thumb"></div><div class="m-skel-lines">
+        <div class="m-skel" style="height:14px;width:86%;"></div>
+        <div class="m-skel" style="height:12px;width:58%;"></div>
+        <div class="m-skel" style="height:12px;width:42%;"></div></div></div>`;
+    }
+    return h;
+  }
+
+  async function loadTasks(silent) {
+    const listEl = document.getElementById("mTaskList");
+    if (!silent) listEl.innerHTML = skeletonHtml(4);
+    // 状态不在服务端过滤, 便于统计三态数量; 展示时再按状态筛选
+    const p = new URLSearchParams();
+    if (TS.kw) p.append("search", TS.kw);
+    if (IS_ADMIN && TS.assignee) p.append("assigned_to", TS.assignee);
+    if (TS.dateFrom) p.append("date_from", TS.dateFrom);
+    if (TS.dateTo) p.append("date_to", TS.dateTo);
+    try {
+      const body = await apiFetch("/api/tasks?" + p.toString());
+      TS.tasks = body.data || [];
+      renderTasks();
+    } catch (e) {
+      if (e.message !== "未登录") {
+        listEl.innerHTML = `<div class="m-empty"><div class="m-empty-ico">❌</div><div class="m-empty-txt">加载失败：${esc(e.message)}</div></div>`;
+        document.getElementById("mTaskSub").innerText = "加载失败";
+      }
+    }
+  }
+
+  function renderTasks() {
+    const listEl = document.getElementById("mTaskList");
+    const subEl = document.getElementById("mTaskSub");
+    const all = TS.tasks;
+    const cAll = all.length;
+    const cPending = all.filter(t => t.status !== "completed").length;
+    const cDone = all.filter(t => t.status === "completed").length;
+    subEl.innerHTML = `共 ${cAll}<span class="m-psub-sep">·</span>⏳ 待处理 ${cPending}<span class="m-psub-sep">·</span><span class="m-psub-ok">✅ 已完成 ${cDone}</span>`;
+
+    const filtered = !!(TS.kw || TS.assignee || TS.dateFrom || TS.dateTo);
+    let shown = all;
+    if (TS.status === "completed") shown = all.filter(t => t.status === "completed");
+    else if (TS.status === "pending") shown = all.filter(t => t.status !== "completed");
+
+    if (!shown.length) {
+      listEl.innerHTML = `<div class="m-empty"><div class="m-empty-ico">${filtered ? "🔍" : "📭"}</div>
+        <div class="m-empty-txt">${filtered ? "未找到符合条件的任务，试试调整筛选" : "暂无任务记录"}</div></div>`;
+      return;
+    }
+    listEl.innerHTML = shown.map(renderCard).join("");
+  }
+
+  /* 卡片三行封顶: 标题+状态徽章 / 执行人+日期 chips / (关联商品) + 主按钮+⋯ */
+  function renderCard(t) {
+    const done = t.status === "completed";
+    const badge = done
+      ? `<span class="m-badge b-green">✅ 已完成</span>`
+      : `<span class="m-badge b-amber">⏳ 待处理</span>`;
+    const canSubmit = IS_ADMIN || (CUR_USERNAME && CUR_USERNAME === t.assigned_to);
+    let prod = "";
+    if (t.product_id && t.product_id > 0) {
+      prod = `<div class="m-prod-link" onclick="viewProductDetail(${t.product_id})">
+        ${t.product_main_image ? `<img src="${imgUrl(t.product_main_image)}" alt="" onerror="this.style.display='none'">` : `<span style="font-size:1.4rem;">📦</span>`}
+        <div style="flex:1;min-width:0;">
+          <div class="mpl-t">${esc(t.product_title || "已关联商品")}</div>
+          <div class="mpl-s">SKU: ${esc(t.product_parent_sku || ("#" + t.product_id))}</div>
+        </div>
+        <span style="font-size:0.72rem;color:#2563eb;background:#eff6ff;padding:2px 6px;border-radius:5px;font-weight:600;flex-shrink:0;">详情 ↗</span>
+      </div>`;
+    }
+    const mainBtn = canSubmit
+      ? `<button type="button" class="m-btn-main${done ? " stop" : ""}" onclick="openSubmit(${t.id})">🔗 登记成果</button>`
+      : "";
+    return `<div class="m-card">
+      <div class="m-card-title"><span class="m-card-id">#${t.id}</span> ${esc(t.title || "无标题任务")} ${badge}</div>
+      <div class="m-card-sub">
+        <span class="m-schip blue">👤 ${esc(t.assigned_to_name || t.assigned_to || "—")}</span>
+        <span class="m-schip">📅 ${esc(fmtDate(t.assigned_at || t.created_at))}</span>
+      </div>
+      ${prod}
+      <div class="m-card-foot">
+        ${mainBtn}
+        <button type="button" class="m-more-btn" style="${mainBtn ? "" : "margin-left:auto;"}" onclick="openTaskActs(${t.id})">⋯</button>
+      </div>
+    </div>`;
+  }
+
+  /* ⋯ 任务详情/操作抽屉: 参考链接/说明/交付链接/派发信息 + 编辑/删除 */
+  function taInfoRow(k, v) { return `<div class="m-info-row"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
+  function openTaskActs(taskId) {
+    const t = TS.tasks.find(x => x.id === taskId);
+    if (!t) return;
+    const ref = t.reference_url
+      ? `<a href="${esc(t.reference_url)}" target="_blank" rel="noopener" style="color:#2563eb;font-weight:600;word-break:break-all;">${esc(t.reference_url)} ↗</a>`
+      : "—";
+    const dlv = t.result_url
+      ? `<a href="${esc(t.result_url)}" target="_blank" rel="noopener" style="color:#2563eb;font-weight:600;word-break:break-all;">${esc(t.result_url)} ↗</a>` +
+        (t.submitted_at ? `<div style="margin-top:3px;color:#94a3b8;font-size:0.7rem;">登记: ${esc(t.submitted_at)}</div>` : "")
+      : "—";
+    document.getElementById("mTaInfo").innerHTML = `<div class="m-info-list">`
+      + taInfoRow("标题", esc(t.title || "—"))
+      + taInfoRow("状态", t.status === "completed" ? "✅ 已完成" : "⏳ 待处理")
+      + taInfoRow("执行人", esc(t.assigned_to_name || t.assigned_to || "—"))
+      + taInfoRow("参考链接", ref)
+      + taInfoRow("说明要求", esc(t.instructions || "—"))
+      + taInfoRow("交付链接", dlv)
+      + taInfoRow("派发", esc(t.assigned_by || "—") + " · " + esc(fmtDate(t.assigned_at || t.created_at)) + " " + esc(fmtTime(t.assigned_at || t.created_at)))
+      + `</div>`;
+    const canSubmit = IS_ADMIN || (CUR_USERNAME && CUR_USERNAME === t.assigned_to);
+    const acts = [];
+    if (canSubmit) acts.push(`<button type="button" class="m-act-item" onclick="closeSheet('mTaSheet','mTaMask'); openSubmit(${t.id});"><span class="m-act-ico">🔗</span>登记成果<span class="m-act-arrow">›</span></button>`);
+    if (IS_ADMIN) {
+      acts.push(`<button type="button" class="m-act-item" onclick="closeSheet('mTaSheet','mTaMask'); openEdit(${t.id});"><span class="m-act-ico">✏️</span>编辑任务<span class="m-act-arrow">›</span></button>`);
+      acts.push(`<button type="button" class="m-act-item danger" onclick="closeSheet('mTaSheet','mTaMask'); delTask(${t.id});"><span class="m-act-ico">🗑️</span>删除任务<span class="m-act-arrow">›</span></button>`);
+    }
+    document.getElementById("mTaActs").innerHTML = acts.join("") || `<div style="font-size:0.76rem;color:#94a3b8;padding:4px 2px;">暂无可用操作</div>`;
+    openSheet("mTaSheet", "mTaMask");
+  }
+
+  /* ───────── 搜索 / 筛选 ───────── */
+  let kwTimer = null;
+  const kwEl = document.getElementById("mTaskKw");
+  kwEl.addEventListener("input", e => {
+    TS.kw = e.target.value.trim();
+    clearTimeout(kwTimer);
+    kwTimer = setTimeout(() => loadTasks(), 350);
+  });
+  kwEl.addEventListener("search", e => { TS.kw = e.target.value.trim(); loadTasks(); });
+
+  document.getElementById("mTaskRefresh").addEventListener("click", () => loadTasks());
+
+  function syncFilterUI() {
+    const active = !!(TS.assignee || TS.dateFrom || TS.dateTo || TS.status !== "all");
+    document.getElementById("mTaskFilterBtn").classList.toggle("active", active);
+    document.getElementById("mTfStatus").value = TS.status;
+    document.getElementById("mTfDateFrom").value = TS.dateFrom;
+    document.getElementById("mTfDateTo").value = TS.dateTo;
+    const af = document.getElementById("mTfAssignee");
+    if (af) af.value = TS.assignee;
+  }
+
+  document.getElementById("mTaskFilterBtn").addEventListener("click", () => openSheet("mTfSheet", "mTfMask"));
+  document.getElementById("mTfMask").addEventListener("click", () => closeSheet("mTfSheet", "mTfMask"));
+  document.getElementById("mTfApply").addEventListener("click", () => {
+    TS.status = document.getElementById("mTfStatus").value;
+    const af = document.getElementById("mTfAssignee");
+    if (af) TS.assignee = af.value;
+    TS.dateFrom = document.getElementById("mTfDateFrom").value;
+    TS.dateTo = document.getElementById("mTfDateTo").value;
+    closeSheet("mTfSheet", "mTfMask");
+    syncFilterUI();
+    loadTasks();
+  });
+  document.getElementById("mTfReset").addEventListener("click", () => {
+    TS.assignee = ""; TS.dateFrom = ""; TS.dateTo = ""; TS.status = "all";
+    document.getElementById("mTfStatus").value = "all";
+    const af = document.getElementById("mTfAssignee");
+    if (af) af.value = "";
+    syncFilterUI();
+    closeSheet("mTfSheet", "mTfMask");
+    loadTasks();
+    showToast("已重置筛选条件", "info");
+  });
+
+  /* ───────── 用户选项 (管理员: 筛选/派发/编辑共用) ───────── */
+  async function loadUsers() {
+    if (!IS_ADMIN) return;
+    try {
+      const res = await fetch("/api/users");
+      const json = await res.json();
+      if (json.code === 0 && Array.isArray(json.data)) {
+        TS.users = json.data;
+        const opts = json.data.map(u => `<option value="${esc(u.username)}">${esc(u.display_name || u.username)} (${esc(u.username)})</option>`).join("");
+        const tf = document.getElementById("mTfAssignee");
+        if (tf) tf.innerHTML = `<option value="">全部执行人</option>` + opts;
+        const dp = document.getElementById("mDpAssignee");
+        if (dp) dp.innerHTML = `<option value="">-- 请选择成员 --</option>` + opts;
+        const ed = document.getElementById("mEdAssignee");
+        if (ed) ed.innerHTML = `<option value="">-- 请选择执行人 --</option>` + opts;
+      }
+    } catch (e) { /* 忽略 */ }
+  }
+
+  /* ───────── 派发新任务 (管理员) ───────── */
+  function dpRowHtml() {
+    return `<div class="m-item-row">
+      <div class="mir-head">
+        <span class="mir-idx">任务 #1</span>
+        <button type="button" class="btn btn-outline btn-sm" style="color:#dc2626;border-color:#fecaca;" onclick="dpRemove(this)">🗑️ 移除</button>
+      </div>
+      <input type="url" class="form-input dp-url" placeholder="链接：https://... (必填)" style="margin-bottom:8px;">
+      <input type="text" class="form-input dp-ins" placeholder="说明和要求 (选填)">
+    </div>`;
+  }
+  function dpRenumber() {
+    document.querySelectorAll("#mDpItems .m-item-row").forEach((r, i) => {
+      const l = r.querySelector(".mir-idx"); if (l) l.innerText = `任务 #${i + 1}`;
+    });
+  }
+  function dpAdd(focus) {
+    const c = document.getElementById("mDpItems");
+    c.insertAdjacentHTML("beforeend", dpRowHtml());
+    dpRenumber();
+    if (focus) { const rows = c.querySelectorAll(".m-item-row"); const r = rows[rows.length - 1]; r.scrollIntoView({ block: "nearest", behavior: "smooth" }); r.querySelector(".dp-url").focus(); }
+  }
+  function dpRemove(btn) {
+    const row = btn.closest(".m-item-row");
+    const c = document.getElementById("mDpItems");
+    if (c.querySelectorAll(".m-item-row").length <= 1) {
+      row.querySelectorAll("input").forEach(el => el.value = "");
+      return;
+    }
+    row.remove(); dpRenumber();
+  }
+  window.dpRemove = dpRemove;
+
+  function openDispatch() {
+    const sheet = document.getElementById("mDpSheet");
+    if (!sheet) return;
+    document.getElementById("mDpDate").value = today();
+    const as = document.getElementById("mDpAssignee"); if (as) as.value = "";
+    const c = document.getElementById("mDpItems"); c.innerHTML = "";
+    for (let i = 0; i < 5; i++) dpAdd(false);
+    openSheet("mDpSheet", "mDpMask");
+  }
+  const newBtn = document.getElementById("mTaskNewBtn");
+  if (newBtn) newBtn.addEventListener("click", openDispatch);
+  const dpAddBtn = document.getElementById("mDpAddRow");
+  if (dpAddBtn) dpAddBtn.addEventListener("click", () => dpAdd(true));
+  const dpMask = document.getElementById("mDpMask");
+  if (dpMask) dpMask.addEventListener("click", () => closeSheet("mDpSheet", "mDpMask"));
+  const dpCancel = document.getElementById("mDpCancel");
+  if (dpCancel) dpCancel.addEventListener("click", () => closeSheet("mDpSheet", "mDpMask"));
+  const dpSubmit = document.getElementById("mDpSubmit");
+  if (dpSubmit) dpSubmit.addEventListener("click", async () => {
+    const assignee = document.getElementById("mDpAssignee").value;
+    const assignedDate = document.getElementById("mDpDate").value;
+    if (!assignee) { alert("请选择执行人！"); return; }
+    const items = [];
+    document.querySelectorAll("#mDpItems .m-item-row").forEach((row, i) => {
+      const reference_url = (row.querySelector(".dp-url").value || "").trim();
+      const instructions = (row.querySelector(".dp-ins").value || "").trim();
+      if (!reference_url && !instructions) return;
+      items.push({ rowNo: i + 1, reference_url, instructions, _row: row });
+    });
+    if (!items.length) { alert("请至少填写一条任务明细！"); return; }
+    const miss = items.find(it => !it.reference_url);
+    if (miss) {
+      alert(`第 ${miss.rowNo} 条任务的【链接】为必填项！`);
+      const el = miss._row.querySelector(".dp-url"); if (el) el.focus();
+      return;
+    }
+    dpSubmit.disabled = true; dpSubmit.innerText = `正在派发 ${items.length} 条...`;
+    try {
+      await apiFetch("/api/tasks/batch", {
+        method: "POST",
+        body: JSON.stringify({ assigned_to: assignee, assigned_date: assignedDate,
+          items: items.map(it => ({ reference_url: it.reference_url, instructions: it.instructions })) })
+      });
+      closeSheet("mDpSheet", "mDpMask");
+      showToast(`🎉 已成功派发 ${items.length} 条任务！`);
+      await loadTasks();
+    } catch (e) {
+      if (e.message !== "未登录") alert("派发失败: " + e.message);
+    } finally {
+      dpSubmit.disabled = false; dpSubmit.innerText = "🚀 确认派发";
+    }
+  });
+
+  /* ───────── 登记成果 ───────── */
+  async function openSubmit(taskId) {
+    const t = TS.tasks.find(x => x.id === taskId);
+    if (!t) return;
+    TS.subTaskId = taskId;
+    TS.selProductId = 0;
+    TS.products = [];
+    document.getElementById("mSubRefBox").innerHTML =
+      `<div>🔗 参考链接: ${t.reference_url ? `<a href="${esc(t.reference_url)}" target="_blank" rel="noopener">${esc(t.reference_url)}</a>` : "—"}</div>
+       <div style="margin-top:4px;">📋 说明: ${esc(t.instructions || "(无特殊要求)")}</div>`;
+    document.getElementById("mSubResultUrl").value = t.result_url || "";
+    document.getElementById("mSubProdSearch").value = "";
+    document.getElementById("mSubProdPreview").style.display = "none";
+    document.getElementById("mSubProdList").style.display = "none";
+    document.getElementById("mSubOnlyMine").checked = true;
+    openSheet("mSubSheet", "mSubMask");
+
+    await loadProducts(taskId, true);
+    if (t.product_id && t.product_id > 0) {
+      let found = TS.products.find(x => Number(x.id) === Number(t.product_id));
+      if (!found) {
+        document.getElementById("mSubOnlyMine").checked = false;
+        await loadProducts(taskId, false);
+        found = TS.products.find(x => Number(x.id) === Number(t.product_id));
+      }
+      if (found) pickProduct(t.product_id);
+      else {
+        TS.selProductId = t.product_id;
+        document.getElementById("mSubProdTitle").innerText = t.product_title || "已关联商品";
+        document.getElementById("mSubProdSku").innerText = "SKU: " + (t.product_parent_sku || ("#" + t.product_id));
+        document.getElementById("mSubProdImg").style.display = t.product_main_image ? "block" : "none";
+        if (t.product_main_image) document.getElementById("mSubProdImg").src = imgUrl(t.product_main_image);
+        document.getElementById("mSubProdPreview").style.display = "flex";
+      }
+    }
+  }
+
+  async function loadProducts(taskId, onlyMine) {
+    try {
+      const q = [`task_id=${taskId}`, onlyMine ? "only_mine=1" : "only_mine=0"];
+      const body = await apiFetch("/api/tasks/products/options?" + q.join("&"));
+      TS.products = body.data || [];
+    } catch (e) { TS.products = []; }
+    renderProductOpts();
+  }
+
+  function renderProductOpts() {
+    const el = document.getElementById("mSubProdList");
+    const kw = (document.getElementById("mSubProdSearch").value || "").trim().toLowerCase();
+    let arr = TS.products || [];
+    if (kw) {
+      arr = arr.filter(p => String(p.id).includes(kw) || (p.parent_sku || "").toLowerCase().includes(kw) ||
+        (p.title || "").toLowerCase().includes(kw) || (p.store_account || "").toLowerCase().includes(kw));
+    }
+    if (!arr.length) {
+      el.innerHTML = `<div class="m-empty" style="padding:22px 10px;"><div class="m-empty-txt">未找到匹配商品</div></div>`;
+      return;
+    }
+    const MAX = 50;
+    el.innerHTML = arr.slice(0, MAX).map(p => {
+      const sel = Number(p.id) === TS.selProductId;
+      return `<div class="m-prod-opt ${sel ? "sel" : ""}" onclick="pickProduct(${p.id})">
+        ${p.main_image ? `<img src="${imgUrl(p.main_image)}" alt="" onerror="this.style.display='none'">` : `<span style="font-size:1.3rem;">📦</span>`}
+        <div style="flex:1;min-width:0;">
+          <div class="mpo-t">${esc(p.title || "未命名商品")}</div>
+          <div class="mpo-s">#${p.id} ${p.parent_sku ? "[" + esc(p.parent_sku) + "]" : ""} ${p.store_account ? "(" + esc(p.store_account) + ")" : ""}</div>
+        </div>
+        <span style="font-size:0.72rem;font-weight:700;flex-shrink:0;color:${sel ? "#15803d" : "#2563eb"};">${sel ? "✔ 已选" : "选择"}</span>
+      </div>`;
+    }).join("") + (arr.length > MAX ? `<div style="padding:8px;text-align:center;color:#94a3b8;font-size:0.72rem;">共 ${arr.length} 个，仅显示前 ${MAX} 个，请继续输入关键词…</div>` : "");
+  }
+
+  function pickProduct(id) {
+    const p = (TS.products || []).find(x => Number(x.id) === Number(id));
+    if (!p) return;
+    TS.selProductId = p.id;
+    document.getElementById("mSubProdTitle").innerText = p.title || "已选商品";
+    document.getElementById("mSubProdSku").innerText = "SKU: " + (p.parent_sku || ("#" + p.id)) + (p.store_account ? " · " + p.store_account : "");
+    const img = document.getElementById("mSubProdImg");
+    if (p.main_image) { img.src = imgUrl(p.main_image); img.style.display = "block"; } else { img.style.display = "none"; }
+    document.getElementById("mSubProdPreview").style.display = "flex";
+    document.getElementById("mSubProdSearch").value = "";
+    renderProductOpts();
+    document.getElementById("mSubProdList").style.display = "none";
+  }
+  window.pickProduct = pickProduct;
+
+  document.getElementById("mSubMask").addEventListener("click", () => closeSheet("mSubSheet", "mSubMask"));
+  document.getElementById("mSubCancel").addEventListener("click", () => closeSheet("mSubSheet", "mSubMask"));
+  document.getElementById("mSubProdClear").addEventListener("click", () => {
+    TS.selProductId = 0;
+    document.getElementById("mSubProdPreview").style.display = "none";
+    document.getElementById("mSubProdSearch").value = "";
+    renderProductOpts();
+  });
+  document.getElementById("mSubProdSearch").addEventListener("focus", () => {
+    document.getElementById("mSubProdList").style.display = "block";
+    renderProductOpts();
+  });
+  document.getElementById("mSubProdSearch").addEventListener("input", () => {
+    document.getElementById("mSubProdList").style.display = "block";
+    renderProductOpts();
+  });
+  document.getElementById("mSubOnlyMine").addEventListener("change", () => {
+    loadProducts(TS.subTaskId, document.getElementById("mSubOnlyMine").checked);
+  });
+  document.getElementById("mSubSave").addEventListener("click", async () => {
+    const btn = document.getElementById("mSubSave");
+    const resultUrl = document.getElementById("mSubResultUrl").value.trim();
+    if (!resultUrl) { alert("【成品链接】为必填项，请输入成品链接！"); document.getElementById("mSubResultUrl").focus(); return; }
+    btn.disabled = true; btn.innerText = "正在保存...";
+    try {
+      await apiFetch(`/api/tasks/${TS.subTaskId}/submit`, {
+        method: "POST",
+        body: JSON.stringify({ result_url: resultUrl, product_id: TS.selProductId || 0 })
+      });
+      closeSheet("mSubSheet", "mSubMask");
+      showToast(TS.selProductId > 0 ? "🎉 已登记成果并关联商品，任务已完成！" : "🎉 已登记成果，任务已完成！");
+      await loadTasks();
+    } catch (e) {
+      if (e.message !== "未登录") alert("登记失败: " + e.message);
+    } finally {
+      btn.disabled = false; btn.innerText = "保存";
+    }
+  });
+
+  /* ───────── 编辑任务 (管理员) ───────── */
+  const evEd = document.getElementById("mEdSave");
+  function openEdit(taskId) {
+    const t = TS.tasks.find(x => x.id === taskId);
+    if (!t) return;
+    document.getElementById("mEdTitle").value = t.title || "";
+    document.getElementById("mEdRefUrl").value = t.reference_url || "";
+    document.getElementById("mEdInstructions").value = t.instructions || "";
+    const ed = document.getElementById("mEdAssignee");
+    if (ed) ed.value = t.assigned_to || "";
+    TS.editTaskId = taskId;
+    openSheet("mEdSheet", "mEdMask");
+  }
+  window.openEdit = openEdit;
+  const edMask = document.getElementById("mEdMask");
+  if (edMask) edMask.addEventListener("click", () => closeSheet("mEdSheet", "mEdMask"));
+  const edCancel = document.getElementById("mEdCancel");
+  if (edCancel) edCancel.addEventListener("click", () => closeSheet("mEdSheet", "mEdMask"));
+  if (evEd) evEd.addEventListener("click", async () => {
+    const assignee = document.getElementById("mEdAssignee").value;
+    const title = document.getElementById("mEdTitle").value.trim();
+    const refUrl = document.getElementById("mEdRefUrl").value.trim();
+    const instructions = document.getElementById("mEdInstructions").value.trim();
+    if (!assignee) { alert("请选择执行人！"); return; }
+    if (!refUrl) { alert("请输入参考链接！"); return; }
+    evEd.disabled = true; evEd.innerText = "正在保存...";
+    try {
+      await apiFetch(`/api/tasks/${TS.editTaskId}`, {
+        method: "PUT",
+        body: JSON.stringify({ assigned_to: assignee, title, reference_url: refUrl, instructions })
+      });
+      closeSheet("mEdSheet", "mEdMask");
+      showToast("💾 任务信息修改成功！");
+      await loadTasks();
+    } catch (e) {
+      if (e.message !== "未登录") alert("修改失败: " + e.message);
+    } finally {
+      evEd.disabled = false; evEd.innerText = "保存";
+    }
+  });
+
+  /* ───────── 删除任务 (管理员) ───────── */
+  async function delTask(taskId) {
+    if (!confirm(`确定要彻底删除任务 #${taskId} 吗？此操作不可逆！`)) return;
+    try {
+      await apiFetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+      showToast("🗑️ 任务已成功删除！");
+      await loadTasks();
+    } catch (e) {
+      if (e.message !== "未登录") alert("删除失败: " + e.message);
+    }
+  }
+  window.delTask = delTask;
+  window.openSubmit = openSubmit;
+  window.viewProductDetail = viewProductDetail;
+
+  /* ───────── 关联商品详情 ───────── */
+  async function viewProductDetail(pid) {
+    const body = document.getElementById("mPdBody");
+    body.innerHTML = `<div class="m-empty"><div class="m-empty-ico">⏳</div><div class="m-empty-txt">正在加载…</div></div>`;
+    openSheet("mPdSheet", "mPdMask");
+    try {
+      const res = await apiFetch(`/api/products/${pid}`);
+      const p = res.data || {};
+      const rows = [
+        ["Parent SKU", esc(p.parent_sku || p.sku || "-")],
+        ["店铺", esc(p.store_account || "—")],
+        ["品牌", esc(p.brand || "—")],
+        ["售卖形式", p.sale_type === "single" ? "单品" : "多变体"],
+        ["变体数", (p.variation_count || 0) + " 个"],
+        ["维护人", esc(p.created_by || "admin")],
+        ["维护时间", esc((p.updated_at || p.created_at || "").replace("T", " ").slice(0, 16)) || "—"]
+      ];
+      body.innerHTML = `
+        <div class="m-detail-hero">
+          ${p.main_image ? `<div class="m-dh-img"><img src="${imgUrl(p.main_image)}" alt=""></div>` : `<div class="m-dh-img">📦</div>`}
+          <div style="flex:1;min-width:0;">
+            <div class="m-dh-title">${esc(p.title || "未命名商品")}</div>
+            <div style="margin-top:6px;color:#94a3b8;font-size:0.72rem;">#${p.id}</div>
+          </div>
+        </div>
+        <div class="m-detail-rows">
+          ${rows.map(r => `<div class="m-detail-row"><div class="m-dr-label">${r[0]}</div><div class="m-dr-val">${r[1]}</div></div>`).join("")}
+        </div>
+        <div class="m-detail-actions">
+          <a href="/list" class="btn btn-primary" style="text-decoration:none;text-align:center;">📦 前往商品页</a>
+          <button type="button" class="btn btn-outline" onclick="closeSheet('mPdSheet','mPdMask')">关闭</button>
+        </div>`;
+    } catch (e) {
+      if (e.message !== "未登录") body.innerHTML = `<div class="m-empty"><div class="m-empty-ico">❌</div><div class="m-empty-txt">加载失败：${esc(e.message)}</div></div>`;
+    }
+  }
+  document.getElementById("mPdMask").addEventListener("click", () => closeSheet("mPdSheet", "mPdMask"));
+
+  /* ───────── 下拉刷新 ───────── */
+  (function () {
+    const ptr = document.getElementById("mTaskPtr");
+    const txt = document.getElementById("mTaskPtrTxt");
+    let startY = 0, pulling = false;
+    window.addEventListener("touchstart", e => {
+      if (window.scrollY <= 0 && e.touches.length === 1) { startY = e.touches[0].clientY; pulling = true; }
+    }, { passive: true });
+    window.addEventListener("touchmove", e => {
+      if (!pulling) return;
+      const dist = e.touches[0].clientY - startY;
+      if (dist > 0 && window.scrollY <= 0) {
+        const h = Math.min(dist * 0.5, 64);
+        ptr.style.height = h + "px";
+        txt.innerText = h >= 50 ? "松开立即刷新" : "下拉可刷新";
+      } else { ptr.style.height = "0px"; }
+    }, { passive: true });
+    window.addEventListener("touchend", () => {
+      if (!pulling) return;
+      pulling = false;
+      if (ptr.clientHeight >= 50) {
+        ptr.classList.add("loading"); ptr.style.height = "44px"; txt.innerText = "正在刷新…";
+        loadTasks(true).finally(() => setTimeout(() => { ptr.classList.remove("loading"); ptr.style.height = "0px"; txt.innerText = "下拉可刷新"; }, 400));
+      } else { ptr.style.height = "0px"; }
+    }, { passive: true });
+  })();
+
+  /* ───────── 初始化 ───────── */
+  loadUsers().then(syncFilterUI);
+  syncFilterUI();
+  loadTasks();
+</script>
+{% endblock %}

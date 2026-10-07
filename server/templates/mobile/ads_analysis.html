@@ -1,0 +1,864 @@
+{% extends "base_mobile.html" %}
+
+{% block title %}广告分析{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* 分段 Tab (可横向滑动) */
+  .mads-tabs { display:flex; gap:6px; padding:4px; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:12px; margin-bottom:12px; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .mads-tab { flex:0 0 auto; min-height:42px; padding:0 14px; border:none; background:transparent; border-radius:9px; font-size:0.8rem; font-weight:700; color:#64748b; cursor:pointer; white-space:nowrap; }
+  .mads-tab.active { background:#fff; color:#0ea5e9; box-shadow:0 2px 6px rgba(15,23,42,0.08); }
+  .mads-panel { display:none; }
+  .mads-panel.active { display:block; }
+
+  /* 统计 chips 网格 */
+  .mads-stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:12px; }
+  .mads-stat { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:10px 8px; text-align:center; }
+  .mads-stat .n { font-size:1.05rem; font-weight:800; color:#0f172a; line-height:1.15; word-break:break-all; }
+  .mads-stat .l { font-size:0.64rem; color:#94a3b8; margin-top:3px; }
+
+  /* 上传卡 (默认折叠, 点头部展开) */
+  .mads-up { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:12px; margin-bottom:10px; }
+  .mads-up-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; cursor:pointer; }
+  .mads-up.m-collapsed > *:not(.mads-up-head) { display:none; }
+  .mads-up.m-collapsed .mads-up-head { margin-bottom:0; }
+  .mads-up-head .mads-fold-caret { margin-left:auto; color:#94a3b8; font-size:0.72rem; transition:transform 0.18s; flex-shrink:0; }
+  .mads-up.m-collapsed .mads-fold-caret { transform:rotate(-90deg); }
+  .mads-up-ico { width:36px; height:36px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:1.1rem; flex-shrink:0; }
+  .mads-up-t { font-size:0.86rem; font-weight:800; color:#0f172a; }
+  .mads-up-d { font-size:0.7rem; color:#94a3b8; margin-top:2px; line-height:1.4; }
+  .mads-file { display:flex; align-items:center; gap:6px; border:1.5px dashed #94a3b8; border-radius:10px; padding:10px 12px; font-size:0.78rem; color:#475569; background:#f8fafc; cursor:pointer; margin-bottom:8px; min-height:44px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mads-up .btn { width:100%; min-height:44px; font-size:0.82rem; }
+  .mads-res { font-size:0.74rem; color:#16a34a; margin-top:6px; min-height:1.1em; word-break:break-all; }
+
+  /* 卡片列表 */
+  .mads-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:11px 12px; margin-bottom:9px; }
+  .mads-card-top { display:flex; gap:10px; align-items:flex-start; }
+  .mads-card-top > .mads-badge-yes, .mads-card-top > .mads-badge-no { flex-shrink:0; }
+  .mads-thumb { width:52px; height:52px; border-radius:9px; object-fit:cover; border:1px solid #e2e8f0; background:#f8fafc; flex-shrink:0; cursor:pointer; }
+  .mads-thumb-empty { width:52px; height:52px; border-radius:9px; border:1px dashed #e2e8f0; background:#f8fafc; display:flex; align-items:center; justify-content:center; color:#cbd5e1; font-size:1rem; flex-shrink:0; }
+  .mads-main { flex:1; min-width:0; }
+  .mads-name { font-size:0.84rem; font-weight:700; color:#0f172a; line-height:1.35; word-break:break-word; }
+  .mads-sub { font-size:0.7rem; color:#64748b; margin-top:2px; word-break:break-all; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .mads-mini { display:flex; flex-wrap:wrap; gap:6px; margin-top:7px; }
+  .mads-mchip { font-size:0.68rem; font-weight:700; border-radius:7px; padding:3px 8px; background:#f1f5f9; border:1px solid #e2e8f0; color:#475569; }
+  .mads-mchip b { color:#0f172a; }
+  .mads-mchip.blue { background:#e0f2fe; color:#0369a1; border-color:#bae6fd; }
+  .mads-mchip.violet { background:#f5f3ff; color:#7c3aed; border-color:#ddd6fe; }
+  .mads-mchip.amber { background:#fffbeb; color:#b45309; border-color:#fde68a; }
+  .mads-mchip.delta { background:#f0fdf4; color:#15803d; border-color:#bbf7d0; }
+  .mads-badge-yes { background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; padding:2px 9px; border-radius:999px; font-size:0.68rem; font-weight:700; }
+  .mads-badge-no { background:#fef2f2; color:#dc2626; border:1px solid #fecaca; padding:2px 9px; border-radius:999px; font-size:0.68rem; font-weight:700; }
+  .mads-up-i { color:#dc2626; font-weight:800; }
+  .mads-down-i { color:#16a34a; font-weight:800; }
+  .mads-card-foot { display:flex; gap:8px; margin-top:9px; padding-top:8px; border-top:1px dashed #e2e8f0; }
+  .mads-card-foot .btn { flex:1; min-height:40px; font-size:0.76rem; }
+
+  /* 详情键值表 */
+  .mads-kv { display:grid; grid-template-columns:auto 1fr; gap:6px 10px; font-size:0.78rem; }
+  .mads-kv .k { color:#94a3b8; white-space:nowrap; }
+  .mads-kv .v { color:#1e293b; word-break:break-all; }
+
+  /* 分页 */
+  .mads-pager { display:flex; align-items:center; gap:8px; justify-content:center; padding:8px 2px 2px; font-size:0.78rem; color:#64748b; }
+  .mads-pager .btn { min-height:40px; font-size:0.78rem; }
+
+  /* 统计结果区块 */
+  .mads-stat-sec { margin-bottom:14px; }
+  .mads-stat-sec h4 { font-size:0.84rem; font-weight:800; color:#0f172a; margin:0 0 8px; display:flex; align-items:center; gap:6px; }
+  .mads-stat-sec h4 .cnt { font-size:0.7rem; color:#64748b; font-weight:600; }
+  .mads-combo { border:1px solid #e2e8f0; border-radius:10px; padding:9px 10px; margin-bottom:8px; background:#f8fafc; }
+  .mads-combo-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+  .mads-combo-head .b { font-size:0.78rem; font-weight:800; color:#0369a1; }
+  .mads-asins { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.72rem; line-height:1.6; color:#334155; word-break:break-all; max-height:110px; overflow:auto; background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:7px 8px; }
+  .mads-warn { font-size:0.72rem; color:#b45309; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:6px 9px; margin-bottom:8px; word-break:break-all; }
+  .mads-copy-mini { border:1px solid #bae6fd; background:#eff6ff; color:#0369a1; border-radius:7px; font-size:0.72rem; font-weight:700; padding:3px 9px; min-height:auto; }
+
+  /* 图片放大 */
+  .mads-lb { display:none; position:fixed; inset:0; z-index:2000; background:rgba(15,23,42,0.8); align-items:center; justify-content:center; }
+  .mads-lb.open { display:flex; }
+  .mads-lb img { max-width:88vw; max-height:78vh; border-radius:10px; background:#fff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 页面标题条 -->
+<div class="m-pagehead">
+  <div>
+    <h1 class="m-ptitle">📊 广告分析</h1>
+    <div class="m-psub" id="madsSub">导入 · 产品 · 研判</div>
+  </div>
+  <div class="m-pactions">
+    <button type="button" class="m-icon-btn" id="madsRefresh" title="刷新">🔄</button>
+  </div>
+</div>
+
+<!-- 分段 Tab -->
+<div class="mads-tabs" id="madsTabs">
+  <button type="button" class="mads-tab" data-tab="import">📥 数据导入</button>
+  <button type="button" class="mads-tab" data-tab="products">🛒 在线产品-子</button>
+  <button type="button" class="mads-tab" data-tab="parents">🧩 在线产品-父</button>
+  <button type="button" class="mads-tab active" data-tab="research">📈 广告研判</button>
+</div>
+
+<!-- ═══════ Tab1 数据导入 ═══════ -->
+<div class="mads-panel" data-panel="import">
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
+    <button class="btn btn-primary" id="btnLinkData" type="button" style="min-height:44px; font-size:0.82rem;">🔗 数据关联</button>
+    <button class="btn btn-outline" id="btnClearData" type="button" style="min-height:44px; font-size:0.82rem; border-color:#fecaca; color:#dc2626;">🗑️ 清空数据</button>
+  </div>
+
+  <div class="mads-up">
+    <div class="mads-up-head">
+      <div class="mads-up-ico" style="background:#eff6ff;">🛒</div>
+      <div><div class="mads-up-t">① 在线产品导入</div><div class="mads-up-d">Listing 快照，全量替换导入</div></div>
+    </div>
+    <label class="mads-file">📎 <span id="fileProductsName">选择 .xlsx 文件</span>
+      <input type="file" id="fileProducts" accept=".xlsx,.xlsm" style="display:none;"></label>
+    <button class="btn btn-primary" id="btnUploadProducts" type="button" style="background:#0ea5e9; border-color:#0ea5e9;">⬆️ 上传导入</button>
+    <div class="mads-res" id="resProducts"></div>
+  </div>
+
+  <div class="mads-up">
+    <div class="mads-up-head">
+      <div class="mads-up-ico" style="background:#fef3c7;">📣</div>
+      <div><div class="mads-up-t">② 广告活动导入</div><div class="mads-up-d">活动每日报表，按日期+活动名幂等</div></div>
+    </div>
+    <label class="mads-file">📎 <span id="fileCampaignsName">选择 .xlsx 文件</span>
+      <input type="file" id="fileCampaigns" accept=".xlsx,.xlsm" style="display:none;"></label>
+    <button class="btn btn-primary" id="btnUploadCampaigns" type="button" style="background:#0ea5e9; border-color:#0ea5e9;">⬆️ 上传导入</button>
+    <div class="mads-res" id="resCampaigns"></div>
+  </div>
+
+  <div class="mads-up">
+    <div class="mads-up-head">
+      <div class="mads-up-ico" style="background:#f3e8ff;">🧩</div>
+      <div><div class="mads-up-t">③ 广告组导入</div><div class="mads-up-d">组每日报表，按日期+组名+活动幂等</div></div>
+    </div>
+    <label class="mads-file">📎 <span id="fileGroupsName">选择 .xlsx 文件</span>
+      <input type="file" id="fileGroups" accept=".xlsx,.xlsm" style="display:none;"></label>
+    <button class="btn btn-primary" id="btnUploadGroups" type="button" style="background:#0ea5e9; border-color:#0ea5e9;">⬆️ 上传导入</button>
+    <div class="mads-res" id="resGroups"></div>
+  </div>
+</div>
+
+<!-- ═══════ Tab2 在线产品-子 ═══════ -->
+<div class="mads-panel" data-panel="products">
+  <div class="m-searchbar">
+    <label class="m-search-input">
+      <span>🔍</span>
+      <input type="search" id="prodKeyword" placeholder="ASIN / SKU / 标题" autocomplete="off">
+    </label>
+    <button type="button" class="m-filter-btn" id="prodFilterBtn" title="筛选">⚙️</button>
+  </div>
+  <div class="mads-subline" id="prodCount" style="font-size:0.74rem; color:#64748b; margin-bottom:8px;"></div>
+  <div class="m-card-list" id="prodList"></div>
+  <div class="mads-pager" id="prodPager"></div>
+</div>
+
+<!-- ═══════ Tab3 在线产品-父 ═══════ -->
+<div class="mads-panel" data-panel="parents">
+  <div class="m-searchbar">
+    <label class="m-search-input">
+      <span>🔍</span>
+      <input type="search" id="parKeyword" placeholder="父SKU / 父ASIN" autocomplete="off">
+    </label>
+    <button type="button" class="m-filter-btn" id="parFilterBtn" title="筛选">⚙️</button>
+  </div>
+  <div style="font-size:0.74rem; color:#64748b; margin-bottom:8px;" id="parCount"></div>
+  <div class="m-card-list" id="parList"></div>
+</div>
+
+<!-- ═══════ Tab4 广告研判 ═══════ -->
+<div class="mads-panel active" data-panel="research">
+  <div class="mads-tabs" id="resRange" style="margin-bottom:10px;">
+    <button class="mads-tab active" data-days="1" type="button">近1天</button>
+    <button class="mads-tab" data-days="3" type="button">近3天</button>
+    <button class="mads-tab" data-days="7" type="button">近7天</button>
+    <button class="mads-tab" data-days="" type="button">所有</button>
+  </div>
+  <div class="m-searchbar">
+    <label class="m-search-input">
+      <span>🔍</span>
+      <input type="search" id="resKeyword" placeholder="广告组 / ASIN / 父SKU" autocomplete="off">
+    </label>
+    <button type="button" class="m-filter-btn" id="resFilterBtn" title="筛选">⚙️</button>
+    <button type="button" class="m-filter-btn" id="resStatBtn" title="统计结果">📊</button>
+  </div>
+  <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+    <div style="font-size:0.74rem; color:#64748b; flex:1;" id="resCount"></div>
+    <button type="button" class="btn btn-outline btn-sm" id="resClearMarks" style="border-color:#fecaca; color:#dc2626; font-weight:700; min-height:36px;">🧹 清除标记</button>
+  </div>
+  <div class="m-card-list" id="resList"></div>
+  <div class="mads-pager" id="resPager"></div>
+</div>
+
+<!-- ═══════ 抽屉区 ═══════ -->
+<div class="m-sheet-mask" id="madsMask"></div>
+
+<!-- 筛选抽屉 (产品子) -->
+<div class="m-sheet" id="mSheetProdFilter">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">🛒 在线产品-子 筛选</div>
+  <div class="m-field">
+    <label class="m-field-label">是否开通自动广告</label>
+    <select class="form-input" id="prodAutoAdFilter">
+      <option value="">全部</option>
+      <option value="1">已开通</option>
+      <option value="0">未开通</option>
+    </select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">排序字段</label>
+    <select class="form-input" id="prodSort">
+      <option value="">默认</option>
+    </select>
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="prodFilterReset">重置</button>
+    <button type="button" class="btn btn-primary" id="prodFilterApply">应用</button>
+  </div>
+</div>
+
+<!-- 筛选抽屉 (产品父) -->
+<div class="m-sheet" id="mSheetParFilter">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">🧩 在线产品-父 筛选</div>
+  <div class="m-field">
+    <label class="m-field-label">是否在投</label>
+    <select class="form-input" id="parHasAdFilter">
+      <option value="">全部</option>
+      <option value="1">在投</option>
+      <option value="0">未投</option>
+    </select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">排序</label>
+    <select class="form-input" id="parSort">
+      <option value="产品价格:desc">产品价格 降序</option>
+      <option value="产品价格:asc">产品价格 升序</option>
+      <option value="变体数量:desc">变体数量 降序</option>
+      <option value="变体数量:asc">变体数量 升序</option>
+      <option value="父SKU:asc">父SKU A→Z</option>
+    </select>
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="parFilterReset">重置</button>
+    <button type="button" class="btn btn-primary" id="parFilterApply">应用</button>
+  </div>
+</div>
+
+<!-- 研判筛选抽屉 -->
+<div class="m-sheet" id="mSheetResFilter">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">📈 广告研判 筛选</div>
+  <div class="m-field">
+    <label class="m-field-label">标记状态</label>
+    <select class="form-input" id="resMarkedFilter">
+      <option value="">全部</option>
+      <option value="1">已标记</option>
+      <option value="0">未标记</option>
+    </select>
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="resFilterReset">重置</button>
+    <button type="button" class="btn btn-primary" id="resFilterApply">应用</button>
+  </div>
+</div>
+
+<!-- 详情抽屉 (通用键值) -->
+<div class="m-sheet" id="mSheetDetail">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title" id="mDetailTitle">详情</div>
+  <div class="mads-kv" id="mDetailBody"></div>
+</div>
+
+<!-- 研判标记抽屉 -->
+<div class="m-sheet" id="mSheetMark">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title" id="mMarkTitle">📝 录入新值</div>
+  <div class="m-field">
+    <label class="m-field-label">新每日预算</label>
+    <input type="text" class="form-input" id="mMarkBudget" inputmode="decimal" placeholder="留空表示不修改">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">新默认竞价</label>
+    <input type="text" class="form-input" id="mMarkBid" inputmode="decimal" placeholder="留空表示不修改">
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mMarkClear">清除标记</button>
+    <button type="button" class="btn btn-primary" id="mMarkSave">💾 保存并标记</button>
+  </div>
+</div>
+
+<!-- 统计结果抽屉 -->
+<div class="m-sheet" id="mSheetStat">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">📊 统计结果</div>
+  <div id="mStatBody"></div>
+</div>
+
+<!-- 图片放大 -->
+<div class="mads-lb" id="madsLightbox"><img id="madsLightboxImg" alt="预览"></div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+/* 本页自包含脚本: 与 PC 版 ads_analysis.js 互不影响 */
+(function () {
+  "use strict";
+
+  const ADS = {
+    tab: "research",
+    prod: { rows: [], fields: [], page: 1, pageSize: 50, total: 0, sort: "", order: "desc" },
+    par: { rows: [] },
+    res: { rows: [], page: 1, pageSize: 20, total: 0, markedTotal: 0, days: "1", marked: "", sortKey: "", sortDir: "desc", editName: "" }
+  };
+
+  function esc(s) {
+    return String(s === null || s === undefined ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function fmtNum(v) {
+    if (v === "" || v == null || v === "-") return "-";
+    const n = Number(v);
+    if (Number.isNaN(n)) return esc(v);
+    return n.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+  }
+  function isPriceField(f) { return /价格|价[）)]?$|Price/.test(String(f || "")); }
+  function fmtPrice(v) {
+    if (v === "" || v == null || v === "-") return "-";
+    const n = Number(v);
+    if (Number.isNaN(n)) return esc(v);
+    return Math.round(n).toLocaleString("zh-CN");
+  }
+  async function api(url, options) {
+    const res = await fetch(url, options || {});
+    if (res.status === 401) { location.href = "/login"; throw new Error("未登录"); }
+    const result = await res.json();
+    if (result.detail) throw new Error(typeof result.detail === "string" ? result.detail : JSON.stringify(result.detail));
+    return result;
+  }
+  function toast(msg, type) { if (typeof showToast === "function") showToast(msg, type || "success"); }
+
+  // ═══ 抽屉通用 ═══
+  const mask = document.getElementById("madsMask");
+  function openSheet(id) {
+    document.querySelectorAll(".m-sheet").forEach(s => s.classList.remove("open"));
+    mask.classList.add("open");
+    document.getElementById(id).classList.add("open");
+  }
+  function closeSheets() {
+    document.querySelectorAll(".m-sheet").forEach(s => s.classList.remove("open"));
+    mask.classList.remove("open");
+  }
+  mask.addEventListener("click", closeSheets);
+
+  // 图片放大
+  function openLightbox(src) {
+    if (!src) return;
+    document.getElementById("madsLightboxImg").src = src;
+    document.getElementById("madsLightbox").classList.add("open");
+  }
+  document.getElementById("madsLightbox").addEventListener("click", function () { this.classList.remove("open"); });
+
+  // ═══ Tab 切换 ═══
+  function switchTab(tab) {
+    ADS.tab = tab;
+    document.querySelectorAll("#madsTabs .mads-tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+    document.querySelectorAll(".mads-panel").forEach(p => p.classList.toggle("active", p.dataset.panel === tab));
+    if (tab === "import") loadAdsStatus();
+    if (tab === "products") loadProducts();
+    if (tab === "parents") loadParents();
+    if (tab === "research") loadResearch();
+  }
+  document.getElementById("madsTabs").addEventListener("click", e => {
+    const b = e.target.closest(".mads-tab");
+    if (b) switchTab(b.dataset.tab);
+  });
+
+  // ═══ Tab1 导入 ═══
+  async function loadAdsStatus() {
+    try {
+      const result = await api("/api/ads-analysis/status");
+      const d = result.data || {};
+      const p = d.products || {}, c = d.campaigns || {}, g = d.groups || {};
+      const linked = d.link || {};
+      let linkTxt = "";
+      if (!linked.campaigns_total) linkTxt = `<span class="m-psub-sep">·</span>未关联`;
+      else if (linked.linked) linkTxt = `<span class="m-psub-sep">·</span><span class="m-psub-ok">✅ 已关联</span>`;
+      else linkTxt = `<span class="m-psub-sep">·</span><span style="color:#d97706;font-weight:700;">⚠️ 待关联</span>`;
+      document.getElementById("madsSub").innerHTML =
+        `产品 ${fmtNum(p.count)}<span class="m-psub-sep">·</span>活动 ${fmtNum(c.count)}<span class="m-psub-sep">·</span>组 ${fmtNum(g.count)}` +
+        (d.link && p.count ? `<span class="m-psub-sep">·</span>自动广告 ${fmtNum(d.link.products_with_ad)}` : "") + linkTxt;
+    } catch (e) { toast("加载状态失败: " + e.message, "error"); }
+  }
+
+  function bindUpload(fileId, nameId, btnId, resId, path) {
+    const fileInput = document.getElementById(fileId);
+    const nameSpan = document.getElementById(nameId);
+    const btn = document.getElementById(btnId);
+    const resEl = document.getElementById(resId);
+    fileInput.addEventListener("change", () => {
+      nameSpan.innerText = fileInput.files.length ? fileInput.files[0].name : "选择 .xlsx 文件";
+      resEl.innerText = "";
+    });
+    btn.addEventListener("click", async () => {
+      if (!fileInput.files.length) { toast("请先选择 Excel 文件", "error"); return; }
+      const fd = new FormData();
+      fd.append("file", fileInput.files[0]);
+      btn.disabled = true; const old = btn.innerText; btn.innerText = "⏳ 导入中...";
+      try {
+        const result = await api(path, { method: "POST", body: fd });
+        resEl.style.color = "#16a34a";
+        resEl.innerText = "✅ " + (result.msg || "导入成功");
+        toast(result.msg || "导入成功");
+        loadAdsStatus();
+      } catch (e) {
+        resEl.style.color = "#dc2626";
+        resEl.innerText = "❌ " + e.message;
+        toast("导入失败: " + e.message, "error");
+      } finally { btn.disabled = false; btn.innerText = old; }
+    });
+  }
+  bindUpload("fileProducts", "fileProductsName", "btnUploadProducts", "resProducts", "/api/ads-analysis/import/products");
+  bindUpload("fileCampaigns", "fileCampaignsName", "btnUploadCampaigns", "resCampaigns", "/api/ads-analysis/import/campaigns");
+  bindUpload("fileGroups", "fileGroupsName", "btnUploadGroups", "resGroups", "/api/ads-analysis/import/groups");
+
+  document.getElementById("btnLinkData").addEventListener("click", async () => {
+    const btn = document.getElementById("btnLinkData");
+    btn.disabled = true; const old = btn.innerText; btn.innerText = "⏳ 关联中...";
+    try {
+      const result = await api("/api/ads-analysis/link", { method: "POST" });
+      toast(result.msg || "关联完成");
+      loadAdsStatus();
+    } catch (e) { toast("关联失败: " + e.message, "error"); }
+    finally { btn.disabled = false; btn.innerText = old; }
+  });
+  document.getElementById("btnClearData").addEventListener("click", async () => {
+    if (!confirm("确认清空所有数据？在线产品 / 广告活动 / 广告组 及关联结果将全部删除，不可恢复！")) return;
+    const btn = document.getElementById("btnClearData");
+    btn.disabled = true; const old = btn.innerText; btn.innerText = "⏳ 清空中...";
+    try {
+      const result = await api("/api/ads-analysis/clear", { method: "POST" });
+      ADS.prod.rows = []; ADS.par.rows = []; ADS.res.rows = [];
+      toast(result.msg || "已清空");
+      loadAdsStatus();
+    } catch (e) { toast("清空失败: " + e.message, "error"); }
+    finally { btn.disabled = false; btn.innerText = old; }
+  });
+
+  // ═══ 详情抽屉 ═══
+  const HIDE_FIELDS = ["图片", "是否开通自动广告", "是否在投"];
+  function openDetail(title, row) {
+    document.getElementById("mDetailTitle").innerText = title;
+    const keys = Object.keys(row).filter(k => HIDE_FIELDS.indexOf(k) < 0 && row[k] !== "" && row[k] != null && !Array.isArray(row[k]));
+    document.getElementById("mDetailBody").innerHTML = keys.map(k => {
+      let v = row[k];
+      if (isPriceField(k)) v = fmtPrice(v);
+      else if (typeof v === "number" || /^-?\d+(\.\d+)?$/.test(String(v))) v = fmtNum(v);
+      return `<div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>`;
+    }).join("") || `<div class="k">—</div><div class="v">无数据</div>`;
+    openSheet("mSheetDetail");
+  }
+
+  // ═══ Tab2 产品-子 ═══
+  function thumb(src) {
+    if (!src) return `<div class="mads-thumb-empty">🖼️</div>`;
+    return `<img class="mads-thumb js-lb" src="${esc(src)}" loading="lazy" onerror="this.outerHTML='<div class=&quot;mads-thumb-empty&quot;>🖼️</div>'">`;
+  }
+  async function loadProducts() {
+    const p = ADS.prod;
+    const kw = document.getElementById("prodKeyword").value.trim();
+    const autoAd = document.getElementById("prodAutoAdFilter").value;
+    const params = new URLSearchParams({ auto_ad: autoAd, keyword: kw, sort: p.sort, order: p.order, page: p.page, page_size: p.pageSize });
+    const list = document.getElementById("prodList");
+    list.innerHTML = `<div class="m-empty" style="padding:24px;">⏳ 加载中…</div>`;
+    try {
+      const result = await api("/api/ads-analysis/products?" + params);
+      const d = result.data || {};
+      p.rows = d.rows || []; p.fields = d.fields || []; p.total = d.total || 0; p.page = d.page || 1;
+      fillProdSortOptions(p.fields);
+      renderProducts();
+    } catch (e) {
+      list.innerHTML = `<div class="m-empty" style="padding:24px; color:#dc2626;">加载失败: ${esc(e.message)}</div>`;
+    }
+  }
+  function fillProdSortOptions(fields) {
+    const sel = document.getElementById("prodSort");
+    if (sel.dataset.filled === "1") return;
+    sel.innerHTML = `<option value="">默认</option>` + fields.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join("");
+    sel.dataset.filled = "1";
+  }
+  function prodChips(row) {
+    const chips = [];
+    const add = (label, val, cls = "") => { if (val !== "" && val != null && val !== "-") chips.push(`<span class="mads-mchip ${cls}">${esc(label)}<b>${esc(val)}</b></span>`); };
+    if (isPriceField("价格")) add("价格 ¥", fmtPrice(row["价格"]));
+    add("销量 ", fmtNum(row["销量"]));
+    return chips.join("");
+  }
+  function renderProducts() {
+    const p = ADS.prod;
+    const list = document.getElementById("prodList");
+    document.getElementById("prodCount").innerText = `共 ${fmtNum(p.total)} 条`;
+    if (!p.rows.length) {
+      list.innerHTML = `<div class="m-empty" style="padding:28px;">暂无数据，请先到「📥 数据导入」上传在线产品 Excel</div>`;
+      document.getElementById("prodPager").innerHTML = "";
+      return;
+    }
+    list.innerHTML = p.rows.map((row, i) => {
+      const badge = row["是否开通自动广告"] === "是"
+        ? `<span class="m-badge b-green">已开通</span>` : `<span class="m-badge b-red">未开通</span>`;
+      return `<div class="mads-card">
+        <div class="mads-card-top">
+          ${thumb(row["图片"])}
+          <div class="mads-main">
+            <div class="mads-name">${esc(row["标题"] || row["ASIN"] || "（无标题）")}</div>
+            <div class="mads-sub">${esc(row["ASIN"] || "")}</div>
+          </div>
+          ${badge}
+        </div>
+        <div class="mads-mini">${prodChips(row)}</div>
+        <div class="mads-card-foot m-card-foot">
+          <button type="button" class="m-btn-main js-copy-asin" data-asin="${esc(row["ASIN"] || "")}">📋 复制 ASIN</button>
+          <button type="button" class="m-more-btn js-detail" data-idx="${i}">⋯</button>
+        </div>
+      </div>`;
+    }).join("");
+    renderPager("prodPager", p, loadProducts);
+  }
+
+  // ═══ Tab3 产品-父 ═══
+  async function loadParents() {
+    const kw = document.getElementById("parKeyword").value.trim();
+    const hasAd = document.getElementById("parHasAdFilter").value;
+    const [sort, order] = (document.getElementById("parSort").value || ":").split(":");
+    const list = document.getElementById("parList");
+    list.innerHTML = `<div class="m-empty" style="padding:24px;">⏳ 加载中…</div>`;
+    try {
+      const params = new URLSearchParams({ keyword: kw, has_ad: hasAd, sort: sort, order: order });
+      const result = await api("/api/ads-analysis/parents?" + params);
+      const d = result.data || {};
+      ADS.par.rows = d.rows || [];
+      document.getElementById("parCount").innerText =
+        `共 ${fmtNum(ADS.par.rows.length)} 条${d.base_date ? " · 判定日期 " + d.base_date : ""}`;
+      renderParents();
+    } catch (e) {
+      list.innerHTML = `<div class="m-empty" style="padding:24px; color:#dc2626;">加载失败: ${esc(e.message)}</div>`;
+    }
+  }
+  function renderParents() {
+    const list = document.getElementById("parList");
+    if (!ADS.par.rows.length) {
+      list.innerHTML = `<div class="m-empty" style="padding:28px;">暂无数据，请先完成「数据导入」与「🔗 数据关联」</div>`;
+      return;
+    }
+    list.innerHTML = ADS.par.rows.map((row, i) => {
+      const badge = row["是否在投"] === "是"
+        ? `<span class="m-badge b-green">在投</span>` : `<span class="m-badge b-red">未投</span>`;
+      const chips = [];
+      if (row["产品价格"] !== "" && row["产品价格"] != null) chips.push(`<span class="mads-mchip">均价 ¥<b>${fmtPrice(row["产品价格"])}</b></span>`);
+      if (row["变体数量"] != null && row["变体数量"] !== "") chips.push(`<span class="mads-mchip">变体 <b>${esc(row["变体数量"])}</b></span>`);
+      return `<div class="mads-card">
+        <div class="mads-card-top">
+          ${thumb(row["图片"])}
+          <div class="mads-main">
+            <div class="mads-name">${esc(row["父SKU"] || row["父ASIN"] || "（无父SKU）")}</div>
+            <div class="mads-sub">${esc(row["父ASIN"] || "")}${row["子ASIN"] ? " · 代表 " + esc(row["子ASIN"]) : ""}</div>
+          </div>
+          ${badge}
+        </div>
+        <div class="mads-mini">${chips.join("")}</div>
+        <div class="mads-card-foot m-card-foot">
+          <button type="button" class="m-btn-main js-copy-asin" data-asin="${esc(row["父ASIN"] || row["子ASIN"] || "")}">📋 复制 ASIN</button>
+          <button type="button" class="m-more-btn js-pdetail" data-idx="${i}">⋯</button>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  // ═══ Tab4 广告研判 ═══
+  document.getElementById("resRange").addEventListener("click", e => {
+    const b = e.target.closest(".mads-tab");
+    if (!b) return;
+    ADS.res.days = b.dataset.days; ADS.res.page = 1;
+    document.querySelectorAll("#resRange .mads-tab").forEach(x => x.classList.toggle("active", x === b));
+    loadResearch();
+  });
+  async function loadResearch() {
+    const r = ADS.res;
+    const kw = document.getElementById("resKeyword").value.trim();
+    const params = new URLSearchParams({ keyword: kw, days: r.days, marked: r.marked, sort: r.sortKey, order: r.sortDir, page: r.page, page_size: r.pageSize });
+    const list = document.getElementById("resList");
+    list.innerHTML = `<div class="m-empty" style="padding:24px;">⏳ 加载中…</div>`;
+    try {
+      const result = await api("/api/ads-analysis/research?" + params);
+      const d = result.data || {};
+      r.rows = d.rows || []; r.total = d.total || 0; r.page = d.page || 1; r.markedTotal = d.marked_total || 0;
+      r.range = d.range || {};
+      renderResearch();
+    } catch (e) {
+      list.innerHTML = `<div class="m-empty" style="padding:24px; color:#dc2626;">加载失败: ${esc(e.message)}</div>`;
+    }
+  }
+  function resDelta(field, row) {
+    const nv = row[field === "每日总预算" ? "新每日预算" : "新默认竞价"];
+    const ov = row[field];
+    const fmt = field === "默认竞价" ? fmtPrice : fmtNum;
+    if (nv === "" || nv == null) return fmt(ov);
+    const a = Number(ov), b = Number(nv);
+    let arrow = "";
+    if (ov !== "" && ov != null && !Number.isNaN(a) && !Number.isNaN(b) && a !== b) {
+      arrow = b > a ? ' <span class="mads-up-i">↑</span>' : ' <span class="mads-down-i">↓</span>';
+    }
+    return `${ov === "" || ov == null ? "-" : fmt(ov)} → <b>${fmt(nv)}</b>${arrow}`;
+  }
+  function renderResearch() {
+    const r = ADS.res;
+    const list = document.getElementById("resList");
+    const rg = r.range || {};
+    const win = rg.start ? `${rg.start} ~ ${rg.end}${rg.days ? "（近" + rg.days + "天）" : "（全部）"}` : "";
+    document.getElementById("resCount").innerText =
+      `共 ${fmtNum(r.total)} 个广告组` + (r.markedTotal ? ` · 已标记 ${fmtNum(r.markedTotal)}` : "") + (win ? ` · ${win}` : "");
+    if (!r.rows.length) {
+      list.innerHTML = `<div class="m-empty" style="padding:28px;">暂无数据，请先导入并关联广告数据</div>`;
+      document.getElementById("resPager").innerHTML = "";
+      return;
+    }
+    list.innerHTML = r.rows.map((row, i) => {
+      const chips = [];
+      if (row["子ASIN"]) chips.push(`<span class="mads-mchip blue">子ASIN <b>${esc(row["子ASIN"])}</b></span>`);
+      chips.push(`<span class="mads-mchip">每日预算 <b>${resDelta("每日总预算", row)}</b></span>`);
+      const marked = (row["新每日预算"] || row["新默认竞价"]) ? `<span class="m-badge b-amber">已标记</span>` : "";
+      return `<div class="mads-card">
+        <div class="mads-card-top">
+          ${thumb(row["图片"])}
+          <div class="mads-main">
+            <div class="mads-name">${esc(row["广告组名"] || "（无组名）")}</div>
+            <div class="mads-sub">${esc(row["广告活动名"] || "")}</div>
+          </div>
+          ${marked}
+        </div>
+        <div class="mads-mini">${chips.join("")}</div>
+        <div class="mads-card-foot m-card-foot">
+          <button type="button" class="m-btn-main js-mark" data-idx="${i}">📝 录入新值</button>
+          <button type="button" class="m-more-btn js-rdetail" data-idx="${i}">⋯</button>
+        </div>
+      </div>`;
+    }).join("");
+    renderPager("resPager", r, loadResearch);
+  }
+
+  // ═══ 分页 ═══
+  function renderPager(containerId, st, reload) {
+    const el = document.getElementById(containerId);
+    const totalPages = Math.max(1, Math.ceil(st.total / st.pageSize));
+    el.innerHTML = `
+      <button class="btn btn-outline" ${st.page <= 1 ? "disabled" : ""} data-p="prev">‹ 上一页</button>
+      <span>第 ${st.page} / ${totalPages} 页</span>
+      <button class="btn btn-outline" ${st.page >= totalPages ? "disabled" : ""} data-p="next">下一页 ›</button>`;
+    el.querySelector("[data-p=prev]").onclick = () => { if (st.page > 1) { st.page--; reload(); } };
+    el.querySelector("[data-p=next]").onclick = () => { if (st.page < totalPages) { st.page++; reload(); } };
+  }
+
+  // ═══ 列表事件委托 ═══
+  document.getElementById("prodList").addEventListener("click", e => {
+    const lb = e.target.closest(".js-lb");
+    if (lb) { openLightbox(lb.getAttribute("src")); return; }
+    const d = e.target.closest(".js-detail");
+    if (d) { openDetail("🛒 产品详情", ADS.prod.rows[Number(d.dataset.idx)]); return; }
+    const c = e.target.closest(".js-copy-asin");
+    if (c && c.dataset.asin) copyToClipboard(c.dataset.asin, "ASIN ");
+  });
+  document.getElementById("parList").addEventListener("click", e => {
+    const lb = e.target.closest(".js-lb");
+    if (lb) { openLightbox(lb.getAttribute("src")); return; }
+    const d = e.target.closest(".js-pdetail");
+    if (d) { openDetail("🧩 父产品详情", ADS.par.rows[Number(d.dataset.idx)]); return; }
+    const c = e.target.closest(".js-copy-asin");
+    if (c && c.dataset.asin) copyToClipboard(c.dataset.asin, "ASIN ");
+  });
+  document.getElementById("resList").addEventListener("click", e => {
+    const lb = e.target.closest(".js-lb");
+    if (lb) { openLightbox(lb.getAttribute("src")); return; }
+    const m = e.target.closest(".js-mark");
+    if (m) { openMark(Number(m.dataset.idx)); return; }
+    const d = e.target.closest(".js-rdetail");
+    if (d) { openDetail("📈 广告组详情", ADS.res.rows[Number(d.dataset.idx)]); return; }
+  });
+
+  // ═══ 研判: 标记 ═══
+  function openMark(idx) {
+    const row = ADS.res.rows[idx] || {};
+    ADS.res.editName = row["广告组名"] || "";
+    document.getElementById("mMarkTitle").innerText = "📝 " + (ADS.res.editName || "录入新值");
+    document.getElementById("mMarkBudget").value = row["新每日预算"] || "";
+    document.getElementById("mMarkBid").value = row["新默认竞价"] || "";
+    openSheet("mSheetMark");
+  }
+  document.getElementById("mMarkSave").addEventListener("click", async () => {
+    const name = ADS.res.editName;
+    const nb = document.getElementById("mMarkBudget").value.trim();
+    const nbid = document.getElementById("mMarkBid").value.trim();
+    try {
+      const result = await api("/api/ads-analysis/marks", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_name: name, new_budget: nb, new_bid: nbid })
+      });
+      toast(result.msg || "已保存");
+      closeSheets();
+      loadResearch();
+    } catch (e) { toast("保存失败: " + e.message, "error"); }
+  });
+  document.getElementById("mMarkClear").addEventListener("click", async () => {
+    try {
+      await api("/api/ads-analysis/marks", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_name: ADS.res.editName, new_budget: "", new_bid: "" })
+      });
+      toast("已清除标记");
+      closeSheets();
+      loadResearch();
+    } catch (e) { toast("操作失败: " + e.message, "error"); }
+  });
+  document.getElementById("resClearMarks").addEventListener("click", async () => {
+    if (!confirm("确认清除全部已标记的新每日预算/新默认竞价？")) return;
+    try {
+      const result = await api("/api/ads-analysis/marks/clear", { method: "POST" });
+      toast(result.msg || "已清除标记");
+      loadResearch();
+    } catch (e) { toast("操作失败: " + e.message, "error"); }
+  });
+
+  // ═══ 研判: 统计结果 ═══
+  document.getElementById("resStatBtn").addEventListener("click", async () => {
+    const box = document.getElementById("mStatBody");
+    box.innerHTML = `<div class="m-empty" style="padding:24px;">⏳ 统计中…</div>`;
+    openSheet("mSheetStat");
+    try {
+      const result = await api("/api/ads-analysis/stats");
+      renderStats(result.data || {});
+    } catch (e) {
+      box.innerHTML = `<div class="m-empty" style="padding:24px; color:#dc2626;">加载失败: ${esc(e.message)}</div>`;
+    }
+  });
+  function renderStats(d) {
+    const box = document.getElementById("mStatBody");
+    const combos = d.combos || [];
+    let html = `<div style="font-size:0.72rem; color:#64748b; margin-bottom:10px;">判定日期 ${esc(d.base_date || "—")} · 在投子ASIN ${fmtNum(d.active_total)} · 广告组 ${fmtNum(d.group_total)} · 组合 ${fmtNum(d.combo_total)} · 已标记 ${fmtNum(d.marked_total)}</div>`;
+
+    // ① 参数组合
+    html += `<div class="mads-stat-sec"><h4>① 参数组合汇总 <span class="cnt">${combos.length} 组</span></h4>`;
+    if (!combos.length) html += `<div class="m-empty" style="padding:12px;">无数据</div>`;
+    combos.forEach((c, i) => {
+      const asins = (c.asin_list || []);
+      html += `<div class="mads-combo">
+        <div class="mads-combo-head">
+          <span class="b">组合${i + 1}</span>
+          <span class="mads-mchip">预算 <b>${fmtNum(c.new_budget)}</b></span>
+          <span class="mads-mchip">竞价 <b>${fmtPrice(c.new_bid)}</b></span>
+          <span class="mads-mchip">ASIN <b>${asins.length}</b></span>
+          <button type="button" class="mads-copy-mini js-scopy" data-copy="${esc(asins.join(","))}">📋 复制</button>
+        </div>
+        <div class="mads-asins">${esc(asins.join(", ")) || "（无）"}</div>
+      </div>`;
+    });
+    html += `</div>`;
+
+    // ② 未投广
+    const un = d.unadvertised || {};
+    html += `<div class="mads-stat-sec"><h4>② 未投广父SKU <span class="cnt">${fmtNum(un.count)} 个</span></h4>
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <button type="button" class="mads-copy-mini js-scopy" data-copy="${esc(un.asins || "")}">📋 复制全部代表ASIN</button>
+      </div>
+      <div class="mads-asins">${esc((un.asin_list || []).join(", ")) || "（无）"}</div></div>`;
+
+    // ③ 重复ASIN
+    const dups = d.duplicates || [];
+    html += `<div class="mads-stat-sec"><h4>③ 重复 ASIN <span class="cnt">${dups.length} 个</span></h4>`;
+    html += dups.length
+      ? `<div class="mads-warn">以下 ASIN 同时出现在多个组合/未投广中，请核对</div><div class="mads-asins">${esc(dups.join(", "))}</div>`
+      : `<div class="m-empty" style="padding:12px;">✅ 无重复</div>`;
+    html += `</div>`;
+
+    // ④ 覆盖检查
+    const cov = d.coverage || {};
+    const missing = cov.missing || [];
+    html += `<div class="mads-stat-sec"><h4>④ 覆盖检查 <span class="cnt">父ASIN ${fmtNum(cov.auto_covered)}/${fmtNum(cov.parent_total)}</span></h4>`;
+    if (!missing.length) html += `<div class="m-empty" style="padding:12px;">✅ 全部父ASIN已覆盖</div>`;
+    else missing.forEach(m => {
+      html += `<div class="mads-combo">
+        <div class="mads-combo-head"><span class="b">${esc(m.parent_sku || m.parent_asin)}</span>
+          <span class="mads-mchip">子 ${fmtNum(m.children_count)}</span></div>
+        <div style="font-size:0.72rem; color:#b45309;">${esc(m.reason)}</div></div>`;
+    });
+    html += `</div>`;
+
+    box.innerHTML = html;
+    box.querySelectorAll(".js-scopy").forEach(b => b.addEventListener("click", () => {
+      if (b.dataset.copy) copyToClipboard(b.dataset.copy, "ASIN列表 ");
+    }));
+  }
+
+  // ═══ 筛选抽屉绑定 ═══
+  document.getElementById("prodFilterBtn").addEventListener("click", () => openSheet("mSheetProdFilter"));
+  document.getElementById("prodFilterApply").addEventListener("click", () => {
+    const sel = document.getElementById("prodSort").value;
+    ADS.prod.sort = sel; ADS.prod.order = "desc"; ADS.prod.page = 1;
+    closeSheets(); loadProducts();
+  });
+  document.getElementById("prodFilterReset").addEventListener("click", () => {
+    document.getElementById("prodAutoAdFilter").value = "";
+    document.getElementById("prodSort").value = "";
+    ADS.prod.sort = ""; ADS.prod.order = "desc"; ADS.prod.page = 1;
+    closeSheets(); loadProducts();
+  });
+  document.getElementById("parFilterBtn").addEventListener("click", () => openSheet("mSheetParFilter"));
+  document.getElementById("parFilterApply").addEventListener("click", () => { closeSheets(); loadParents(); });
+  document.getElementById("parFilterReset").addEventListener("click", () => {
+    document.getElementById("parHasAdFilter").value = "";
+    document.getElementById("parSort").value = "产品价格:desc";
+    closeSheets(); loadParents();
+  });
+  document.getElementById("resFilterBtn").addEventListener("click", () => openSheet("mSheetResFilter"));
+  document.getElementById("resFilterApply").addEventListener("click", () => {
+    ADS.res.marked = document.getElementById("resMarkedFilter").value; ADS.res.page = 1;
+    closeSheets(); loadResearch();
+  });
+  document.getElementById("resFilterReset").addEventListener("click", () => {
+    document.getElementById("resMarkedFilter").value = ""; ADS.res.marked = ""; ADS.res.page = 1;
+    closeSheets(); loadResearch();
+  });
+
+  // 搜索防抖
+  function debounce(fn, ms) {
+    let t; return function () { clearTimeout(t); t = setTimeout(fn, ms); };
+  }
+  document.getElementById("prodKeyword").addEventListener("input", debounce(() => { ADS.prod.page = 1; loadProducts(); }, 350));
+  document.getElementById("parKeyword").addEventListener("input", debounce(() => { loadParents(); }, 350));
+  document.getElementById("resKeyword").addEventListener("input", debounce(() => { ADS.res.page = 1; loadResearch(); }, 350));
+
+  document.getElementById("madsRefresh").addEventListener("click", () => {
+    if (ADS.tab === "import") loadAdsStatus();
+    else if (ADS.tab === "products") loadProducts();
+    else if (ADS.tab === "parents") loadParents();
+    else loadResearch();
+  });
+
+  // 上传卡默认折叠, 点头部展开/收起
+  document.querySelectorAll(".mads-up").forEach(up => {
+    const head = up.querySelector(".mads-up-head");
+    if (!head) return;
+    up.classList.add("m-collapsed");
+    const caret = document.createElement("span");
+    caret.className = "mads-fold-caret";
+    caret.textContent = "▼";
+    head.appendChild(caret);
+    head.addEventListener("click", () => up.classList.toggle("m-collapsed"));
+  });
+
+  // 初始化
+  loadResearch();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,1311 @@
+{% extends "base_mobile.html" %}
+
+{% block title %}广告管理{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* 任务集 / 子任务 卡片修饰 */
+  .m-card.set { border-color:#bae6fd; background:#f8fbff; }
+  .m-card.child { margin-left:12px; border-left:3px solid #bfdbfe; }
+
+  /* 抽屉内列表卡片 (执行记录 / 批次 / 获取记录 / 入库总览) */
+  .mad-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:12px 13px; margin-bottom:10px; box-shadow:0 2px 8px rgba(15,23,42,0.05); }
+  .mad-card.set { border-color:#bae6fd; background:#f8fbff; }
+  .mad-mini { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+  .mad-mchip { font-size:0.68rem; font-weight:700; border-radius:6px; padding:2px 7px; background:#f1f5f9; border:1px solid #e2e8f0; color:#475569; }
+  .mad-mchip b { color:#0f172a; }
+  .mad-mchip.blue { background:#e0f2fe; color:#0369a1; border-color:#bae6fd; }
+  .mad-mchip.green { background:#ecfdf5; color:#059669; border-color:#a7f3d0; }
+  .mad-mchip.amber { background:#fffbeb; color:#b45309; border-color:#fde68a; }
+  .mad-mchip.red { background:#fef2f2; color:#dc2626; border-color:#fecaca; }
+  .mad-last { font-size:0.72rem; color:#475569; margin-top:7px; line-height:1.5; background:#f8fafc; border-radius:7px; padding:5px 8px; word-break:break-all; }
+  .mad-last .t { font-size:0.66rem; color:#94a3b8; margin-top:2px; }
+  .mad-foot { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; padding-top:8px; border-top:1px dashed #e2e8f0; }
+  .mad-foot .btn { flex:1 1 30%; min-height:40px; font-size:0.74rem; }
+  .mad-empty { text-align:center; padding:36px 16px; color:#94a3b8; font-size:0.82rem; }
+
+  /* 抽屉内搜索行 (入库总览) */
+  .mad-filters { display:flex; gap:8px; margin-bottom:10px; }
+  .mad-filters input { flex:1; min-width:0; min-height:44px; font-size:0.82rem; }
+
+  /* 单选段按钮 */
+  .mad-seg { display:flex; flex-wrap:wrap; gap:8px; }
+  .mad-seg label { display:inline-flex; align-items:center; gap:5px; padding:8px 12px; border-radius:9px; border:1.5px solid #e2e8f0; background:#fff; color:#475569; font-size:0.78rem; font-weight:600; cursor:pointer; min-height:42px; }
+  .mad-seg label.on { border-color:#2563eb; background:#eff6ff; color:#1d4ed8; }
+  .mad-seg input { accent-color:#2563eb; }
+
+  /* 分段 Tab */
+  .mad-tabs { display:flex; gap:6px; padding:4px; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:12px; margin-bottom:12px; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .mad-tab { flex:0 0 auto; min-height:42px; padding:0 13px; border:none; background:transparent; border-radius:9px; font-size:0.78rem; font-weight:700; color:#64748b; cursor:pointer; white-space:nowrap; }
+  .mad-tab.active { background:#fff; color:#0ea5e9; box-shadow:0 2px 6px rgba(15,23,42,0.08); }
+  .mad-pane { display:none; }
+  .mad-pane.active { display:block; }
+
+  /* ASIN 池 */
+  .mad-drop { border:2px dashed #cbd5e1; border-radius:10px; padding:20px; text-align:center; background:#f8fafc; cursor:pointer; }
+  .mad-kv { display:grid; grid-template-columns:auto 1fr; gap:6px 10px; font-size:0.78rem; }
+  .mad-kv .k { color:#94a3b8; white-space:nowrap; }
+  .mad-kv .v { color:#1e293b; word-break:break-all; }
+  .mad-pre { background:#0f172a; color:#cbd5e1; border-radius:8px; padding:12px; font-size:0.72rem; line-height:1.6; max-height:46vh; overflow:auto; white-space:pre-wrap; word-break:break-all; margin:8px 0 0; }
+  .mad-chips-wrap { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+  .mad-asin-chip { display:inline-block; padding:3px 9px; border-radius:999px; background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; font-size:0.7rem; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .mad-asin-chip.warn { background:#fef2f2; border-color:#fecaca; color:#b91c1c; }
+  .mad-asin-chip.muted { background:#f1f5f9; border-color:#e2e8f0; color:#475569; }
+
+  /* ASIN 池抽屉加高 */
+  .m-sheet.mad-tall { max-height:92vh; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="m-pagehead">
+  <div>
+    <h1 class="m-ptitle">📢 广告管理</h1>
+    <div class="m-psub" id="madSub">加载中…</div>
+  </div>
+  <div class="m-pactions">
+    <button type="button" class="m-icon-btn" id="madRefresh" title="刷新">🔄</button>
+    <button type="button" class="m-icon-btn" id="madPoolBtn" title="ASIN 生成池">🎯</button>
+    {% if 'ads:create' in user_perms %}
+    <button type="button" class="m-icon-btn m-primary" id="madNewBtn" title="新建任务">➕</button>
+    {% endif %}
+  </div>
+</div>
+
+<!-- CDP 未就绪时的修复入口 (就绪时自动隐藏, 不占位) -->
+<button type="button" class="btn btn-outline" id="madCdpLaunch" style="display:none; width:100%; min-height:44px; margin-bottom:12px;">🚀 启动调试浏览器</button>
+
+<!-- 搜索 + 筛选 -->
+<div class="m-searchbar">
+  <label class="m-search-input">
+    <span>🔍</span>
+    <input type="text" id="madSearch" placeholder="搜索任务名 / 店铺 / ASIN">
+  </label>
+  <button type="button" class="m-filter-btn" id="madFilterBtn">⚙<span class="m-filter-dot" id="madFilterDot"></span></button>
+</div>
+
+<div class="m-card-list" id="madList"></div>
+
+<!-- ================= 抽屉区 ================= -->
+<div class="m-sheet-mask" id="madMask"></div>
+
+<!-- 新增 / 编辑任务 -->
+<div class="m-sheet" id="mSheetAdForm">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title" id="madFormTitle">➕ 新增广告投放任务</div>
+  <input type="hidden" id="madTaskId" value="">
+  <div class="m-field">
+    <label class="m-field-label">任务名称 *</label>
+    <input type="text" class="form-input" id="madTaskName" placeholder="task260906-1">
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">店铺名称 *</label>
+    <select class="form-select" id="madShopName"></select>
+    <div id="madShopHint" style="font-size:0.72rem; color:#94a3b8; margin-top:4px;"></div>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">创建方式</label>
+    <div class="mad-seg" id="madCreateModeGroup"></div>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">竞价策略</label>
+    <div class="mad-seg" id="madBidStrategyGroup"></div>
+  </div>
+  <div style="display:flex; gap:10px;">
+    <div class="m-field" style="flex:1;">
+      <label class="m-field-label">开始时间 *</label>
+      <input type="date" class="form-input" id="madStartDate">
+    </div>
+    <div class="m-field" style="flex:1;">
+      <label class="m-field-label">结束时间</label>
+      <input type="date" class="form-input" id="madEndDate">
+    </div>
+  </div>
+  <div style="display:flex; gap:10px;">
+    <div class="m-field" style="flex:1;">
+      <label class="m-field-label">每日预算 *</label>
+      <input type="number" class="form-input" id="madBudget" value="300" min="1" step="1">
+    </div>
+    <div class="m-field" style="flex:1;">
+      <label class="m-field-label">默认竞价 *</label>
+      <input type="number" class="form-input" id="madDefaultBid" value="30" min="0.01" step="0.01">
+    </div>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">ASIN 变体裁剪</label>
+    <div class="mad-seg" id="madTrimGroup"></div>
+    <div style="display:flex; align-items:center; gap:8px; margin-top:8px;" id="madTrimKeepWrap">
+      <span style="font-size:0.76rem; color:#475569;">保留数量</span>
+      <input type="number" class="form-input" id="madTrimKeep" value="5" min="1" max="50" step="1" style="width:84px; min-height:40px;">
+      <span style="font-size:0.72rem; color:#94a3b8;">超出按输入顺序保留前 N 个</span>
+    </div>
+    <div id="madTrimNoWrap" style="font-size:0.72rem; color:#94a3b8; margin-top:6px; display:none;">不裁剪：全部变体都会加入广告，不设上限。</div>
+  </div>
+  <div class="m-field">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+      <label class="m-field-label" style="margin:0;">ASIN 列表 *</label>
+      <div class="mad-seg" id="madDedupGroup"></div>
+    </div>
+    <textarea class="form-input" id="madAsinsText" rows="6" placeholder="逗号 / 换行 / 空格分隔，自动转大写" style="resize:vertical; margin-top:6px; font-family:inherit;"></textarea>
+    <div id="madAsinCounter" style="font-size:0.74rem; color:#64748b; margin-top:4px; line-height:1.6;">已识别 0 个 ASIN</div>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">批次数量</label>
+    <input type="number" class="form-input" id="madBatchSize" value="10" min="1" step="1">
+    <div style="font-size:0.72rem; color:#94a3b8; margin-top:4px;">每批最多录入的 ASIN 数，默认 10（不足一批时全部一批完成）。</div>
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="madFormCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="madFormSave">💾 保存任务</button>
+  </div>
+</div>
+
+<!-- 实时执行日志 -->
+<div class="m-sheet" id="mSheetRunLog">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">▶️ 执行日志 · #<span id="madRunTaskId">-</span></div>
+  <div style="display:flex; gap:8px; align-items:center; font-size:0.76rem; color:#64748b; margin-bottom:6px;">
+    <span id="madRunElapsed">0s</span> · <span id="madRunState">准备中</span>
+  </div>
+  <div id="madRunResult" style="display:none; border-radius:8px; padding:9px 12px; margin-bottom:8px; font-size:0.8rem;"></div>
+  <pre class="mad-pre" id="madRunLogBox">等待执行日志...</pre>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="madRunStop" style="display:none; color:#dc2626; border-color:#fecaca;">⏹ 终止</button>
+    <button type="button" class="btn btn-outline" id="madRunClose">关闭</button>
+  </div>
+</div>
+
+<!-- 执行记录 (含详情内联) -->
+<div class="m-sheet" id="mSheetHistory">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title" id="madHistTitle">🗂️ 执行记录</div>
+  <div id="madHistBody"></div>
+  <div class="m-sheet-actions" style="grid-template-columns:1fr;">
+    <button type="button" class="btn btn-outline" id="madHistClose">关闭</button>
+  </div>
+</div>
+
+<!-- ASIN 生成池 -->
+<div class="m-sheet mad-tall" id="mSheetAsinPool">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">🎲 ASIN 生成池</div>
+  <div class="mad-tabs" id="madPoolTabs">
+    <button type="button" class="mad-tab active" data-tab="import">① 导入Excel</button>
+    <button type="button" class="mad-tab" data-tab="generate">② 获取ASIN</button>
+    <button type="button" class="mad-tab" data-tab="logs">③ 获取记录</button>
+    <button type="button" class="mad-tab" data-tab="overview">④ 入库总览</button>
+  </div>
+
+  <!-- ① 导入 -->
+  <div class="mad-pane active" data-pane="import">
+    <div class="mad-drop" id="madDropZone">
+      <div style="font-size:1.6rem;">📄</div>
+      <div style="font-weight:700; color:#334155; margin-top:5px; font-size:0.84rem;">点击选择 Excel 文件</div>
+      <div style="font-size:0.72rem; color:#94a3b8; margin-top:4px; line-height:1.5;">赛狐「所有 SKU 在线产品」表，需含 <b>父ASIN</b> 与 <b>ASIN</b> 列；每次导入追加为新批次，历史保留</div>
+      <input type="file" id="madAsinFile" accept=".xlsx,.xls" style="display:none;">
+      <div id="madAsinFileName" style="font-size:0.76rem; color:#2563eb; margin-top:8px; font-weight:600; word-break:break-all;"></div>
+    </div>
+    <div class="mad-foot" style="margin-top:10px; padding-top:0; border:none;">
+      <button type="button" class="btn btn-primary" id="madAsinImportBtn">⬆ 开始导入</button>
+      <a class="btn btn-outline" href="/api/asin-pool/template" style="text-decoration:none;">📥 模板</a>
+      <button type="button" class="btn btn-outline" id="madAsinDupBtn">🔍 重复检查</button>
+    </div>
+    <div id="madAsinImportMsg" style="font-size:0.76rem; margin-top:8px; word-break:break-all;"></div>
+    <div id="madAsinDupResult"></div>
+    <div style="font-size:0.82rem; font-weight:800; color:#334155; margin:16px 0 8px;">历史导入批次（最新 = 当前生效）</div>
+    <div class="m-card-list" id="madAsinBatchList"></div>
+  </div>
+
+  <!-- ② 获取 ASIN -->
+  <div class="mad-pane" data-pane="generate">
+    <label class="m-field-label" style="display:block; font-size:0.76rem; font-weight:700; color:#64748b; margin-bottom:6px;">已投放 ASIN 列表 *</label>
+    <div class="mad-seg" style="margin-bottom:8px;">
+      <label class="on" title="每行自动截取前10位作为 ASIN"><input type="radio" name="madGenMode" value="byAds" checked> byAds（截前10位）</label>
+      <label title="原生 ASIN 列表：逗号 / 换行 / 空格分隔"><input type="radio" name="madGenMode" value="byAsin"> byAsin</label>
+    </div>
+    <textarea class="form-input" id="madGenInput" rows="5" placeholder="粘贴已投放 ASIN，逗号 / 换行 / 空格分隔，自动转大写去重" style="width:100%; resize:vertical; box-sizing:border-box;"></textarea>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; gap:8px;">
+      <span id="madGenCounter" style="font-size:0.74rem; color:#64748b; line-height:1.6;">已识别 0 个 ASIN</span>
+      <button type="button" class="btn btn-primary btn-sm" id="madGenBtn" style="flex-shrink:0; min-height:40px;">🎲 生成 ASIN</button>
+    </div>
+    <div id="madGenResult" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- ③ 获取记录 -->
+  <div class="mad-pane" data-pane="logs">
+    <div style="font-size:0.82rem; font-weight:800; color:#334155; margin-bottom:8px;">获取记录（最近 100 条）</div>
+    <div class="m-card-list" id="madLogList"></div>
+  </div>
+
+  <!-- ④ 入库总览 -->
+  <div class="mad-pane" data-pane="overview">
+    <div class="mad-mini" id="madOvStats" style="margin-bottom:10px;"></div>
+    <div class="mad-filters">
+      <input type="text" class="form-input" id="madOvSearch" placeholder="搜索父 ASIN...">
+      <button type="button" class="btn btn-outline btn-sm" id="madOvSearchBtn" style="min-height:44px; flex-shrink:0;">🔍</button>
+      <button type="button" class="btn btn-outline btn-sm" id="madOvPurge" style="min-height:44px; color:#dc2626; border-color:#fecaca; flex-shrink:0;">🗑</button>
+    </div>
+    <div class="m-card-list" id="madOvList"></div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; font-size:0.76rem; color:#64748b;">
+      <span id="madOvPageInfo">-</span>
+      <span style="display:flex; gap:8px;">
+        <button type="button" class="btn btn-outline btn-sm" id="madOvPrev">← 上页</button>
+        <button type="button" class="btn btn-outline btn-sm" id="madOvNext">下页 →</button>
+      </span>
+    </div>
+  </div>
+
+  <div class="m-sheet-actions" style="grid-template-columns:1fr;">
+    <button type="button" class="btn btn-outline" id="madPoolClose">关闭</button>
+  </div>
+</div>
+
+<!-- 筛选抽屉 -->
+<div class="m-sheet m-filter-sheet" id="mSheetFilter">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">⚙ 筛选</div>
+  <div class="m-field">
+    <label class="m-field-label">任务状态</label>
+    <div class="m-chip-row" id="madStatusChips">
+      <button type="button" class="m-chip m-on" data-st="all">全部</button>
+      <button type="button" class="m-chip" data-st="pending">⏳ 待执行</button>
+      <button type="button" class="m-chip" data-st="success">✅ 已完成</button>
+      <button type="button" class="m-chip" data-st="partial">⚠️ 部分成功</button>
+      <button type="button" class="m-chip" data-st="failed">❌ 失败</button>
+    </div>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">店铺</label>
+    <select class="form-select" id="madShopFilter"><option value="">🏬 全部店铺</option></select>
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="madFilterReset">重置</button>
+    <button type="button" class="btn btn-primary" id="madFilterApply">完成</button>
+  </div>
+</div>
+
+<!-- 卡片 ⋯ 操作抽屉 (含次级详情) -->
+<div class="m-sheet m-filter-sheet" id="mSheetActions">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title" id="madActTitle">任务操作</div>
+  <div id="madActBody"></div>
+  <div class="m-sheet-actions" style="grid-template-columns:1fr; margin-top:12px;">
+    <button type="button" class="btn btn-outline" id="madActClose">关闭</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+/* ===================== 基础 ===================== */
+const IS_ADMIN = {{ 'true' if current_user and current_user.role == 'admin' else 'false' }};
+const USER_PERMS = {{ user_perms | tojson }};
+function hasPerm(k) { return IS_ADMIN || USER_PERMS.includes(k); }
+
+function esc(s) {
+  return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, m => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[m]));
+}
+function safeParse(text, fallback) { try { return JSON.parse(text || '') || fallback; } catch (e) { return fallback; } }
+
+const state = {
+  options: { shop_names: [], create_modes: [], bid_strategies: [], today: '', next_task_name: '' },
+  filterStatus: 'all',
+  tasks: [],
+  taskSets: [],
+  expanded: new Set(),
+  histTaskId: null,
+  cdpOk: null,
+  statCounts: null,
+  run: { taskId: null, timer: null, since: 0, setRun: null },
+};
+const poolState = { tab: 'import', page: 1, pageSize: 20 };
+
+/* ===================== 状态徽章 ===================== */
+function madBadge(st) {
+  const map = {
+    pending: ['⏳ 待执行', 'b-gray'],
+    running: ['▶️ 执行中', 'b-blue'],
+    success: ['✅ 已完成', 'b-green'],
+    partial: ['⚠️ 部分成功', 'b-amber'],
+    failed: ['❌ 失败', 'b-red'],
+  };
+  const m = map[st] || map.pending;
+  return '<span class="m-badge ' + m[1] + '">' + m[0] + '</span>';
+}
+
+/* ===================== 单选段 ===================== */
+function renderSeg(cid, options, selected, name) {
+  const box = document.getElementById(cid);
+  if (!box) return;
+  box.innerHTML = options.map(o => {
+    const v = typeof o === 'string' ? o : o.v;
+    const label = typeof o === 'string' ? o : (o.label || o.v);
+    const on = (v === selected);
+    return '<label class="' + (on ? 'on' : '') + '"><input type="radio" name="' + name + '" value="' + esc(v) + '"' + (on ? ' checked' : '') + '>' + esc(label) + '</label>';
+  }).join('');
+}
+function getCheckedVal(name) {
+  const el = document.querySelector('input[name="' + name + '"]:checked');
+  return el ? el.value : '';
+}
+
+/* ===================== 抽屉控制 ===================== */
+const madMask = document.getElementById('madMask');
+const madSheets = ['mSheetAdForm', 'mSheetRunLog', 'mSheetHistory', 'mSheetAsinPool', 'mSheetFilter', 'mSheetActions'].map(id => document.getElementById(id));
+function openSheet(el) { madMask.classList.add('open'); el.classList.add('open'); }
+function closeSheets() {
+  if (state.run.timer) { clearInterval(state.run.timer); state.run.timer = null; }
+  state.run.setRun = null;
+  madMask.classList.remove('open');
+  madSheets.forEach(s => { if (s) s.classList.remove('open'); });
+}
+function closeAll() {
+  const wasRun = document.getElementById('mSheetRunLog').classList.contains('open');
+  closeSheets();
+  if (wasRun) loadTasks();
+}
+madMask.addEventListener('click', closeAll);
+
+/* ===================== CDP 状态 ===================== */
+async function checkCdp() {
+  const btn = document.getElementById('madCdpLaunch');
+  try {
+    const j = await (await fetch('/api/ads/cdp-status')).json();
+    state.cdpOk = !!(j.data && j.data.available);
+  } catch (e) { state.cdpOk = false; }
+  if (btn) btn.style.display = state.cdpOk ? 'none' : 'block';
+  renderSub();
+}
+async function launchCdp() {
+  const btn = document.getElementById('madCdpLaunch');
+  btn.disabled = true; btn.innerText = '🚀 启动中…';
+  try {
+    const j = await (await fetch('/api/ads/launch-browser', { method: 'POST' })).json();
+    if (j.code !== 0) throw new Error(j.detail || '启动失败');
+    showToast('调试浏览器已启动，请确认赛狐登录状态', 'success');
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.innerText = '🚀 启动调试浏览器'; checkCdp(); }
+}
+
+/* ===================== 选项加载 ===================== */
+async function loadOptions() {
+  try {
+    const j = await (await fetch('/api/ads/options')).json();
+    if (j.code === 0) state.options = j.data || state.options;
+  } catch (e) { console.error('加载广告选项失败', e); }
+  const sf = document.getElementById('madShopFilter');
+  const keep = sf.value;
+  sf.innerHTML = '<option value="">🏬 全部店铺</option>' +
+    (state.options.shop_names || []).map(s => '<option value="' + esc(s) + '">' + esc(s) + '</option>').join('');
+  sf.value = keep;
+  const fs = document.getElementById('madShopName');
+  const keep2 = fs.value;
+  fs.innerHTML = '<option value="">请选择店铺</option>' +
+    (state.options.shop_names || []).map(s => '<option value="' + esc(s) + '">' + esc(s) + '</option>').join('');
+  fs.value = keep2;
+  const hint = document.getElementById('madShopHint');
+  if (hint) {
+    const n = (state.options.shop_names || []).length;
+    hint.innerText = n ? ('共 ' + n + ' 个可选店铺') : '⚠ 系统未维护店铺，请先到「系统管理」添加店铺账号';
+    hint.style.color = n ? '#94a3b8' : '#b45309';
+  }
+}
+
+/* ===================== 任务集与筛选 ===================== */
+function setStatusSummary(tasks) {
+  const c = { pending: 0, running: 0, success: 0, partial: 0, failed: 0 };
+  (tasks || []).forEach(t => {
+    if (t.running) { c.running++; return; }
+    const k = (t.status || 'pending');
+    c[k] = (c[k] || 0) + 1;
+  });
+  const n = (tasks || []).length;
+  let st = 'pending';
+  if (c.running) st = 'running';
+  else if (n && c.success === n) st = 'success';
+  else if (c.success && c.success < n) st = 'partial';
+  else if (n && c.failed === n) st = 'failed';
+  else if (c.partial) st = 'partial';
+  return { st: st, c: c, total: n };
+}
+function taskMatchesFilters(t) {
+  if (state.filterStatus && state.filterStatus !== 'all' && (t.status || 'pending') !== state.filterStatus) return false;
+  const k = (document.getElementById('madSearch').value || '').trim().toLowerCase();
+  if (!k) return true;
+  const hay = [(t.task_name || ''), (t.shop_name || ''), (t.asins || []).join(',')].join(' ').toLowerCase();
+  return hay.indexOf(k) >= 0;
+}
+function setMatchesFilters(s) {
+  const shop = document.getElementById('madShopFilter').value || '';
+  if (shop && (s.shop_name || '') !== shop) return false;
+  const k = (document.getElementById('madSearch').value || '').trim().toLowerCase();
+  if (!k) return true;
+  if ((s.set_name || '').toLowerCase().indexOf(k) >= 0) return true;
+  return (s.tasks || []).some(x => taskMatchesFilters(x));
+}
+function partitionList(tasks) {
+  const sets = (state.taskSets || []).filter(setMatchesFilters);
+  const childIds = new Set();
+  sets.forEach(s => (s.tasks || []).forEach(t => childIds.add(t.id)));
+  const top = (tasks || []).filter(t => !childIds.has(t.id));
+  return { sets: sets, top: top };
+}
+
+/* ===================== 列表渲染 ===================== */
+function setCardHtml(s) {
+  const all = s.tasks || [];
+  const sum = setStatusSummary(all);
+  const expanded = state.expanded.has(s.id);
+  const pending = all.filter(t => t.status !== 'success' && !t.running).length;
+  const asinTotal = s.asin_total || all.reduce((n, t) => n + (t.asin_count || (t.asins || []).length), 0);
+  const main = hasPerm('ads:operate')
+    ? '<button type="button" class="m-btn-main js-setrun" data-id="' + s.id + '">▶ 整套执行' + (pending ? ' (' + pending + ')' : '') + '</button>'
+    : '';
+  return '<div class="m-card set">' +
+    '<div class="m-card-title"><span>📦 ' + esc(s.set_name || '') + '</span>' + madBadge(sum.st) + '</div>' +
+    '<div class="m-card-sub">' +
+      '<button type="button" class="m-schip tap js-setexp" data-id="' + s.id + '">📁 子任务 ' + all.length + ' ' + (expanded ? '▴' : '▾') + '</button>' +
+      '<span class="m-schip blue">ASIN ' + asinTotal + '</span>' +
+    '</div>' +
+    '<div class="m-card-foot">' + main +
+      '<button type="button" class="m-more-btn js-more" data-id="' + s.id + '" data-kind="set" title="更多操作">⋯</button>' +
+    '</div></div>';
+}
+function taskCardHtml(t, child) {
+  const asins = t.asins || [];
+  const running = !!t.running;
+  const main = hasPerm('ads:operate')
+    ? (running
+      ? '<button type="button" class="m-btn-main stop js-run" data-id="' + t.id + '" data-act="stop">⏹ 终止</button>'
+      : '<button type="button" class="m-btn-main js-run" data-id="' + t.id + '" data-act="run">▶ 执行</button>')
+    : '';
+  return '<div class="m-card' + (child ? ' child' : '') + '">' +
+    '<div class="m-card-title"><span class="m-card-id">#' + t.id + '</span><span>' + (child ? '└ ' : '') + esc(t.task_name || '') + '</span>' + madBadge(running ? 'running' : t.status) + '</div>' +
+    '<div class="m-card-sub">' +
+      '<span class="m-schip">🏬 ' + esc(t.shop_name || '-') + '</span>' +
+      '<span class="m-schip blue">ASIN ' + asins.length + '</span>' +
+    '</div>' +
+    '<div class="m-card-foot">' + main +
+      '<button type="button" class="m-more-btn js-more" data-id="' + t.id + '" data-kind="task" title="更多操作">⋯</button>' +
+    '</div></div>';
+}
+/* 副标题: 任务统计 + CDP 状态 (替代原统计卡 / 统计 chips) */
+function renderSub() {
+  const el = document.getElementById('madSub');
+  if (!el) return;
+  const s = state.statCounts || { top: 0, sets: 0, pending: 0, running: 0, success: 0 };
+  const cdp = state.cdpOk === null
+    ? '<span class="m-psub-sep">·</span>🔌 检测中…'
+    : (state.cdpOk
+      ? '<span class="m-psub-sep">·</span><span class="m-psub-ok">🔌 9222 就绪</span>'
+      : '<span class="m-psub-sep">·</span><span class="m-psub-err">🔌 9222 未就绪</span>');
+  el.innerHTML = s.top + ' 独立任务<span class="m-psub-sep">·</span>' + s.sets + ' 任务集' +
+    '<span class="m-psub-sep">·</span>待执行 ' + (s.pending + s.running) +
+    '<span class="m-psub-sep">·</span>完成 ' + s.success + cdp;
+}
+/* ⋯ 操作抽屉: 次级详情 + 操作按钮 */
+function infoRow(k, v) {
+  return '<div class="m-info-row"><span class="k">' + esc(k) + '</span><span class="v">' +
+    esc(v === null || v === undefined || v === '' ? '-' : String(v)) + '</span></div>';
+}
+function actBtn(cls, ico, label, id) {
+  return '<button type="button" class="m-act-item ' + cls + '" data-id="' + id + '">' +
+    '<span class="m-act-ico">' + ico + '</span>' + esc(label) + '<span class="m-act-arrow">›</span></button>';
+}
+function openTaskActions(id) {
+  const t = state.tasks.find(x => x.id === id);
+  if (!t) { showToast('未找到该任务数据', 'error'); return; }
+  const asins = t.asins || [];
+  let info = infoRow('任务名称', t.task_name) +
+    infoRow('店铺', t.shop_name) +
+    infoRow('ASIN 数量', asins.length + ' 个') +
+    infoRow('投放周期', (t.start_date || '-') + ' ~ ' + (t.end_date || '不限')) +
+    infoRow('每日预算 / 竞价', (t.daily_budget || '-') + ' / ' + (t.default_bid || '-')) +
+    infoRow('批次数量', t.batch_size || '不分批') +
+    infoRow('创建方式', t.create_mode) +
+    infoRow('竞价策略', t.bid_strategy);
+  if (t.last_result) info += infoRow('最近结果', (t.last_run_at || '') + ' ' + t.last_result);
+  let acts = '';
+  if (hasPerm('ads:operate')) acts += actBtn('js-edit', '✏️', '编辑任务', id);
+  acts += actBtn('js-hist', '🗂️', '执行记录', id);
+  if (hasPerm('ads:operate')) acts += actBtn('js-del danger', '🗑️', '删除任务', id);
+  document.getElementById('madActTitle').innerText = '📋 任务详情 · #' + id;
+  document.getElementById('madActBody').innerHTML =
+    '<div class="m-info-list">' + info + '</div><div class="m-act-list" style="margin-top:12px;">' + acts + '</div>';
+  openSheet(document.getElementById('mSheetActions'));
+}
+function openSetActions(id) {
+  const s = (state.taskSets || []).find(x => x.id === id);
+  if (!s) { showToast('未找到该任务集数据', 'error'); return; }
+  const all = s.tasks || [];
+  const sum = setStatusSummary(all);
+  const asinTotal = s.asin_total || all.reduce((n, t) => n + (t.asin_count || (t.asins || []).length), 0);
+  const ends = all.map(t => t.end_date).filter(Boolean).sort();
+  const info = infoRow('任务集名称', s.set_name) +
+    infoRow('店铺', s.shop_name) +
+    infoRow('子任务数', all.length + ' 个') +
+    infoRow('ASIN 总数', asinTotal + ' 个') +
+    infoRow('投放周期', (s.start_date || '-') + ' ~ ' + (ends.length ? ends[ends.length - 1] : '不限')) +
+    infoRow('完成情况', '完成 ' + sum.c.success +
+      (sum.c.running ? ' · 执行中 ' + sum.c.running : '') +
+      (sum.c.failed ? ' · 失败 ' + sum.c.failed : '') +
+      (sum.c.partial ? ' · 部分 ' + sum.c.partial : ''));
+  let acts = actBtn('js-setexp', '📁', (state.expanded.has(s.id) ? '收起子任务' : '展开子任务'), id);
+  if (hasPerm('ads:operate')) acts += actBtn('js-setdel danger', '🗑️', '删除任务集', id);
+  document.getElementById('madActTitle').innerText = '📋 任务集详情 · #' + id;
+  document.getElementById('madActBody').innerHTML =
+    '<div class="m-info-list">' + info + '</div><div class="m-act-list" style="margin-top:12px;">' + acts + '</div>';
+  openSheet(document.getElementById('mSheetActions'));
+}
+function renderStats() {
+  const parts = partitionList(state.tasks);
+  const c = { pending: 0, running: 0, success: 0, partial: 0, failed: 0 };
+  parts.top.forEach(t => { if (c[t.status] !== undefined) c[t.status]++; else c.pending++; });
+  parts.sets.forEach(s => { c[setStatusSummary(s.tasks).st]++; });
+  state.statCounts = { top: parts.top.length, sets: parts.sets.length, pending: c.pending, running: c.running, success: c.success, partial: c.partial, failed: c.failed };
+  renderSub();
+}
+function renderList() {
+  const box = document.getElementById('madList');
+  const parts = partitionList(state.tasks);
+  if (!parts.sets.length && !parts.top.length) {
+    box.innerHTML = '<div class="m-empty"><div class="m-empty-ico">📭</div><div class="m-empty-txt">暂无广告任务或任务集<br>点右上角 ➕ 新建</div></div>';
+    return;
+  }
+  const html = [];
+  parts.sets.forEach(s => {
+    html.push(setCardHtml(s));
+    if (state.expanded.has(s.id)) {
+      const children = (s.tasks || []).filter(taskMatchesFilters);
+      if (!children.length) html.push('<div class="mad-empty" style="padding:14px;">该任务集内没有符合筛选条件的子任务</div>');
+      children.forEach(t => html.push(taskCardHtml(t, true)));
+    }
+  });
+  parts.top.forEach(t => html.push(taskCardHtml(t, false)));
+  box.innerHTML = html.join('');
+}
+
+/* ===================== 列表加载 ===================== */
+async function loadTaskSets() {
+  try {
+    const j = await (await fetch('/api/ads/task-sets')).json();
+    if (j.code !== 0) return;
+    state.taskSets = j.data || [];
+  } catch (e) { console.error('加载任务集失败', e); }
+}
+async function loadTasks() {
+  const box = document.getElementById('madList');
+  box.innerHTML = '<div class="mad-empty">⏳ 正在加载广告任务…</div>';
+  const p = new URLSearchParams();
+  if (state.filterStatus && state.filterStatus !== 'all') p.append('status', state.filterStatus);
+  const shop = document.getElementById('madShopFilter').value;
+  if (shop) p.append('shop_name', shop);
+  const kw = document.getElementById('madSearch').value.trim();
+  if (kw) p.append('search', kw);
+  try {
+    const j = await (await fetch('/api/ads/tasks?' + p.toString())).json();
+    if (j.code !== 0) throw new Error(j.msg || '查询失败');
+    state.tasks = j.data || [];
+    await loadTaskSets();
+    renderStats();
+    renderList();
+  } catch (e) {
+    box.innerHTML = '<div class="mad-empty">加载失败：' + esc(e.message) + '</div>';
+    showToast('加载广告任务失败: ' + e.message, 'error');
+  }
+}
+function toggleSetExpand(setId) {
+  if (state.expanded.has(setId)) state.expanded.delete(setId); else state.expanded.add(setId);
+  renderList();
+}
+
+/* ===================== 列表交互 ===================== */
+document.getElementById('madList').addEventListener('click', function (e) {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const id = b.dataset.id ? parseInt(b.dataset.id, 10) : null;
+  if (b.classList.contains('js-setexp')) toggleSetExpand(id);
+  else if (b.classList.contains('js-setrun')) runTaskSet(id);
+  else if (b.classList.contains('js-run')) { if (b.dataset.act === 'stop') stopTask(id); else runTask(id); }
+  else if (b.classList.contains('js-more')) { if (b.dataset.kind === 'set') openSetActions(id); else openTaskActions(id); }
+});
+document.getElementById('madActBody').addEventListener('click', function (e) {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const id = b.dataset.id ? parseInt(b.dataset.id, 10) : null;
+  closeSheets();
+  if (b.classList.contains('js-setexp')) toggleSetExpand(id);
+  else if (b.classList.contains('js-setdel')) deleteTaskSet(id);
+  else if (b.classList.contains('js-edit')) openForm(id);
+  else if (b.classList.contains('js-hist')) openHistory(id);
+  else if (b.classList.contains('js-del')) deleteTask(id);
+});
+
+/* ===================== 表单 ===================== */
+function updateAsinCounter() {
+  const raw = document.getElementById('madAsinsText').value || '';
+  const parts = raw.split(/[,，;；\s\r\n\t]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+  const dedup = getCheckedVal('madDedup') === 'yes';
+  let list = parts, dup = 0;
+  if (dedup) { list = Array.from(new Set(parts)); dup = parts.length - list.length; }
+  else { const seen = new Set(); for (const p of parts) { if (seen.has(p)) dup++; else seen.add(p); } }
+  const bad = list.filter(a => !/^[A-Z0-9]{10}$/.test(a));
+  document.getElementById('madAsinCounter').innerHTML = '已识别 <b style="color:#2563eb;">' + list.length + '</b> 个 ASIN' +
+    (dup > 0 ? ' · <span style="color:#b45309;">重复 ' + dup + ' 个' + (dedup ? '（保存自动去重）' : '') + '</span>' : '') +
+    (bad.length ? ' · <span style="color:#dc2626;">⚠ ' + bad.length + ' 个格式异常</span>' : '');
+}
+function toggleTrim() {
+  const noTrim = getCheckedVal('madTrim') === 'no';
+  const kw = document.getElementById('madTrimKeepWrap');
+  const nw = document.getElementById('madTrimNoWrap');
+  if (kw) kw.style.display = noTrim ? 'none' : 'flex';
+  if (nw) nw.style.display = noTrim ? 'block' : 'none';
+}
+function openForm(taskId) {
+  document.getElementById('madTaskId').value = taskId || '';
+  document.getElementById('madFormTitle').innerText = taskId ? ('✏️ 编辑广告任务 #' + taskId) : '➕ 新增广告投放任务';
+  document.getElementById('madTaskName').value = '';
+  document.getElementById('madShopName').value = '';
+  document.getElementById('madBudget').value = 300;
+  document.getElementById('madDefaultBid').value = 30;
+  document.getElementById('madBatchSize').value = 10;
+  document.getElementById('madTrimKeep').value = 5;
+  document.getElementById('madAsinsText').value = '';
+  document.getElementById('madEndDate').value = '';
+  document.getElementById('madStartDate').value = state.options.today || '';
+  renderSeg('madCreateModeGroup', state.options.create_modes || ['所有产品合并创建广告', '每个产品单独创建广告'], '所有产品合并创建广告', 'madCreateMode');
+  renderSeg('madBidStrategyGroup', state.options.bid_strategies || ['动态竞价-只降低'], '动态竞价-只降低', 'madBidStrategy');
+  renderSeg('madDedupGroup', [{ v: 'no', label: '不去重' }, { v: 'yes', label: '自动去重' }], 'yes', 'madDedup');
+  renderSeg('madTrimGroup', [{ v: 'yes', label: '裁剪' }, { v: 'no', label: '不裁剪' }], 'yes', 'madTrim');
+  toggleTrim();
+  if (taskId) {
+    const t = state.tasks.find(x => x.id === taskId);
+    if (!t) { showToast('未找到该任务数据', 'error'); return; }
+    document.getElementById('madTaskName').value = t.task_name || '';
+    document.getElementById('madShopName').value = t.shop_name || '';
+    document.getElementById('madStartDate').value = t.start_date || '';
+    document.getElementById('madEndDate').value = t.end_date || '';
+    document.getElementById('madBudget').value = t.daily_budget;
+    document.getElementById('madDefaultBid').value = t.default_bid;
+    document.getElementById('madAsinsText').value = (t.asins || []).join(',');
+    document.getElementById('madBatchSize').value = t.batch_size || 10;
+    document.getElementById('madTrimKeep').value = t.trim_keep || 5;
+    renderSeg('madCreateModeGroup', state.options.create_modes || [], t.create_mode || '所有产品合并创建广告', 'madCreateMode');
+    renderSeg('madBidStrategyGroup', state.options.bid_strategies || [], t.bid_strategy || '动态竞价-只降低', 'madBidStrategy');
+    renderSeg('madDedupGroup', [{ v: 'no', label: '不去重' }, { v: 'yes', label: '自动去重' }], t.auto_dedup ? 'yes' : 'no', 'madDedup');
+    renderSeg('madTrimGroup', [{ v: 'yes', label: '裁剪' }, { v: 'no', label: '不裁剪' }], t.trim_variants ? 'yes' : 'no', 'madTrim');
+    toggleTrim();
+  } else {
+    const nameEl = document.getElementById('madTaskName');
+    nameEl.value = state.options.next_task_name || '';
+    fetch('/api/ads/options').then(r => r.json()).then(j => {
+      if (j.code === 0 && j.data) {
+        state.options = j.data;
+        if (!nameEl.value) nameEl.value = j.data.next_task_name || '';
+      }
+    }).catch(() => {});
+  }
+  updateAsinCounter();
+  openSheet(document.getElementById('mSheetAdForm'));
+}
+async function saveForm() {
+  const id = document.getElementById('madTaskId').value;
+  const payload = {
+    task_name: document.getElementById('madTaskName').value.trim(),
+    shop_name: document.getElementById('madShopName').value,
+    create_mode: getCheckedVal('madCreateMode'),
+    start_date: document.getElementById('madStartDate').value,
+    end_date: document.getElementById('madEndDate').value,
+    daily_budget: parseFloat(document.getElementById('madBudget').value),
+    bid_strategy: getCheckedVal('madBidStrategy'),
+    default_bid: parseFloat(document.getElementById('madDefaultBid').value),
+    asins_text: document.getElementById('madAsinsText').value,
+    auto_dedup: getCheckedVal('madDedup') === 'yes',
+    trim_variants: getCheckedVal('madTrim') === 'yes',
+    trim_keep: parseInt(document.getElementById('madTrimKeep').value || '5', 10) || 5,
+    batch_size: parseInt(document.getElementById('madBatchSize').value || '0', 10) || 0,
+  };
+  if (!payload.task_name) { showToast('请填写任务名称', 'error'); return; }
+  if (!payload.shop_name) { showToast('请选择店铺名称', 'error'); return; }
+  if (!payload.create_mode) { showToast('请选择创建方式', 'error'); return; }
+  if (!payload.bid_strategy) { showToast('请选择竞价策略', 'error'); return; }
+  if (!payload.asins_text.trim()) { showToast('请填写 ASIN 列表', 'error'); return; }
+  if (!payload.start_date) { showToast('请选择开始时间', 'error'); return; }
+  const btn = document.getElementById('madFormSave');
+  btn.disabled = true; btn.innerText = '保存中…';
+  try {
+    const url = id ? ('/api/ads/tasks/' + id) : '/api/ads/tasks';
+    const r = await fetch(url, {
+      method: id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (j.code !== 0) throw new Error(j.detail || j.msg || '保存失败');
+    showToast(id ? '广告任务更新成功' : '广告任务创建成功', 'success');
+    closeSheets();
+    loadTasks();
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.innerText = '💾 保存任务'; }
+}
+
+/* ===================== 删除 ===================== */
+async function deleteTask(id) {
+  if (!confirm('确认删除广告任务 #' + id + '？该任务的执行记录将一并删除，且不可恢复。')) return;
+  try {
+    const j = await (await fetch('/api/ads/tasks/' + id, { method: 'DELETE' })).json();
+    if (j.code !== 0) throw new Error(j.detail || '删除失败');
+    showToast('广告任务已删除', 'success');
+    loadTasks();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+async function deleteTaskSet(setId) {
+  const s = state.taskSets.find(x => x.id === setId);
+  const n = s ? (s.tasks || []).length : 0;
+  if (!confirm('确认删除任务集 #' + setId + ' 及其下 ' + n + ' 个广告任务？（含执行记录，不可恢复）')) return;
+  try {
+    const j = await (await fetch('/api/ads/task-sets/' + setId, { method: 'DELETE' })).json();
+    if (j.code !== 0) throw new Error(j.detail || '删除失败');
+    showToast(j.msg || '任务集已删除', 'success');
+    loadTasks();
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+/* ===================== 执行 / 终止 ===================== */
+async function runTask(id) {
+  const t = state.tasks.find(x => x.id === id);
+  const cnt = t ? (t.asins || []).length : 0;
+  if (!confirm('确认对任务 #' + id + ' 执行自动投放？\n\n· 共 ' + cnt + ' 个 ASIN\n· 当前阶段执行到「提交」前停止\n\n执行期间请勿操作 9222 调试浏览器窗口。')) return;
+  try {
+    const j = await (await fetch('/api/ads/tasks/' + id + '/run', { method: 'POST' })).json();
+    if (j.code !== 0) throw new Error(j.detail || '启动失败');
+    showToast('自动投放已启动', 'success');
+    openRunLog(id, true);
+  } catch (e) { showToast(e.message, 'error'); }
+}
+async function stopTask(id) {
+  if (!confirm('确认请求终止任务 #' + id + ' 的自动投放？\n\n当前 ASIN 录入环节结束后即停止，已录入的数据保持现状。')) return;
+  try {
+    const j = await (await fetch('/api/ads/tasks/' + id + '/stop', { method: 'POST' })).json();
+    if (j.code !== 0) throw new Error(j.detail || '终止失败');
+    showToast('终止请求已受理', 'success');
+  } catch (e) { showToast(e.message, 'error'); }
+}
+function openRunLog(id, autoStart) {
+  state.run.taskId = id;
+  state.run.since = 0;
+  document.getElementById('madRunTaskId').innerText = id;
+  document.getElementById('madRunLogBox').innerText = '等待执行日志...\n';
+  document.getElementById('madRunResult').style.display = 'none';
+  document.getElementById('madRunState').innerText = '执行中';
+  document.getElementById('madRunStop').style.display = 'inline-block';
+  openSheet(document.getElementById('mSheetRunLog'));
+  if (state.run.timer) { clearInterval(state.run.timer); state.run.timer = null; }
+  if (autoStart !== false) {
+    state.run.timer = setInterval(pollRun, 1500);
+    pollRun();
+  }
+}
+async function pollRun() {
+  const id = state.run.taskId;
+  if (!id) return;
+  try {
+    const j = await (await fetch('/api/ads/tasks/' + id + '/run-status?since=' + state.run.since)).json();
+    const d = (j.data || {});
+    document.getElementById('madRunElapsed').innerText = (d.elapsed_sec || 0) + 's';
+    if (d.new_logs && d.new_logs.length) {
+      const box = document.getElementById('madRunLogBox');
+      if (state.run.since === 0) box.innerText = '';
+      box.innerText += d.new_logs.join('\n') + '\n';
+      box.scrollTop = box.scrollHeight;
+      state.run.since = d.total_log_lines || state.run.since;
+    }
+    if (d.done) {
+      clearInterval(state.run.timer); state.run.timer = null;
+      const ok = d.success;
+      document.getElementById('madRunStop').style.display = 'none';
+      document.getElementById('madRunState').innerText = ok ? '✅ 执行成功' : '⚠️ 执行结束（异常）';
+      const bar = document.getElementById('madRunResult');
+      bar.style.display = 'block';
+      bar.style.background = ok ? '#ecfdf5' : '#fffbeb';
+      bar.style.border = '1px solid ' + (ok ? '#a7f3d0' : '#fde68a');
+      bar.style.color = ok ? '#065f46' : '#92400e';
+      bar.innerText = d.msg || (ok ? '执行完成' : '执行结束，请查看日志');
+      checkCdp();
+      loadTaskSets();
+      if (state.run.setRun) {
+        document.getElementById('madRunLogBox').innerText += '\n【任务集】任务 #' + id + ' ' + (ok ? '完成' : '结束(异常)') + '\n';
+        setTimeout(startNextSetTask, 1200);
+      } else {
+        loadTasks();
+      }
+    }
+  } catch (e) { console.error('轮询执行状态失败', e); }
+}
+
+/* ===================== 整套执行 ===================== */
+async function runTaskSet(setId) {
+  const s = state.taskSets.find(x => x.id === setId);
+  if (!s) { showToast('任务集不存在', 'error'); return; }
+  const tasks = (s.tasks || []).filter(t => t.status !== 'success');
+  if (!tasks.length) { showToast('该任务集下没有待执行任务（均已成功）', 'error'); return; }
+  const totalAsins = tasks.reduce((n, t) => n + (t.asin_count || (t.asins || []).length), 0);
+  if (!confirm('整套执行任务集「' + s.set_name + '」？\n\n· 共 ' + tasks.length + ' 个任务 / ' + totalAsins + ' 个 ASIN\n· 按顺序逐个执行，已成功的自动跳过\n\n执行期间请勿操作 9222 调试浏览器窗口。')) return;
+  state.run.setRun = { setId: setId, setName: s.set_name, ids: tasks.map(t => t.id), idx: 0 };
+  openRunLog(tasks[0].id, false);
+  startNextSetTask();
+}
+async function startNextSetTask() {
+  const st = state.run.setRun;
+  if (!st) return;
+  if (st.idx >= st.ids.length) {
+    const box = document.getElementById('madRunLogBox');
+    if (box) { box.innerText += '\n【任务集】全部 ' + st.ids.length + ' 个任务已执行完毕。\n'; box.scrollTop = box.scrollHeight; }
+    showToast('任务集「' + st.setName + '」执行完毕（共 ' + st.ids.length + ' 个任务）', 'success');
+    state.run.setRun = null;
+    if (state.run.timer) { clearInterval(state.run.timer); state.run.timer = null; }
+    loadTasks();
+    return;
+  }
+  const id = st.ids[st.idx++];
+  const box = document.getElementById('madRunLogBox');
+  if (box) {
+    box.innerText += '\n【任务集 ' + st.setName + '】▶ 开始任务 #' + id + '（第 ' + st.idx + '/' + st.ids.length + ' 个）\n';
+    box.scrollTop = box.scrollHeight;
+  }
+  document.getElementById('madRunTaskId').innerText = id;
+  document.getElementById('madRunState').innerText = '整套执行中 (' + st.idx + '/' + st.ids.length + ')';
+  state.run.taskId = id;
+  state.run.since = 0;
+  try {
+    const j = await (await fetch('/api/ads/tasks/' + id + '/run', { method: 'POST' })).json();
+    if (j.code !== 0) throw new Error(j.detail || j.msg || '启动失败');
+    if (state.run.timer) clearInterval(state.run.timer);
+    state.run.timer = setInterval(pollRun, 1500);
+    pollRun();
+  } catch (e) {
+    if (box) box.innerText += '⚠ 任务 #' + id + ' 启动失败：' + e.message + '，跳过\n';
+    showToast('任务 #' + id + ' 启动失败: ' + e.message, 'error');
+    setTimeout(startNextSetTask, 1500);
+  }
+}
+
+/* ===================== 执行记录 ===================== */
+function openHistory(taskId) {
+  state.histTaskId = taskId;
+  openSheet(document.getElementById('mSheetHistory'));
+  renderHistoryList(taskId);
+}
+async function renderHistoryList(taskId) {
+  const body = document.getElementById('madHistBody');
+  document.getElementById('madHistTitle').innerHTML = '🗂️ 执行记录 · #' + taskId;
+  body.innerHTML = '<div class="mad-empty">⏳ 加载中…</div>';
+  try {
+    const j = await (await fetch('/api/ads/tasks/' + taskId + '/runs?limit=50')).json();
+    const runs = (j.data || []);
+    if (!runs.length) { body.innerHTML = '<div class="mad-empty">📭 暂无执行记录</div>'; return; }
+    body.innerHTML = runs.map(r => '<div class="mad-card">' +
+      '<div class="mad-cname"><span class="id">#' + r.id + '</span>' + madBadge(r.status) + '</div>' +
+      '<div class="mad-mini">' +
+        '<span class="mad-mchip">' + esc(r.started_at || '-') + '</span>' +
+        '<span class="mad-mchip green">录入 <b>' + r.entered_count + '</b>/' + r.total_asins + '</span>' +
+        (r.skipped_count ? '<span class="mad-mchip red">跳过 ' + r.skipped_count + '</span>' : '') +
+        '<span class="mad-mchip">' + ((r.duration_ms || 0) / 1000).toFixed(1) + 's</span>' +
+      '</div>' +
+      '<div style="font-size:0.74rem;color:#475569;margin-top:6px;line-height:1.5;word-break:break-all;">' + esc(r.result_msg || '-') + '</div>' +
+      '<div class="mad-foot"><button type="button" class="btn btn-outline js-rundetail" data-id="' + r.id + '">查看详情</button></div>' +
+      '</div>').join('');
+  } catch (e) { body.innerHTML = '<div class="mad-empty">加载失败：' + esc(e.message) + '</div>'; }
+}
+document.getElementById('madHistBody').addEventListener('click', function (e) {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.classList.contains('js-rundetail')) renderRunDetail(parseInt(b.dataset.id, 10));
+  else if (b.classList.contains('js-backhist')) renderHistoryList(state.histTaskId);
+});
+async function renderRunDetail(runId) {
+  const body = document.getElementById('madHistBody');
+  document.getElementById('madHistTitle').innerHTML = '📄 记录详情 · #' + runId;
+  body.innerHTML = '<div class="mad-empty">⏳ 加载中…</div>';
+  try {
+    const j = await (await fetch('/api/ads/runs/' + runId)).json();
+    const r = j.data || {};
+    const verify = safeParse(r.verify_json, {});
+    const skips = safeParse(r.skip_detail_json, []);
+    let html = '<div class="mad-kv">' +
+      '<div class="k">任务</div><div class="v">' + esc(r.task_name || '-') + '（#' + r.task_id + '）</div>' +
+      '<div class="k">状态</div><div class="v">' + madBadge(r.status) + ' · ' + (r.submitted ? '已提交' : '未提交') + '</div>' +
+      '<div class="k">时间</div><div class="v">' + esc(r.started_at || '-') + ' → ' + esc(r.finished_at || '-') + '（' + ((r.duration_ms || 0) / 1000).toFixed(1) + 's）</div>' +
+      '<div class="k">终态对账</div><div class="v">已配置 ' + (verify.configured !== undefined ? verify.configured : '-') + ' / 期望 ' + (verify.expected !== undefined ? verify.expected : '-') +
+        (verify.match === true ? ' <b style="color:#059669;">✓ 一致</b>' : (verify.match === false ? ' <b style="color:#dc2626;">✗ 不一致</b>' : '')) + '</div>' +
+      '<div class="k">结果</div><div class="v">' + esc(r.result_msg || '-') + '</div>' +
+      '</div>';
+    if (skips.length) {
+      html += '<div style="font-size:0.78rem;font-weight:800;color:#b45309;margin:10px 0 6px;">跳过明细（' + skips.length + '）</div>' +
+        '<div style="max-height:150px;overflow:auto;border:1px solid #fde68a;background:#fffbeb;border-radius:8px;padding:9px 11px;font-size:0.74rem;line-height:1.7;">' +
+        skips.map(s => '· <b>' + esc(s.asin) + '</b> @ ' + esc(s.campaign) + '：' + esc(s.reason) + ' ' + esc(s.detail || '')).join('<br>') +
+        '</div>';
+    }
+    html += '<div style="font-size:0.78rem;font-weight:800;color:#334155;margin:12px 0 6px;">执行日志</div>' +
+      '<pre class="mad-pre">' + esc(r.log_text || '(无日志)') + '</pre>' +
+      '<div class="mad-foot"><button type="button" class="btn btn-outline js-backhist">← 返回记录列表</button></div>';
+    body.innerHTML = html;
+  } catch (e) { body.innerHTML = '<div class="mad-empty">加载失败：' + esc(e.message) + '</div>'; }
+}
+
+/* ===================== ASIN 生成池 ===================== */
+function openPool(tab) {
+  switchPoolTab(tab || 'import');
+  openSheet(document.getElementById('mSheetAsinPool'));
+}
+function switchPoolTab(tab) {
+  poolState.tab = tab;
+  document.querySelectorAll('#madPoolTabs .mad-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('#mSheetAsinPool .mad-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab));
+  if (tab === 'import') loadBatches();
+  else if (tab === 'logs') loadPoolLogs();
+  else if (tab === 'overview') loadOverview(false);
+}
+document.getElementById('madPoolTabs').addEventListener('click', function (e) {
+  const b = e.target.closest('.mad-tab');
+  if (b) switchPoolTab(b.dataset.tab);
+});
+
+/* --- ① 导入 --- */
+document.getElementById('madDropZone').addEventListener('click', function () {
+  document.getElementById('madAsinFile').click();
+});
+document.getElementById('madAsinFile').addEventListener('change', function () {
+  document.getElementById('madAsinFileName').innerText = this.files[0] ? ('已选择: ' + this.files[0].name) : '';
+});
+async function uploadAsin() {
+  const input = document.getElementById('madAsinFile');
+  const file = input.files[0];
+  const msg = document.getElementById('madAsinImportMsg');
+  if (!file) { showToast('请先选择 Excel 文件', 'error'); return; }
+  const btn = document.getElementById('madAsinImportBtn');
+  btn.disabled = true; btn.innerText = '导入中…';
+  msg.innerHTML = '<span style="color:#64748b;">解析并入库中…</span>';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const j = await (await fetch('/api/asin-pool/import', { method: 'POST', body: fd })).json();
+    if (j.code !== 0) throw new Error(j.detail || '导入失败');
+    const d = j.data;
+    msg.innerHTML = '<span style="color:#059669;font-weight:600;">✓ 导入成功：Excel ' + d.excel_rows + ' 行 → 入库 ' + d.pair_count + ' 对（' + d.parent_count + ' 父ASIN，跳过 ' + d.skipped + ' 行），已成为当前生效批次</span>';
+    showToast('ASIN 批次导入成功', 'success');
+    if (d.duplicate_check) renderDupCheck(d.duplicate_check);
+    input.value = '';
+    document.getElementById('madAsinFileName').innerText = '';
+    loadBatches();
+  } catch (e) {
+    msg.innerHTML = '<span style="color:#dc2626;font-weight:600;">✗ ' + esc(e.message) + '</span>';
+    showToast(e.message, 'error');
+  } finally { btn.disabled = false; btn.innerText = '⬆ 开始导入'; }
+}
+async function checkDup() {
+  const btn = document.getElementById('madAsinDupBtn');
+  btn.disabled = true; btn.innerText = '检查中…';
+  try {
+    const j = await (await fetch('/api/asin-pool/check-duplicates')).json();
+    if (j.code !== 0) throw new Error(j.detail || '检查失败');
+    renderDupCheck(j.data.duplicate_check, j.data.batch_id);
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.innerText = '🔍 重复检查'; }
+}
+function renderDupCheck(dc, batchId) {
+  const box = document.getElementById('madAsinDupResult');
+  if (!dc) { box.innerHTML = ''; return; }
+  const sec = (title, color, data, fmt) => {
+    if (!data || !data.count) return '';
+    const chips = (data.items || []).map(fmt).join('');
+    return '<div style="padding:6px 10px;border-top:1px solid #fde68a;font-size:0.74rem;line-height:2;"><b style="color:' + color + ';">⚠ ' + title + '：' + data.count + ' 项' + (data.truncated ? '（前50条）' : '') + '</b><br>' + chips + '</div>';
+  };
+  const chip = t => '<span class="mad-asin-chip warn">' + esc(t) + '</span>';
+  const total = dc.same_parent_dup.count + dc.child_multi_parent.count + dc.parents_also_child.count + dc.cross_batch_dup_children.count;
+  box.innerHTML = '<div style="border:1px solid ' + (total ? '#f59e0b' : '#86efac') + ';border-radius:10px;overflow:hidden;margin-top:10px;">' +
+    '<div style="background:#fffbeb;padding:8px 10px;font-size:0.76rem;font-weight:700;color:#92400e;">' +
+    (batchId ? '批次 #' + batchId + ' ' : '') + (total ? '重复检查发现 ' + total + ' 处异常' : '✓ 重复检查通过：无重复 ASIN，父体归属无冲突') + '</div>' +
+    sec('同一父体下重复行', '#b45309', dc.same_parent_dup, kv => chip(kv[0] + ' ×' + kv[1])) +
+    sec('子ASIN 归属多个父体（冲突）', '#dc2626', dc.child_multi_parent, kv => chip(kv[0] + ' ⇐ ' + kv[1].join(' / '))) +
+    sec('父体同时是其他父体的子ASIN', '#dc2626', dc.parents_also_child, t => chip(t)) +
+    sec('跨批次重复子ASIN', '#b45309', dc.cross_batch_dup_children, t => chip(t)) +
+    '</div>';
+}
+async function loadBatches() {
+  const box = document.getElementById('madAsinBatchList');
+  box.innerHTML = '<div class="mad-empty">⏳ 加载中…</div>';
+  try {
+    const j = await (await fetch('/api/asin-pool/batches')).json();
+    const rows = j.data || [];
+    if (!rows.length) { box.innerHTML = '<div class="mad-empty">📭 尚未导入，请先上传赛狐在线产品 Excel</div>'; return; }
+    box.innerHTML = rows.map((b, i) => '<div class="mad-card' + (i === 0 ? ' set' : '') + '">' +
+      '<div class="mad-cname"><span class="id">#' + b.id + '</span>' +
+        (i === 0 ? '<span class="mad-badge" style="color:#059669;background:#ecfdf5;border:1px solid #a7f3d0;">✓ 当前生效</span>' : '<span class="mad-mchip">历史批次</span>') +
+      '</div>' +
+      '<div class="mad-mini">' +
+        '<span class="mad-mchip">' + esc(b.imported_at) + '</span>' +
+        '<span class="mad-mchip blue">Excel ' + b.excel_rows + ' 行</span>' +
+        '<span class="mad-mchip">父子对 ' + b.pair_count + '</span>' +
+        '<span class="mad-mchip">父ASIN ' + b.parent_count + '</span>' +
+      '</div>' +
+      '<div style="font-size:0.72rem;color:#64748b;margin-top:5px;word-break:break-all;">📄 ' + esc(b.filename || '-') + '</div>' +
+      '</div>').join('');
+  } catch (e) { box.innerHTML = '<div class="mad-empty">加载失败：' + esc(e.message) + '</div>'; }
+}
+
+/* --- ② 获取 ASIN --- */
+function getGenMode() {
+  const el = document.querySelector('input[name="madGenMode"]:checked');
+  return el ? el.value : 'byAds';
+}
+function analyzeGen(raw) {
+  const mode = getGenMode();
+  const rawLines = (raw || '').split(/\r\n|\n|\r/);
+  const lines = rawLines.map(l => l.trim()).filter(Boolean);
+  const empties = rawLines.filter(l => l.trim() === '').length;
+  const dups = [];
+  let list;
+  if (mode === 'byAds') {
+    const seen = new Map(); list = [];
+    lines.forEach(l => {
+      const a = l.slice(0, 10).toUpperCase();
+      if (seen.has(a)) { seen.set(a, seen.get(a) + 1); if (dups.length < 20) dups.push({ raw: l.length > 30 ? l.slice(0, 30) + '…' : l, asin: a }); }
+      else { seen.set(a, 1); list.push(a); }
+    });
+  } else {
+    const seen = new Set(); list = [];
+    (raw || '').split(/[,，;；\s\r\n\t]+/).forEach(s => {
+      const a = s.trim().toUpperCase();
+      if (!a) return;
+      if (seen.has(a)) { if (dups.length < 20) dups.push({ raw: a, asin: a }); return; }
+      seen.add(a); list.push(a);
+    });
+  }
+  return { list: list, lines: lines.length, dups: dups, empties: empties };
+}
+function updateGenCounter() {
+  const r = analyzeGen(document.getElementById('madGenInput').value);
+  const bad = r.list.filter(a => !/^[A-Z0-9]{10}$/.test(a));
+  const modeTag = getGenMode() === 'byAds' ? ' · byAds截取' : ' · byAsin';
+  const merged = Math.max(0, r.lines - r.list.length);
+  document.getElementById('madGenCounter').innerHTML = '已识别 <b style="color:#2563eb;">' + r.list.length + '</b> 个 ASIN' + modeTag +
+    (merged ? ' · <span style="color:#d97706;">合并重复 ' + merged + ' 行</span>' : '') +
+    (r.empties ? ' · ' + r.empties + ' 空行' : '') +
+    (bad.length ? ' · <span style="color:#dc2626;">⚠ ' + bad.length + ' 格式异常</span>' : '');
+}
+async function generateAsins() {
+  const text = document.getElementById('madGenInput').value;
+  const list = analyzeGen(text).list;
+  if (!list.length) { showToast('请输入至少一个已投放 ASIN', 'error'); return; }
+  const btn = document.getElementById('madGenBtn');
+  btn.disabled = true; btn.innerText = '生成中…';
+  try {
+    const j = await (await fetch('/api/asin-pool/generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asins_text: text, mode: getGenMode() }),
+    })).json();
+    if (j.code !== 0) throw new Error(j.detail || '生成失败');
+    renderGenResult(j.data);
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.innerText = '🎲 生成 ASIN'; }
+}
+function renderGenResult(d) {
+  const box = document.getElementById('madGenResult');
+  const results = d.result_asins || [];
+  const resultDetails = d.result_details || results.map(a => ({ asin: a, parent: '' }));
+  const ignored = d.ignored_asins || [];
+  const matched = d.matched_parents || [];
+  const resChips = resultDetails.map(t => '<span class="mad-asin-chip">' + esc(t.asin) + (t.parent ? ' ⇐' + esc(t.parent) : '') + '</span>').join('');
+  box.innerHTML = '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;background:#f8fafc;font-size:0.76rem;color:#475569;line-height:1.7;">' +
+      '依据批次 <b>' + esc(d.batch_time || '-') + '</b> · 输入 ' + (d.input_asins || []).length + ' 个 → 命中父体 <b style="color:#2563eb;">' + matched.length + '</b>，新生成 <b style="color:#059669;">' + results.length + '</b> 个' +
+      (ignored.length ? ' · <span style="color:#dc2626;">' + ignored.length + ' 个未在库中</span>' : '') +
+    '</div>' +
+    '<div style="font-size:0.78rem;font-weight:800;color:#92400e;margin:12px 0 6px;">生成结果（' + results.length + '，子ASIN ⇐ 父ASIN）</div>' +
+    (results.length
+      ? '<div class="mad-chips-wrap" style="max-height:180px;overflow:auto;">' + resChips + '</div>'
+      : '<div style="color:#94a3b8;font-size:0.8rem;">所有父体均已被输入 ASIN 覆盖，无新 ASIN 可生成</div>') +
+    (results.length
+      ? '<div class="mad-foot"><button type="button" class="btn btn-outline" id="madGenCopyAll">📋 复制全部</button><button type="button" class="btn btn-primary" id="madGenFill">➡ 填入新任务</button></div>'
+      : '');
+  const cb = document.getElementById('madGenCopyAll');
+  if (cb) cb.onclick = () => copyToClipboard(results.join(','), 'ASIN ');
+  const fb = document.getElementById('madGenFill');
+  if (fb) fb.onclick = () => fillIntoNewTask(results);
+}
+function fillIntoNewTask(list) {
+  closeSheets();
+  openForm(null);
+  document.getElementById('madAsinsText').value = (list || []).join(',');
+  updateAsinCounter();
+  showToast('已填入 ' + (list || []).length + ' 个 ASIN，请补全店铺等参数', 'success');
+}
+
+/* --- ③ 获取记录 --- */
+async function loadPoolLogs() {
+  const box = document.getElementById('madLogList');
+  box.innerHTML = '<div class="mad-empty">⏳ 加载中…</div>';
+  try {
+    const j = await (await fetch('/api/asin-pool/query-logs?limit=100')).json();
+    const rows = j.data || [];
+    if (!rows.length) { box.innerHTML = '<div class="mad-empty">📭 暂无获取记录</div>'; return; }
+    box.innerHTML = rows.map(r => {
+      const res = r.result_asins || [];
+      return '<div class="mad-card">' +
+        '<div class="mad-cname"><span class="id">#' + r.id + '</span>' + esc(r.queried_at) + '</div>' +
+        '<div class="mad-mini">' +
+          '<span class="mad-mchip">依据 ' + (r.batch_time ? esc(r.batch_time) : ('#' + r.batch_id)) + '</span>' +
+          '<span class="mad-mchip">输入 ' + r.input_count + '</span>' +
+          '<span class="mad-mchip green">结果 ' + r.result_count + '</span>' +
+        '</div>' +
+        '<div style="font-size:0.7rem;color:#475569;margin-top:6px;word-break:break-all;line-height:1.6;max-height:66px;overflow:auto;font-family:ui-monospace,Menlo,monospace;">' + esc(res.join(',') || '-') + '</div>' +
+        '<div class="mad-foot">' + (res.length
+          ? '<button type="button" class="btn btn-outline js-copyasin">📋 复制</button><button type="button" class="btn btn-primary js-fillnew">➡ 新任务</button>'
+          : '<span style="font-size:0.74rem;color:#94a3b8;">无结果</span>') + '</div>' +
+        '</div>';
+    }).join('');
+    const cards = box.querySelectorAll('.mad-card');
+    rows.forEach((r, i) => {
+      const c = cards[i]; if (!c) return;
+      const res = r.result_asins || [];
+      const cb = c.querySelector('.js-copyasin'); if (cb) cb.onclick = () => copyToClipboard(res.join(','), 'ASIN ');
+      const fb = c.querySelector('.js-fillnew'); if (fb) fb.onclick = () => fillIntoNewTask(res);
+    });
+  } catch (e) { box.innerHTML = '<div class="mad-empty">加载失败：' + esc(e.message) + '</div>'; }
+}
+
+/* --- ④ 入库总览 --- */
+async function loadOverview(reset) {
+  if (reset) poolState.page = 1;
+  const box = document.getElementById('madOvList');
+  box.innerHTML = '<div class="mad-empty">⏳ 加载中…</div>';
+  try {
+    const kw = document.getElementById('madOvSearch').value.trim();
+    const j = await (await fetch('/api/asin-pool/overview?page=' + poolState.page + '&page_size=' + poolState.pageSize + (kw ? '&search=' + encodeURIComponent(kw) : ''))).json();
+    if (j.code !== 0) throw new Error(j.detail || '加载失败');
+    const d = j.data, s = d.stats || {};
+    const lb = s.latest_batch;
+    document.getElementById('madOvStats').innerHTML =
+      '<span class="mad-asin-chip muted">历史批次 <b>' + s.batch_count + '</b></span>' +
+      '<span class="mad-asin-chip muted">累计父子对 <b>' + s.total_pairs + '</b></span>' +
+      (lb ? '<span class="mad-asin-chip">生效批次 #' + lb.id + '：' + s.parent_count + ' 父 / ' + s.child_count + ' 子</span>' : '<span class="mad-asin-chip warn">尚未导入批次</span>');
+    const rows = d.parents || [];
+    if (!rows.length) {
+      box.innerHTML = '<div class="mad-empty">📭 ' + (kw ? '未搜索到匹配的父 ASIN' : '暂无数据') + '</div>';
+    } else {
+      box.innerHTML = rows.map(p => '<div class="mad-card">' +
+        '<div class="mad-cname" style="font-family:ui-monospace,Menlo,monospace;font-size:0.82rem;">' + esc(p.parent) + '</div>' +
+        '<div class="mad-mini"><span class="mad-mchip blue">子ASIN <b>' + p.child_count + '</b></span><span class="mad-mchip">' + (p.is_standalone ? '独立商品' : '多变体') + '</span></div>' +
+        '<div class="mad-foot"><button type="button" class="btn btn-outline js-ovchild" data-parent="' + esc(p.parent) + '">▸ 子ASIN</button></div>' +
+        '</div>').join('');
+    }
+    const pages = Math.max(1, Math.ceil((d.total || 0) / poolState.pageSize));
+    document.getElementById('madOvPageInfo').innerText = '共 ' + (d.total || 0) + ' 个父 ASIN · 第 ' + poolState.page + '/' + pages + ' 页';
+    document.getElementById('madOvPrev').disabled = poolState.page <= 1;
+    document.getElementById('madOvNext').disabled = poolState.page >= pages;
+  } catch (e) { box.innerHTML = '<div class="mad-empty">加载失败：' + esc(e.message) + '</div>'; }
+}
+document.getElementById('madOvList').addEventListener('click', async function (e) {
+  const b = e.target.closest('.js-ovchild');
+  if (!b) return;
+  const card = b.closest('.mad-card');
+  const next = card.nextElementSibling;
+  if (next && next.classList.contains('js-ovchildren')) { next.remove(); b.innerText = '▸ 子ASIN'; return; }
+  b.innerText = '▾ 收起';
+  try {
+    const j = await (await fetch('/api/asin-pool/parents/' + encodeURIComponent(b.dataset.parent) + '/children')).json();
+    const children = (j.data && j.data.children) || [];
+    const div = document.createElement('div');
+    div.className = 'mad-card js-ovchildren';
+    div.style.background = '#f8fafc';
+    div.innerHTML = '<div class="mad-chips-wrap">' +
+      (children.map(c => '<span class="mad-asin-chip muted" style="font-family:ui-monospace,Menlo,monospace;">' + esc(c) + '</span>').join('') || '<span style="color:#94a3b8;font-size:0.76rem;">无子 ASIN</span>') +
+      '</div>';
+    card.after(div);
+  } catch (e) { b.innerText = '▸ 子ASIN'; showToast('加载子 ASIN 失败: ' + e.message, 'error'); }
+});
+async function purgePool() {
+  if (!confirm('确认删除全部 ASIN 池数据？\n\n将永久清空：所有历史导入批次、父子 ASIN 关系、全部获取记录。\n\n此操作不可恢复。')) return;
+  const btn = document.getElementById('madOvPurge');
+  btn.disabled = true; btn.innerText = '清空中…';
+  try {
+    const j = await (await fetch('/api/asin-pool/all', { method: 'DELETE' })).json();
+    if (j.code !== 0) throw new Error(j.detail || '删除失败');
+    showToast(j.msg || '已清空全部数据', 'success');
+    poolState.page = 1;
+    document.getElementById('madOvSearch').value = '';
+    loadOverview(false);
+    loadBatches();
+  } catch (e) { showToast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.innerText = '🗑'; }
+}
+
+/* ===================== 全局事件绑定 ===================== */
+document.addEventListener('change', function (e) {
+  const inp = e.target;
+  if (!inp || inp.type !== 'radio' || !inp.name) return;
+  const box = inp.closest('.mad-seg');
+  if (box) box.querySelectorAll('label').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
+  if (inp.name === 'madTrim') toggleTrim();
+  if (inp.name === 'madDedup') updateAsinCounter();
+  if (inp.name === 'madGenMode') updateGenCounter();
+});
+document.getElementById('madAsinsText').addEventListener('input', updateAsinCounter);
+document.getElementById('madGenInput').addEventListener('input', updateGenCounter);
+
+document.getElementById('madRefresh').addEventListener('click', loadTasks);
+document.getElementById('madPoolBtn').addEventListener('click', function () { openPool('import'); });
+const newBtn = document.getElementById('madNewBtn');
+if (newBtn) newBtn.addEventListener('click', function () { openForm(null); });
+document.getElementById('madCdpLaunch').addEventListener('click', launchCdp);
+
+document.getElementById('madFilterBtn').addEventListener('click', function () { openSheet(document.getElementById('mSheetFilter')); });
+document.getElementById('madStatusChips').addEventListener('click', function (e) {
+  const b = e.target.closest('.m-chip');
+  if (!b) return;
+  state.filterStatus = b.dataset.st;
+  document.querySelectorAll('#madStatusChips .m-chip').forEach(c => c.classList.toggle('m-on', c === b));
+  updateFilterDot();
+});
+document.getElementById('madShopFilter').addEventListener('change', updateFilterDot);
+document.getElementById('madFilterReset').addEventListener('click', function () {
+  state.filterStatus = 'all';
+  document.querySelectorAll('#madStatusChips .m-chip').forEach(c => c.classList.toggle('m-on', c.dataset.st === 'all'));
+  document.getElementById('madShopFilter').value = '';
+  updateFilterDot();
+});
+document.getElementById('madFilterApply').addEventListener('click', function () { closeSheets(); loadTasks(); });
+document.getElementById('madActClose').addEventListener('click', closeSheets);
+function updateFilterDot() {
+  const shop = document.getElementById('madShopFilter').value || '';
+  const on = (state.filterStatus && state.filterStatus !== 'all') || !!shop;
+  document.getElementById('madFilterBtn').classList.toggle('active', !!on);
+}
+document.getElementById('madSearch').addEventListener('keyup', function (e) { if (e.key === 'Enter') loadTasks(); });
+
+document.getElementById('madFormCancel').addEventListener('click', closeSheets);
+document.getElementById('madFormSave').addEventListener('click', saveForm);
+document.getElementById('madRunClose').addEventListener('click', closeAll);
+document.getElementById('madRunStop').addEventListener('click', function () { if (state.run.taskId) stopTask(state.run.taskId); });
+document.getElementById('madHistClose').addEventListener('click', closeSheets);
+document.getElementById('madPoolClose').addEventListener('click', closeSheets);
+
+document.getElementById('madAsinImportBtn').addEventListener('click', uploadAsin);
+document.getElementById('madAsinDupBtn').addEventListener('click', checkDup);
+document.getElementById('madGenBtn').addEventListener('click', generateAsins);
+document.getElementById('madOvSearchBtn').addEventListener('click', function () { loadOverview(true); });
+document.getElementById('madOvSearch').addEventListener('keyup', function (e) { if (e.key === 'Enter') loadOverview(true); });
+document.getElementById('madOvPrev').addEventListener('click', function () { poolState.page = Math.max(1, poolState.page - 1); loadOverview(false); });
+document.getElementById('madOvNext').addEventListener('click', function () { poolState.page += 1; loadOverview(false); });
+document.getElementById('madOvPurge').addEventListener('click', purgePool);
+
+/* ===================== 初始化 ===================== */
+(async function init() {
+  checkCdp();
+  await loadOptions();
+  await loadTasks();
+})();
+</script>
+{% endblock %}

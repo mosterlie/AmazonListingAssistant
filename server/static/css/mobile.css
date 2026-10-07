@@ -226,13 +226,13 @@ body {
 .m-sheet-item.m-danger { color: #dc2626; }
 
 /* ---------- 卡片式列表 (运单等) ---------- */
-.m-card-list { display: flex; flex-direction: column; gap: 10px; }
+.m-card-list { display: flex; flex-direction: column; gap: 12px; }
 
 .m-card {
   background: var(--bg-card, #fff);
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 14px;
-  padding: 12px 14px;
+  padding: 14px;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
 }
 .m-card .m-card-head {
@@ -328,6 +328,7 @@ body {
   border-radius: 999px;
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
+  font-family: inherit;
   font-size: 0.76rem;
   font-weight: 700;
   color: #475569;
@@ -403,3 +404,254 @@ body {
 @media (max-width: 480px) {
   .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
+
+/* ============================================================
+   手机版原生组件扩展 (v20261004_m2)
+   页面标题条 / 吸顶搜索栏 / 筛选抽屉 / 商品卡 / 骨架屏 / 空态 /
+   详情弹层 / 居中 Toast / 下拉刷新 / 加载更多
+   ============================================================ */
+
+/* ---------- 页面标题条 ---------- */
+.m-pagehead { display: flex; align-items: center; gap: 10px; margin: 2px 0 12px; }
+.m-pagehead .m-ptitle { font-size: 1.15rem; font-weight: 800; color: #1e293b; margin: 0; line-height: 1.3; }
+.m-pagehead .m-psub { font-size: 0.72rem; color: #94a3b8; margin-top: 3px; }
+.m-pagehead .m-pactions { margin-left: auto; display: flex; gap: 8px; }
+.m-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 44px; height: 44px; padding: 0 10px;
+  border-radius: 12px; background: #f1f5f9; border: 1px solid #e2e8f0;
+  font-size: 1.05rem; text-decoration: none; color: #1e293b; cursor: pointer;
+}
+.m-icon-btn:active { background: #e0e7ff; }
+.m-icon-btn.m-primary {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  border-color: transparent; color: #fff;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+}
+
+/* ---------- 吸顶搜索栏 ---------- */
+.m-searchbar {
+  position: sticky; top: 48px; z-index: 120;
+  display: flex; gap: 8px; padding: 8px 0 10px;
+  background: linear-gradient(#fff 72%, rgba(255, 255, 255, 0));
+}
+.m-searchbar .m-search-input {
+  flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0;
+  height: 44px; padding: 0 12px;
+  background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 12px;
+  color: #0f172a;
+}
+.m-searchbar .m-search-input input {
+  flex: 1; min-width: 0; border: none; background: transparent; outline: none;
+  font-size: 0.92rem; color: #0f172a;
+}
+.m-searchbar .m-search-input input::-webkit-search-cancel-button { -webkit-appearance: none; }
+.m-searchbar .m-filter-btn {
+  position: relative; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  min-width: 44px; height: 44px; padding: 0 12px;
+  border-radius: 12px; background: #eef2ff; border: 1px solid #c7d2fe;
+  color: #4338ca; font-weight: 700; font-size: 0.85rem; cursor: pointer;
+}
+.m-searchbar .m-filter-btn.active { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+.m-searchbar .m-filter-dot {
+  position: absolute; top: -3px; right: -3px; width: 10px; height: 10px;
+  border-radius: 999px; background: #ef4444; border: 2px solid #fff; display: none;
+}
+.m-searchbar .m-filter-btn.active .m-filter-dot { display: block; }
+
+/* ---------- 抽屉内表单字段 (筛选) ---------- */
+.m-sheet.m-filter-sheet { max-height: 84vh; }
+.m-field { margin-bottom: 14px; }
+.m-field .m-field-label { display: block; font-size: 0.76rem; font-weight: 700; color: #64748b; margin-bottom: 6px; }
+.m-field .form-input, .m-field .form-select { width: 100%; min-height: 46px; font-size: 0.95rem; border-radius: 12px; box-sizing: border-box; }
+.m-sheet-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; margin-top: 6px; }
+.m-sheet-actions .btn { min-height: 46px; font-size: 0.95rem; }
+
+/* 可点选 chips 选中态 */
+.m-chip.m-on { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+
+/* ---------- 商品卡片 ---------- */
+.m-product-card {
+  display: flex; gap: 10px;
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 10px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+}
+.m-product-card:active { background: #f8fafc; }
+.m-pc-thumb {
+  position: relative; flex-shrink: 0; width: 76px; height: 76px;
+  border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0;
+  background: #f8fafc; display: flex; align-items: center; justify-content: center;
+}
+.m-pc-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.m-pc-thumb .m-pc-noimg { font-size: 1.4rem; color: #cbd5e1; }
+.m-pc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.m-pc-title {
+  font-size: 0.88rem; font-weight: 700; color: #0f172a; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.m-pc-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.m-pc-sku {
+  font-family: ui-monospace, monospace; font-size: 0.76rem; font-weight: 700; color: #1e293b;
+  background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 7px; padding: 2px 7px;
+}
+.m-pc-tag {
+  font-size: 0.68rem; font-weight: 700; border-radius: 999px; padding: 2px 8px;
+  background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;
+}
+.m-pc-tag.violet { background: #f5f3ff; color: #7c3aed; border-color: #ddd6fe; }
+.m-pc-foot { display: flex; align-items: center; gap: 8px; margin-top: 1px; }
+.m-pc-store { font-size: 0.72rem; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 999px; padding: 1px 8px; }
+.m-pc-time { margin-left: auto; font-size: 0.68rem; color: #94a3b8; }
+.m-pc-src { display: inline-flex; align-items: center; }
+
+/* ---------- 骨架屏 ---------- */
+.m-skel { position: relative; overflow: hidden; background: #eef2f6; border-radius: 8px; }
+.m-skel::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+  animation: mSkel 1.2s infinite;
+}
+@keyframes mSkel { 100% { transform: translateX(100%); } }
+.m-skel-card { display: flex; gap: 10px; background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 10px; }
+.m-skel-thumb { width: 76px; height: 76px; border-radius: 10px; flex-shrink: 0; }
+.m-skel-lines { flex: 1; display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+
+/* ---------- 空态 ---------- */
+.m-empty { text-align: center; padding: 44px 20px; color: #94a3b8; }
+.m-empty .m-empty-ico { font-size: 2.4rem; margin-bottom: 10px; }
+.m-empty .m-empty-txt { font-size: 0.85rem; line-height: 1.6; }
+
+/* ---------- 详情弹层 (紧凑) ---------- */
+.m-detail-hero { display: flex; gap: 12px; margin-bottom: 12px; }
+.m-detail-hero .m-dh-img {
+  width: 96px; height: 96px; border-radius: 12px; overflow: hidden; flex-shrink: 0;
+  border: 1px solid #e2e8f0; background: #f8fafc;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 1.6rem;
+}
+.m-detail-hero .m-dh-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.m-dh-title { font-size: 0.92rem; font-weight: 700; color: #0f172a; line-height: 1.4; }
+.m-detail-rows { border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; margin-bottom: 12px; }
+.m-detail-row { display: flex; gap: 10px; padding: 9px 12px; font-size: 0.82rem; border-bottom: 1px solid #f1f5f9; }
+.m-detail-row:last-child { border-bottom: none; }
+.m-detail-row .m-dr-label { flex-shrink: 0; width: 78px; color: #94a3b8; font-size: 0.76rem; }
+.m-detail-row .m-dr-val { flex: 1; min-width: 0; color: #334155; word-break: break-all; }
+.m-detail-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.m-detail-actions .btn { min-height: 46px; font-size: 0.92rem; }
+.m-pub-status { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: #f8fafc; border: 1px solid #e2e8f0; font-size: 0.78rem; color: #475569; line-height: 1.6; display: none; max-height: 140px; overflow: auto; }
+
+/* ---------- 加载更多 / 分页 ---------- */
+.m-loadmore { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 16px 0 4px; }
+.m-loadmore .btn { min-height: 42px; min-width: 96px; }
+.m-loadmore small { color: #94a3b8; font-size: 0.76rem; }
+
+/* ---------- 手机版 Toast (居中偏上) ---------- */
+.m-toast {
+  position: fixed; left: 50%; top: 72px;
+  transform: translateX(-50%) translateY(-8px);
+  max-width: 88vw; padding: 11px 18px; border-radius: 12px;
+  color: #fff; font-size: 0.88rem; font-weight: 600; text-align: center;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.22);
+  z-index: 9000; opacity: 0; transition: opacity 0.22s, transform 0.22s;
+  pointer-events: none;
+}
+.m-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.m-toast.ok { background: linear-gradient(135deg, #10b981, #059669); }
+.m-toast.err { background: linear-gradient(135deg, #ef4444, #dc2626); }
+.m-toast.info { background: linear-gradient(135deg, #475569, #334155); }
+
+/* ---------- 下拉刷新 ---------- */
+.m-ptr {
+  height: 0; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  color: #94a3b8; font-size: 0.78rem; transition: height 0.18s;
+}
+.m-ptr .m-ptr-spin { display: inline-block; }
+.m-ptr.loading .m-ptr-spin { animation: mSpin 0.8s linear infinite; }
+@keyframes mSpin { 100% { transform: rotate(360deg); } }
+
+/* ============================================================
+   统一密度规范 (v20261004_m3)
+   一屏一主任务 / 统计并入副标题 / 卡片三行封顶 / 次级内容抽屉化
+   各手机业务页共用, 抹平页面自造样式差异
+   ============================================================ */
+
+/* ---------- 副标题 (替代统计卡 / 统计 chips) ---------- */
+.m-psub { line-height: 1.5; }
+.m-psub .m-psub-sep { margin: 0 5px; color: #cbd5e1; }
+.m-psub .m-psub-ok  { color: #059669; font-weight: 700; }
+.m-psub .m-psub-err { color: #dc2626; font-weight: 700; }
+
+/* ---------- 卡片三行结构 ---------- */
+.m-card .m-card-title {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 0.92rem; font-weight: 800; color: #0f172a; line-height: 1.35;
+  word-break: break-word;
+}
+.m-card .m-card-title .m-card-id { flex-shrink: 0; color: #94a3b8; font-size: 0.74rem; font-weight: 700; }
+.m-card .m-card-sub { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.m-card .m-card-foot { gap: 10px; margin-top: 12px; padding-top: 10px; }
+
+/* 状态徽章 */
+.m-badge {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 0.68rem; font-weight: 800; border: 1px solid transparent; white-space: nowrap;
+}
+.m-badge.b-gray  { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+.m-badge.b-blue  { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.m-badge.b-green { background: #ecfdf5; color: #059669; border-color: #a7f3d0; }
+.m-badge.b-amber { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+.m-badge.b-red   { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+
+/* 摘要 chip (卡片第二行, 每卡最多 2 个) */
+.m-schip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 999px;
+  background: #f8fafc; border: 1px solid #e2e8f0;
+  font-family: inherit; font-size: 0.72rem; font-weight: 700; color: #475569; white-space: nowrap;
+}
+.m-schip.blue  { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.m-schip.amber { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+.m-schip.tap { cursor: pointer; }
+.m-schip.tap:active { background: #e0e7ff; border-color: #c7d2fe; }
+
+/* 卡片操作行: 1 个主按钮 + 1 个 ⋯ */
+.m-card-foot .m-btn-main {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  min-height: 44px; border-radius: 12px; border: none; cursor: pointer;
+  font-size: 0.88rem; font-weight: 800; color: #fff;
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  box-shadow: 0 3px 10px rgba(2, 132, 199, 0.24);
+}
+.m-card-foot .m-btn-main.stop { background: linear-gradient(135deg, #f87171, #dc2626); box-shadow: 0 3px 10px rgba(220, 38, 38, 0.24); }
+.m-card-foot .m-btn-main:disabled { opacity: 0.55; }
+.m-card-foot .m-btn-main:active { opacity: 0.88; }
+.m-card-foot .m-more-btn {
+  flex-shrink: 0; margin-left: auto; width: 46px; height: 44px; border-radius: 12px;
+  border: 1px solid #e2e8f0; background: #f8fafc; color: #475569;
+  font-size: 1.2rem; font-weight: 800; line-height: 1; cursor: pointer;
+}
+.m-card-foot .m-more-btn:active { background: #e0e7ff; }
+
+/* ---------- 操作清单抽屉 (⋯ 展开) ---------- */
+.m-act-list { display: flex; flex-direction: column; gap: 8px; }
+.m-act-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  min-height: 50px; padding: 0 14px; box-sizing: border-box;
+  border-radius: 12px; border: 1px solid #e2e8f0; background: #fff;
+  font-size: 0.9rem; font-weight: 700; color: #1e293b; cursor: pointer; text-align: left;
+}
+.m-act-item:active { background: #f1f5f9; }
+.m-act-item.danger { color: #dc2626; border-color: #fecaca; background: #fff5f5; }
+.m-act-item .m-act-ico { font-size: 1.1rem; flex-shrink: 0; }
+.m-act-item .m-act-arrow { margin-left: auto; color: #cbd5e1; font-weight: 800; }
+
+/* ---------- 详情信息行 (抽屉内展示次级字段) ---------- */
+.m-info-list { border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+.m-info-row { display: flex; gap: 10px; padding: 9px 12px; font-size: 0.8rem; border-bottom: 1px solid #f1f5f9; }
+.m-info-row:last-child { border-bottom: none; }
+.m-info-row .k { flex-shrink: 0; width: 84px; color: #94a3b8; font-size: 0.75rem; }
+.m-info-row .v { flex: 1; min-width: 0; color: #334155; word-break: break-all; }
+
+/* 收起态紧凑工具栏按钮 */
+.m-icon-btn.m-on { background: #4f46e5; border-color: #4f46e5; color: #fff; }

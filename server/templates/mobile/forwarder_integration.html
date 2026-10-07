@@ -3,36 +3,52 @@
 {% block title %}运单管理{% endblock %}
 
 {% block content %}
-<!-- 统计 chips -->
-<div class="m-chip-row" style="margin-bottom:12px;">
-  <span class="m-chip" id="wbStatTransit" style="display:none;"></span>
-  <span class="m-chip" id="wbStatSigned" style="display:none;"></span>
-  <span class="m-chip" id="wbStatException" style="display:none;"></span>
-</div>
-
-<!-- 入库工具栏 -->
-<div class="m-card" style="margin-bottom:12px;">
-  <textarea id="wbPasteInput" class="form-input" rows="2"
-    placeholder="粘贴单号入库：支持每行一个 / 逗号分隔，自动识别并查询运输状态"
-    style="width:100%; resize:vertical; min-height:56px; font-size:0.9rem; margin-bottom:10px;"></textarea>
-  <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
-    <button class="btn btn-primary" id="wbAddBtn" onclick="addWaybills()" type="button" style="min-height:44px; font-size:0.85rem; padding:0 4px;">➕ 入库查询</button>
-    {% if 'waybill:sync' in user_perms %}<button class="btn btn-outline" id="wbSyncBtn" onclick="syncMiaoshou()" type="button" style="min-height:44px; font-size:0.85rem; padding:0 4px;">📥 妙手同步</button>{% endif %}
-    {% if 'waybill:refresh_all' in user_perms %}<button class="btn btn-outline" id="wbRefreshBtn" onclick="refreshAllWaybills()" type="button" style="min-height:44px; font-size:0.85rem; padding:0 4px;">🔄 刷新状态</button>{% endif %}
+<!-- 标题条: 统计并入副标题 -->
+<div class="m-pagehead">
+  <div>
+    <h1 class="m-ptitle">🚚 运单管理</h1>
+    <div class="m-psub" id="wbStatSub">加载中…</div>
   </div>
-  <div id="wbAddResult" style="display:none; margin-top:10px; padding:10px 12px; border-radius:8px; background:#fef2f2; border:1px solid #fecaca; font-size:0.76rem; color:#7f1d1d; max-height:140px; overflow:auto;"></div>
+  <div class="m-pactions">
+    <button type="button" class="m-icon-btn" id="wbToggleAddBtn" title="入库 / 批量操作">➕</button>
+  </div>
 </div>
 
-<!-- 搜索栏 -->
-<div style="display:flex; gap:8px; margin-bottom:14px;">
-  <input type="text" id="wbSearchInput" class="form-input" placeholder="🔍 搜索单号" style="flex:1; min-height:44px; font-size:0.95rem;" onkeydown="if(event.key==='Enter') loadWaybills();">
-  <button class="btn btn-outline" onclick="loadWaybills()" type="button" style="min-height:44px; padding:0 16px;">搜索</button>
-  <button class="btn btn-outline" onclick="document.getElementById('wbSearchInput').value=''; loadWaybills();" type="button" style="min-height:44px; padding:0 16px;">重置</button>
+<!-- 入库工具栏 (默认折叠, 点 ➕ 展开) -->
+<div id="wbAddCard" style="display:none; margin-bottom:12px;">
+  <div class="m-card">
+    <textarea id="wbPasteInput" class="form-input" rows="2"
+      placeholder="粘贴单号入库：每行一个 / 逗号分隔"
+      style="width:100%; resize:vertical; min-height:56px; font-size:0.9rem; margin-bottom:10px;"></textarea>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+      <button class="btn btn-primary" id="wbAddBtn" onclick="addWaybills()" type="button" style="min-height:44px; font-size:0.85rem; padding:0 4px;">➕ 入库查询</button>
+      {% if 'waybill:sync' in user_perms %}<button class="btn btn-outline" id="wbSyncBtn" onclick="syncMiaoshou()" type="button" style="min-height:44px; font-size:0.85rem; padding:0 4px;">📥 妙手同步</button>{% endif %}
+      {% if 'waybill:refresh_all' in user_perms %}<button class="btn btn-outline" id="wbRefreshBtn" onclick="refreshAllWaybills()" type="button" style="min-height:44px; font-size:0.85rem; padding:0 4px;">🔄 刷新状态</button>{% endif %}
+    </div>
+    <div id="wbAddResult" style="display:none; margin-top:10px; padding:10px 12px; border-radius:8px; background:#fef2f2; border:1px solid #fecaca; font-size:0.76rem; color:#7f1d1d; max-height:140px; overflow:auto;"></div>
+  </div>
+</div>
+
+<!-- 吸顶搜索栏 -->
+<div class="m-searchbar">
+  <div class="m-search-input">
+    <span>🔍</span>
+    <input type="search" id="wbSearchInput" placeholder="搜索单号" onkeydown="if(event.key==='Enter') loadWaybills();">
+  </div>
 </div>
 
 <!-- 运单卡片列表 -->
-<div class="m-card-list" id="wbCardList">
+<div class="m-card-list" id="wbCardList" style="margin-top:10px;">
   <div class="m-card" style="text-align:center; padding:32px; color:#94a3b8;">⏳ 正在加载运单数据...</div>
+</div>
+
+<!-- ⋯ 运单详情/操作抽屉 -->
+<div class="m-sheet-mask" id="wbMask"></div>
+<div class="m-sheet" id="mSheetWb">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">运单详情</div>
+  <div id="mWbInfo"></div>
+  <div class="m-act-list" style="margin-top:12px;" id="mWbActs"></div>
 </div>
 
 <!-- 轨迹时间线弹窗 -->
@@ -66,6 +82,7 @@
   function hasPerm(key) { return IS_ADMIN || USER_PERMS.includes(key); }
   let waybills = [];
   let trackModalData = null;
+  let mWbIdx = -1;
 
   function escapeHtml(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, m => ({
@@ -84,27 +101,11 @@
     return body;
   }
 
-  function copyText(text, label = "") {
-    if (!text) return;
-    const done = () => showToast((label ? label + "已复制: " : "已复制: ") + text);
-    const fallback = () => {
-      const ta = document.createElement("textarea");
-      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-      document.body.appendChild(ta); ta.select();
-      try { document.execCommand("copy"); done(); }
-      catch (e) { showToast("复制失败, 请手动复制", "error"); }
-      document.body.removeChild(ta);
-    };
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).then(done).catch(fallback);
-    } else fallback();
-  }
-
   /* 单号复制热区 (卡片版) */
   function copyChip(text, placeholder = "—") {
     if (!text) return `<span style="color:#cbd5e1;">${placeholder}</span>`;
     return `<span class="m-copy-chip" title="点击复制" data-v="${escapeHtml(text)}"
-              onclick="copyText(this.dataset.v)">${escapeHtml(text)}</span>`;
+              onclick="copyToClipboard(this.dataset.v, '单号 ')">${escapeHtml(text)}</span>`;
   }
 
   /* 单号: 点击复制 + ↗ 跳转外链 (track17=17TRACK / sagawa=佐川急便官网), 先复制再跳转 */
@@ -112,8 +113,8 @@
   function jumpCell(text, type, placeholder = "—") {
     if (!text) return `<span style="color:#cbd5e1;">${placeholder}</span>`;
     const openAttr = type === "sagawa"
-      ? `copyText(this.dataset.v); window.open('${SAGAWA_URL}', '_blank')`
-      : `copyText(this.dataset.v); window.open('https://t.17track.net/zh-cn#nums=' + encodeURIComponent(this.dataset.v), '_blank')`;
+      ? `copyToClipboard(this.dataset.v); window.open('${SAGAWA_URL}', '_blank')`
+      : `copyToClipboard(this.dataset.v); window.open('https://t.17track.net/zh-cn#nums=' + encodeURIComponent(this.dataset.v), '_blank')`;
     const btnTitle = type === "sagawa" ? "复制单号并到佐川急便官网查询" : "复制单号并到 17TRACK 查询";
     return copyChip(text) +
       `<button class="m-jump-btn" type="button" style="margin-left:6px;"
@@ -122,17 +123,17 @@
 
   function statusBadgeCls(statusName) {
     const n = String(statusName || "");
-    if (n.includes("签收") || n.includes("妥投") || n.includes("成功投递")) return "wb-status-signed";
-    if (n.includes("派送") || n.includes("末端")) return "wb-status-delivery";
-    if (n.includes("异常") || n.includes("退回") || n.includes("扣留") || n.includes("失败")) return "wb-status-exception";
-    if (n) return "wb-status-transit";
-    return "wb-status-unknown";
+    if (n.includes("签收") || n.includes("妥投") || n.includes("成功投递")) return "b-green";
+    if (n.includes("派送") || n.includes("末端")) return "b-blue";
+    if (n.includes("异常") || n.includes("退回") || n.includes("扣留") || n.includes("失败")) return "b-red";
+    if (n) return "b-amber";
+    return "b-gray";
   }
 
   function statusBadge(w) {
     return w.track_status_name
-      ? `<span class="wb-status-badge ${statusBadgeCls(w.track_status_name)}">${escapeHtml(w.track_status_name)}</span>`
-      : `<span class="wb-status-badge wb-status-unknown">未知</span>`;
+      ? `<span class="m-badge ${statusBadgeCls(w.track_status_name)}">${escapeHtml(w.track_status_name)}</span>`
+      : `<span class="m-badge b-gray">未知</span>`;
   }
 
   /* ───────── 数据加载与统计 ───────── */
@@ -142,7 +143,7 @@
     try {
       const body = await api("/api/chudao/waybills" + (kw ? `?keyword=${encodeURIComponent(kw)}` : ""));
       waybills = body.data || [];
-      renderStats();
+      renderStatsSub();
       renderWaybills(listEl, kw);
     } catch (e) {
       if (e.message !== "未登录") {
@@ -151,59 +152,73 @@
     }
   }
 
-  function renderStats() {
+  /* 统计并入标题条副标题: 共 N · 运输中 X · 已签收 Y · 异常 Z */
+  function renderStatsSub() {
+    const sub = document.getElementById("wbStatSub");
+    if (!waybills.length) { sub.innerHTML = "暂无运单，点右上 ➕ 入库"; return; }
     const count = kw => waybills.filter(w => String(w.track_status_name || "").includes(kw)).length;
     const signed = count("签收") + count("妥投");
     const exception = waybills.filter(w => ["异常", "退回", "扣留", "失败"].some(k => String(w.track_status_name || "").includes(k))).length;
     const transit = waybills.length - signed - exception;
-    const setChip = (id, n, label) => {
-      const el = document.getElementById(id);
-      if (n > 0) { el.style.display = "inline-flex"; el.innerText = `${label} ${n}`; }
-      else el.style.display = "none";
-    };
-    setChip("wbStatTransit", transit, "🚚 运输中");
-    setChip("wbStatSigned", signed, "✅ 已签收");
-    setChip("wbStatException", exception, "⚠️ 异常");
+    sub.innerHTML = `共 ${waybills.length} 票<span class="m-psub-sep">·</span>运输中 ${transit}` +
+      `<span class="m-psub-sep">·</span><span class="m-psub-ok">已签收 ${signed}</span>` +
+      (exception ? `<span class="m-psub-sep">·</span><span class="m-psub-err">异常 ${exception}</span>` : "");
   }
 
-  /* 卡片式渲染: 一票一卡 */
+  /* 卡片式渲染: 三行封顶 (标题+徽章 / 摘要chips / 主按钮+⋯) */
   function renderWaybills(listEl, kw) {
     if (!waybills.length) {
       listEl.innerHTML = `<div class="m-card" style="text-align:center; padding:32px; color:#94a3b8;">
-        📦 运单库为空${kw ? " (无匹配结果)" : ""}，粘贴单号点「➕ 入库查询」添加</div>`;
+        📦 运单库为空${kw ? " (无匹配结果)" : ""}，点右上 ➕ 粘贴单号入库</div>`;
       return;
     }
-    listEl.innerHTML = waybills.map((w, i) => `
+    listEl.innerHTML = waybills.map((w, i) => {
+      const time = (w.updated_at || "").replace("T", " ").slice(0, 16);
+      return `
       <div class="m-card">
-        <div class="m-card-head">
-          <span style="flex-shrink:0; color:#94a3b8; font-size:0.75rem; font-weight:700;">${i + 1}</span>
-          <span class="m-card-no" style="flex:1;">${copyChip(w.tracking_number, "无货代单号")}</span>
-          ${statusBadge(w)}
+        <div class="m-card-title">${copyChip(w.tracking_number, "无货代单号")} ${statusBadge(w)}</div>
+        <div class="m-card-sub">
+          <span class="m-schip blue">🏁 ${escapeHtml(w.dest_country || "—")}</span>
+          ${time ? `<span class="m-schip">🕐 ${escapeHtml(time)}</span>` : ""}
         </div>
-        <div class="m-card-row">
-          <span class="m-row-label">跨境</span>
-          <span style="flex:1;">${jumpCell(w.channel_hawbcode, "track17")}</span>
-        </div>
-        <div class="m-card-row">
-          <span class="m-row-label">尾程</span>
-          <span style="flex:1;">${jumpCell(w.server_hawbcode, "sagawa")}</span>
-        </div>
-        <div class="m-card-row">
-          <span class="m-row-label">目的地</span>
-          <span><b>${escapeHtml(w.dest_country || "—")}</b></span>
-          <span style="margin-left:auto; color:#94a3b8; font-size:0.7rem;">${escapeHtml((w.updated_at || "").replace("T", " ").slice(0, 16))}</span>
-        </div>
-        ${w.last_track_desc ? `
-        <div class="m-card-row" style="margin-top:4px; padding-top:6px; border-top:1px dashed #e2e8f0;">
-          <span class="m-row-label">轨迹</span>
-          <span style="flex:1; font-size:0.74rem;">${escapeHtml(w.last_track_desc)}</span>
-        </div>` : ""}
         <div class="m-card-foot">
-          <button class="btn btn-outline" style="flex:1; min-height:40px; font-size:0.85rem; padding:0;" onclick="showTrack('${escapeHtml(w.tracking_number)}')">📍 轨迹</button>
-          <button class="btn btn-outline" style="min-height:40px; padding:0 14px;" onclick="refreshWaybill(${w.id}, '${escapeHtml(w.tracking_number)}')">🔄</button>
-          ${hasPerm('waybill:delete') ? `<button class="btn btn-outline" style="min-height:40px; padding:0 14px; color:#ef4444; border-color:#fecaca;" onclick="deleteWaybill(${w.id}, '${escapeHtml(w.tracking_number)}')">🗑️</button>` : ""}
+          <button class="m-btn-main" type="button" onclick="showTrack('${escapeHtml(w.tracking_number)}')">📍 轨迹</button>
+          <button class="m-more-btn" type="button" onclick="openWbActions(${i})">⋯</button>
         </div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
+  }
+
+  /* ───────── ⋯ 运单详情/操作抽屉 ───────── */
+  function mInfoRow(k, v) { return `<div class="m-info-row"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
+
+  function openWbActions(i) {
+    const w = waybills[i];
+    if (!w) return;
+    mWbIdx = i;
+    const time = (w.updated_at || "").replace("T", " ").slice(0, 16);
+    document.getElementById("mWbInfo").innerHTML = `<div class="m-info-list">` +
+      mInfoRow("货代单号", copyChip(w.tracking_number, "—")) +
+      mInfoRow("跨境运单号", jumpCell(w.channel_hawbcode, "track17")) +
+      mInfoRow("尾程单号", jumpCell(w.server_hawbcode, "sagawa")) +
+      mInfoRow("目的地", escapeHtml(w.dest_country || "—")) +
+      mInfoRow("最新轨迹", escapeHtml(w.last_track_desc || "—")) +
+      mInfoRow("更新时间", escapeHtml(time || "—")) +
+      `</div>`;
+    const acts = [];
+    acts.push(`<button class="m-act-item" type="button" onclick="closeWbSheet(); showTrack('${escapeHtml(w.tracking_number)}');"><span class="m-act-ico">📍</span>查看轨迹<span class="m-act-arrow">›</span></button>`);
+    acts.push(`<button class="m-act-item" type="button" onclick="closeWbSheet(); refreshWaybill(${w.id}, '${escapeHtml(w.tracking_number)}');"><span class="m-act-ico">🔄</span>刷新状态<span class="m-act-arrow">›</span></button>`);
+    if (hasPerm('waybill:delete')) {
+      acts.push(`<button class="m-act-item danger" type="button" onclick="closeWbSheet(); deleteWaybill(${w.id}, '${escapeHtml(w.tracking_number)}');"><span class="m-act-ico">🗑️</span>删除运单<span class="m-act-arrow">›</span></button>`);
+    }
+    document.getElementById("mWbActs").innerHTML = acts.join("");
+    document.getElementById("wbMask").classList.add("open");
+    document.getElementById("mSheetWb").classList.add("open");
+  }
+
+  function closeWbSheet() {
+    document.getElementById("wbMask").classList.remove("open");
+    document.getElementById("mSheetWb").classList.remove("open");
   }
 
   /* ───────── 入库 / 刷新 / 删除 ───────── */
@@ -316,7 +331,7 @@
       const badgeCls = statusBadgeCls(body.data.track_status_name);
       document.getElementById("trackModalSub").innerHTML =
         `<b style="color:#0f172a;">${escapeHtml(body.data.shipper_hawbcode || number)}</b>` +
-        (body.data.track_status_name ? ` · <span class="wb-status-badge ${badgeCls}">${escapeHtml(body.data.track_status_name)}</span>` : "") +
+        (body.data.track_status_name ? ` · <span class="m-badge ${badgeCls}">${escapeHtml(body.data.track_status_name)}</span>` : "") +
         ` · 目的地 ${escapeHtml(body.data.destination_country || "—")}`;
       const details = body.data.details || [];
       if (!details.length) {
@@ -341,13 +356,22 @@
       `状态: ${trackModalData.track_status_name || ""}`,
       `目的地: ${trackModalData.destination_country || ""}`, ""];
     (trackModalData.details || []).forEach(d => lines.push(`[${d.track_occur_date || ""}] ${d.track_description || ""}`));
-    copyText(lines.join("\n"), "轨迹文本");
+    copyToClipboard(lines.join("\n"), "轨迹文本");
   }
 
   function closeTrackModal() {
     const m = document.getElementById("trackModal");
     if (m) m.style.display = "none";
   }
+
+  /* ───────── 初始化 ───────── */
+  document.getElementById("wbToggleAddBtn").addEventListener("click", function () {
+    const card = document.getElementById("wbAddCard");
+    const show = card.style.display === "none";
+    card.style.display = show ? "block" : "none";
+    this.classList.toggle("m-on", show);
+  });
+  document.getElementById("wbMask").addEventListener("click", closeWbSheet);
 
   loadWaybills();
 </script>

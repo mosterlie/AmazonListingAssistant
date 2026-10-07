@@ -1,0 +1,583 @@
+{% extends "base_mobile.html" %}
+
+{% block title %}系统管理{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* 面板 Tab: 手机版用两列网格按钮代替 PC 横向胶囊 */
+  .settings-nav {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+    margin-bottom: 14px;
+  }
+  .settings-nav-item {
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    min-height: 46px; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 12px;
+    background: #fff; cursor: pointer; font-size: 0.8rem; font-weight: 700;
+    color: #334155; line-height: 1.2; text-align: center;
+  }
+  .settings-nav-item.active { background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; border-color: transparent; box-shadow: 0 4px 12px rgba(79,70,229,.28); }
+  .settings-panel { display: none; }
+  .settings-panel.active { display: block; }
+
+  /* 手机版卡片 / 字段 */
+  .m-scard { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(15,23,42,.05); }
+  .m-scard-title { display: flex; align-items: center; gap: 6px; font-size: 0.86rem; font-weight: 800; color: #1e293b; margin-bottom: 10px; line-height: 1.35; }
+  /* 分组折叠: 面板内多卡片默认只展开第一组, 点标题展开/收起 */
+  .m-scard.m-fold .m-scard-title { cursor: pointer; }
+  .m-scard .m-fold-caret { margin-left: 6px; color: #94a3b8; font-size: 0.72rem; transition: transform 0.18s; flex-shrink: 0; }
+  .m-scard.m-collapsed .m-fold-caret { transform: rotate(-90deg); }
+  .m-scard.m-collapsed > *:not(.m-scard-title) { display: none; }
+  .m-scard.m-collapsed .m-scard-title { margin-bottom: 0; }
+  .m-scard-tip { font-size: 0.74rem; color: #94a3b8; line-height: 1.6; margin: 0 0 12px; }
+  .m-fg { margin-bottom: 13px; }
+  .m-fg:last-child { margin-bottom: 0; }
+  .m-fg-label { display: block; font-size: 0.76rem; font-weight: 700; color: #64748b; margin-bottom: 6px; line-height: 1.4; }
+  .m-fg .form-input, .m-fg .form-select, .m-fg textarea { width: 100%; min-height: 44px; font-size: 0.92rem; border-radius: 12px; box-sizing: border-box; }
+  .m-radio-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .m-radio-row label { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px; font-size: 0.86rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; }
+  .m-pwd-wrap { display: flex; gap: 8px; align-items: center; }
+  .m-pwd-wrap .form-input { flex: 1; min-width: 0; }
+  .m-pwd-wrap .btn { min-height: 44px; padding: 0 12px; }
+  .m-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .m-btns .btn { min-height: 44px; font-size: 0.82rem; }
+
+  /* 店铺表 (settings.js 写入 <tr>, 必须保留表格结构) */
+  .m-tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid #e2e8f0; border-radius: 12px; }
+  .m-tbl-wrap table { border-collapse: collapse; width: 100%; font-size: 0.76rem; }
+  .m-tbl-wrap th, .m-tbl-wrap td { padding: 7px 6px; border-bottom: 1px solid #f1f5f9; text-align: left; word-break: break-word; }
+  .m-tbl-wrap td .tag-badge { padding: 1px 5px; font-size: 0.66rem; }
+  .m-tbl-wrap th { background: #f8fafc; font-weight: 700; color: #475569; white-space: nowrap; }
+
+  /* 物流渠道编辑器移动端压缩 */
+  .cr-card div[style*="grid-template-columns:repeat(4,1fr)"] { grid-template-columns: repeat(2, 1fr) !important; }
+  .cr-card input, .cr-card select { max-width: 100%; }
+  .cr-card input[data-f="name"] { width: 100% !important; }
+
+  /* 告警/提醒任务卡片: 由 task_cards.js 生成, 把内联多列网格压成单列 */
+  .alert-task-card .card-body div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+  .alert-task-card .card-body div[style*="display:flex"] { flex-wrap: wrap; }
+
+  /* RBAC 角色卡 */
+  .m-role-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; box-shadow: 0 2px 8px rgba(15,23,42,.05); }
+  .m-role-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .m-role-name { font-size: 0.9rem; font-weight: 800; color: #0f172a; }
+  .m-role-code { font-size: 0.7rem; color: #94a3b8; }
+  .m-role-desc { font-size: 0.76rem; color: #64748b; line-height: 1.5; margin-bottom: 8px; }
+  .m-role-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .m-role-btns .btn { min-height: 42px; font-size: 0.8rem; }
+  .m-cb-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .m-cb { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 11px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 0.79rem; }
+  .m-cb input { width: 16px; height: 16px; }
+  .m-perm-grp { margin-top: 8px; }
+  .m-perm-grp .m-perm-t { font-size: 0.72rem; color: #94a3b8; margin-bottom: 5px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="m-pagehead">
+  <div>
+    <h1 class="m-ptitle">⚙️ 系统管理</h1>
+    <div class="m-psub" id="mSetSub">配置保存后即时生效</div>
+  </div>
+  <div class="m-pactions">
+    <button type="button" class="m-icon-btn" id="resetDefaultsBtn" title="恢复默认">↩️</button>
+    <button type="button" class="m-icon-btn m-primary" id="saveSettingsBtn" title="保存配置">💾</button>
+  </div>
+</div>
+
+<nav class="settings-nav" id="settingsNav">
+  <button class="settings-nav-item active" data-tab="stores" type="button">🏬 店铺与品牌</button>
+  <button class="settings-nav-item" data-tab="pricing" type="button">💰 计价参数</button>
+  <button class="settings-nav-item" data-tab="channels" type="button">🚚 物流渠道</button>
+  <button class="settings-nav-item" data-tab="automation" type="button">🚀 自动化上件</button>
+  <button class="settings-nav-item" data-tab="ai" type="button">🤖 AI 大模型</button>
+  <button class="settings-nav-item" data-tab="general" type="button">🗂️ 归档·会话·令牌</button>
+  <button class="settings-nav-item" data-tab="email" type="button">📧 邮件配置</button>
+  <button class="settings-nav-item" data-tab="alert_tasks" type="button">🔔 告警任务</button>
+  <button class="settings-nav-item" data-tab="reminders" type="button">📨 提醒任务</button>
+  <button class="settings-nav-item" data-tab="rbac" type="button">🛡️ 角色权限</button>
+</nav>
+
+<div class="settings-layout">
+
+  <!-- 1. 店铺与品牌 -->
+  <div class="settings-panel active" data-panel="stores">
+    <div class="m-scard">
+      <div class="m-scard-title">🏬 店铺账号与对应品牌 <span class="tag-badge" id="storeCountBadge" style="margin-left:auto;">0 个店铺</span></div>
+      <p class="m-scard-tip">每个店铺 1 对 1 绑定一个品牌，可指定一个 ⭐ 默认店铺，录入商品时自动排第一并默认选中。</p>
+      <div class="m-tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:30px;text-align:center;">#</th>
+              <th style="width:78px;text-align:center;">⭐ 默认</th>
+              <th>店铺账号</th>
+              <th>绑定品牌</th>
+              <th style="width:54px;text-align:center;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="storeTableBody"></tbody>
+        </table>
+      </div>
+      <div class="m-fg" style="margin-top:12px;">
+        <label class="m-fg-label">店铺名称</label>
+        <input type="text" class="form-input" id="newStoreInput" placeholder="如: 金梧汇辰">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">对应品牌（必填）</label>
+        <input type="text" class="form-input" id="newBrandInput" placeholder="如: JINWU">
+      </div>
+      <button class="btn btn-outline" id="addStoreBtn" type="button" style="width:100%;min-height:44px;">➕ 添加店铺</button>
+    </div>
+  </div>
+
+  <!-- 2. 计价参数 -->
+  <div class="settings-panel" data-panel="pricing">
+    <div class="m-scard">
+      <div class="m-scard-title">💰 Calcfee 运费与日元售价核心参数</div>
+      <p class="m-scard-tip">用于 10 大国际物流渠道的比价、计费重精算与日元售价推导。</p>
+      <div class="m-fg">
+        <label class="m-fg-label">日本消费税 / 平台综合税率（通常 0.17）</label>
+        <input type="text" inputmode="decimal" class="form-input" id="taxRateInput" value="0.17" placeholder="例如: 0.17">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">日元兑人民币汇率（1 RMB ≈ 多少 JPY）</label>
+        <input type="text" inputmode="decimal" class="form-input" id="exchangeRateInput" value="23.0" placeholder="例如: 23.0">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">日元售价推导系数（默认 26.0）</label>
+        <input type="text" inputmode="decimal" class="form-input" id="priceCoeffInput" value="26.0" placeholder="例如: 26.0">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">默认目标利润系数（默认 1.0 = 100%）</label>
+        <input type="text" inputmode="decimal" class="form-input" id="defaultProfitCoeffInput" value="1.0" placeholder="例如: 1.0">
+      </div>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px;font-size:0.78rem;color:#334155;line-height:1.7;">
+        • 总成本 = 采购价 + 选中物流运费<br>
+        • 计划利润 = 总成本 × 利润系数<br>
+        • <b style="color:#4f46e5;">日元售价</b> = ROUND((总成本 + 计划利润) × <span id="formulaCoeffPreview" style="color:#b45309;font-weight:700;">26.0</span>)
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 物流渠道 -->
+  <div class="settings-panel" data-panel="channels">
+    <div class="m-scard">
+      <div class="m-scard-title">🚚 物流渠道计费标准</div>
+      <p class="m-scard-tip">每个渠道<b>独立保存</b>（卡片右上「💾 保存」，启用开关即时生效），渠道之间互不影响；留空的限制项表示不限。</p>
+      <div class="m-btns" style="margin-bottom:12px;">
+        <button class="btn btn-primary btn-sm" id="saveChannelRulesBtn" type="button">💾 保存全部</button>
+        <button class="btn btn-outline btn-sm" id="resetChannelRulesBtn" type="button">↩️ 恢复默认</button>
+        <button class="btn btn-outline btn-sm" id="addChannelRuleBtn" type="button">➕ 新增渠道</button>
+      </div>
+      <div id="channelRulesList"></div>
+    </div>
+  </div>
+
+  <!-- 4. 自动化上件 -->
+  <div class="settings-panel" data-panel="automation">
+    <div class="m-scard">
+      <div class="m-scard-title">🚀 自动化上件配置</div>
+      <div class="m-fg">
+        <label class="m-fg-label">🍎 Mac 端 Chrome 用户数据目录（留空用默认）</label>
+        <input type="text" class="form-input" id="chromeUserDataDirMacInput" value="" placeholder="如: /Users/你的用户名/ChromeDebugUser">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">🪟 Windows 端 Chrome 用户数据目录（留空用默认）</label>
+        <input type="text" class="form-input" id="chromeUserDataDirWinInput" value="" placeholder="如: C:\ChromeDebugUser">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">📤 是否提交广告</label>
+        <div class="m-radio-row">
+          <label><input type="radio" name="submitAdEnabled" id="submitAdYes" value="yes"> ✅ 是</label>
+          <label><input type="radio" name="submitAdEnabled" id="submitAdNo" value="no" checked> ❌ 否</label>
+        </div>
+      </div>
+      <p class="m-scard-tip">目录修改后需重启 Chrome 9222 才生效。</p>
+    </div>
+  </div>
+
+  <!-- 5. AI 大模型 -->
+  <div class="settings-panel" data-panel="ai">
+    <div class="m-scard">
+      <div class="m-scard-title">🤖 AI 大模型配置（五点描述生成）</div>
+      <div class="m-fg">
+        <label class="m-fg-label">是否由大模型生成 5 点描述</label>
+        <div class="m-radio-row">
+          <label><input type="radio" name="aiGenerateBulletsEnabled" id="aiGenerateBulletsYes" value="yes"> ✅ 是</label>
+          <label><input type="radio" name="aiGenerateBulletsEnabled" id="aiGenerateBulletsNo" value="no" checked> ❌ 否</label>
+        </div>
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">生成来源</label>
+        <div class="m-radio-row">
+          <label><input type="radio" name="aiBulletsSource" id="aiSourceLocal" value="local"> 🏠 本地</label>
+          <label><input type="radio" name="aiBulletsSource" id="aiSourcePublic" value="public"> ☁️ 公共</label>
+        </div>
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">本地 Ollama 模型名称</label>
+        <input type="text" class="form-input" id="aiOllamaModelInput" value="" placeholder="如: qwen2.5:1.5b-instruct">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">公共大模型名称</label>
+        <input type="text" class="form-input" id="aiModelNameInput" value="" placeholder="如: deepseek-v4-flash">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">API Base URL</label>
+        <input type="text" class="form-input" id="aiApiBaseUrlInput" value="" placeholder="如: https://api.deepseek.com">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">公共大模型 API Key</label>
+        <input type="password" class="form-input" id="aiApiKeyInput" value="" placeholder="如: sk-xxxxxxxx" autocomplete="new-password">
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. 归档 / 会话 / 令牌 -->
+  <div class="settings-panel" data-panel="general">
+    <div class="m-scard">
+      <div class="m-scard-title">📁 本地图片与产品归档目录</div>
+      <div class="m-fg">
+        <label class="m-fg-label">🍎 macOS 归档主地址（绝对路径）</label>
+        <input type="text" class="form-input" id="storagePathMacInput" value="/Users/gx/Desktop/products" placeholder="/Users/gx/Desktop/products">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">🪟 Windows 归档主地址（绝对路径）</label>
+        <input type="text" class="form-input" id="storagePathWinInput" value="D:\products" placeholder="D:\products">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">📁 主图与附图相对文件夹</label>
+        <input type="text" class="form-input" id="storageRelMainInput" value="main" placeholder="默认 main">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">📁 变体 SKU 图片相对文件夹</label>
+        <input type="text" class="form-input" id="storageRelSkuInput" value="sku" placeholder="默认 sku">
+      </div>
+    </div>
+
+    <div class="m-scard">
+      <div class="m-scard-title">⏱️ 登录会话有效期 <span class="tag-badge" id="sessionBadge" style="margin-left:auto;">默认 1h</span></div>
+      <div class="m-fg">
+        <label class="m-fg-label">有效期（小时，0 = 永久）</label>
+        <input type="number" step="0.5" min="0" max="720" class="form-input" id="sessionExpireHoursInput" value="1.0" placeholder="0 表示永久">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="sessionNeverExpireCheckbox" style="width:18px;height:18px;"> ♾️ 永久有效
+        </label>
+      </div>
+      <div class="m-btns">
+        <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(1)">1 小时</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(24)">24 小时</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(168)">7 天</button>
+        <button type="button" class="btn btn-outline btn-sm" onclick="setSessionPreset(0)" style="color:#16a34a;border-color:#86efac;font-weight:700;">♾️ 永久</button>
+      </div>
+    </div>
+
+    <div class="m-scard">
+      <div class="m-scard-title">🔑 桌面上件助手远程通道令牌</div>
+      <div class="m-fg">
+        <label class="m-fg-label">访问令牌 X-DB-Token（留空用默认 erp2024）</label>
+        <div class="m-pwd-wrap">
+          <input type="password" class="form-input" id="dbAgentTokenInput" value="" placeholder="如: erp2024" autocomplete="new-password">
+          <button type="button" class="btn btn-outline btn-sm" onclick="toggleTokenVisibility(this, 'dbAgentTokenInput')">👁</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="m-scard">
+      <div class="m-scard-title">🤝 妙手 ERP 开放平台凭证</div>
+      <div class="m-fg">
+        <label class="m-fg-label">APP ID（ak_ 开头）</label>
+        <input type="text" class="form-input" id="miaoshouAppIdInput" placeholder="如: ak_xxxxxxxxxxxx" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">App Secret</label>
+        <div class="m-pwd-wrap">
+          <input type="password" class="form-input" id="miaoshouAppSecretInput" placeholder="妙手开放平台 App Secret" autocomplete="new-password">
+          <button type="button" class="btn btn-outline btn-sm" onclick="toggleTokenVisibility(this, 'miaoshouAppSecretInput')">👁</button>
+        </div>
+      </div>
+      <p class="m-scard-tip">运单管理「📥 妙手同步」按此凭证拉取运单号；改后保存，下次同步生效。</p>
+    </div>
+  </div>
+
+  <!-- 7. 邮件配置 -->
+  <div class="settings-panel" data-panel="email">
+    <div class="m-scard">
+      <div class="m-scard-title">📧 SMTP 发信通道</div>
+      <div class="m-fg">
+        <label class="m-fg-label">SMTP 服务器</label>
+        <input type="text" class="form-input" id="docSmtpHostInput" value="smtp.qq.com" placeholder="smtp.qq.com">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">端口</label>
+        <input type="number" class="form-input" id="docSmtpPortInput" value="465">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label" style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="docSmtpSslCheckbox" checked style="width:18px;height:18px;"> SSL
+        </label>
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">SMTP 账号</label>
+        <input type="text" class="form-input" id="docSmtpUserInput" placeholder="you@qq.com">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">SMTP 授权码（非登录密码）</label>
+        <div class="m-pwd-wrap">
+          <input type="password" class="form-input" id="docSmtpPasswordInput" value="" autocomplete="new-password">
+          <button type="button" class="btn btn-outline btn-sm" onclick="toggleTokenVisibility(this, 'docSmtpPasswordInput')">👁</button>
+        </div>
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">发件人（留空用 SMTP 账号）</label>
+        <input type="text" class="form-input" id="docMailFromInput">
+      </div>
+      <div class="m-fg">
+        <label class="m-fg-label">默认收件人（多个用英文逗号分隔）</label>
+        <input type="text" class="form-input" id="docMailToInput" placeholder="you@qq.com, boss@qq.com">
+      </div>
+      <button type="button" class="btn btn-outline" style="width:100%;min-height:44px;" onclick="sendEmailTestEmail()">📨 发送测试邮件</button>
+    </div>
+  </div>
+
+  <!-- 8. 告警任务 -->
+  <div class="settings-panel" data-panel="alert_tasks">
+    <div class="m-btns" style="margin-bottom:12px;">
+      <button class="btn btn-outline btn-sm" id="refreshTasksBtn" type="button">🔄 刷新状态</button>
+    </div>
+    <div id="alertTasksWrap"></div>
+  </div>
+
+  <!-- 9. 提醒任务 -->
+  <div class="settings-panel" data-panel="reminders">
+    <div class="m-btns" style="margin-bottom:12px;">
+      <button class="btn btn-outline btn-sm" id="refreshRemindersBtn" type="button">🔄 刷新状态</button>
+    </div>
+    <div id="remindersWrap"></div>
+  </div>
+
+  <!-- 10. 角色权限 -->
+  <div class="settings-panel" data-panel="rbac">
+    <div class="m-btns" style="margin-bottom:12px;">
+      <button class="btn btn-outline btn-sm" id="rbacRefreshBtn" type="button">🔄 刷新</button>
+      <button class="btn btn-primary btn-sm" id="rbacAddRoleBtn" type="button">➕ 新建角色</button>
+    </div>
+    <div id="rbacRolesWrap"></div>
+  </div>
+
+</div>
+
+<!-- ================= 抽屉区 ================= -->
+<div class="m-sheet-mask" id="mSetMask"></div>
+
+<!-- 角色配置 -->
+<div class="m-sheet" id="mSheetRoleCfg">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">🛡️ 角色权限配置 · <span id="mRoleCfgName">—</span></div>
+  <div id="mRoleCfgBody"></div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mRoleCfgCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mRoleCfgSave">💾 保存</button>
+  </div>
+</div>
+
+<!-- 新建角色 -->
+<div class="m-sheet" id="mSheetRoleNew">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">➕ 新建角色</div>
+  <div class="m-fg">
+    <label class="m-fg-label">角色标识（英文唯一，如 operator）</label>
+    <input type="text" class="form-input" id="mNewRoleCode" placeholder="operator">
+  </div>
+  <div class="m-fg">
+    <label class="m-fg-label">角色名称（如 运营专员）</label>
+    <input type="text" class="form-input" id="mNewRoleName" placeholder="运营专员">
+  </div>
+  <div class="m-fg">
+    <label class="m-fg-label">角色说明（可选）</label>
+    <input type="text" class="form-input" id="mNewRoleDesc" placeholder="可选">
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mRoleNewCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mRoleNewCreate">创建</button>
+  </div>
+</div>
+
+<!-- 通用确认 -->
+<div class="m-sheet" id="mSheetConfirm">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">🗑️ 确认操作</div>
+  <div id="mConfirmBody" style="font-size:0.86rem;color:#475569;line-height:1.7;margin-bottom:6px;"></div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mConfirmCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mConfirmOk" style="background:#dc2626;border-color:#dc2626;">确定</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+/* ══════════ 手机版角色权限 (RBAC) ══════════ */
+let MSRBAC = { roles: [], menu_registry: [], permission_registry: [] };
+let mRoleCfgId = null;
+let mConfirmCb = null;
+
+function mEsc(s) {
+  return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, m => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[m]));
+}
+async function mRbacApi(url, method, data) {
+  const resp = await fetch(url, {
+    method: method || "GET",
+    headers: { "Content-Type": "application/json" },
+    body: data ? JSON.stringify(data) : undefined
+  });
+  if (resp.status === 401) { window.location.href = "/login"; return null; }
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok) { showToast("❌ " + (body.detail || body.msg || "请求失败"), "error"); return null; }
+  return body;
+}
+
+async function mRbacLoad() {
+  const res = await mRbacApi("/api/rbac/roles");
+  if (!res || !res.roles) return;
+  MSRBAC = res;
+  mRbacRender();
+}
+
+function mRbacRender() {
+  const wrap = document.getElementById("rbacRolesWrap");
+  if (!wrap) return;
+  wrap.innerHTML = (MSRBAC.roles || []).map(role => {
+    const isAdminRole = role.code === "admin";
+    return `<div class="m-role-card">
+      <div class="m-role-head">
+        <span class="m-role-name">${isAdminRole ? "👑" : "🛡️"} ${mEsc(role.name)}</span>
+        <span class="tag-badge">${role.user_count || 0} 用户</span>
+      </div>
+      <div class="m-role-code">${mEsc(role.code)}${role.is_builtin ? " · 内置" : ""}</div>
+      <div class="m-role-desc">${mEsc(role.description || "")}</div>
+      ${isAdminRole
+        ? '<div style="font-size:0.74rem;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:8px;">管理员角色固定拥有全部权限，不可修改（防自锁）</div>'
+        : `<div class="m-role-btns">
+             <button type="button" class="btn btn-outline" onclick="mRbacOpenCfg(${role.id})">⚙️ 配置权限</button>
+             <button type="button" class="btn btn-outline" style="color:#dc2626;border-color:#fecaca;" onclick="mRbacAskDelete(${role.id}, '${mEsc(role.name).replace(/'/g, "\\'")}')">🗑️ 删除</button>
+           </div>`}
+    </div>`;
+  }).join("") || '<div class="m-empty"><div class="m-empty-ico">🛡️</div><div class="m-empty-txt">暂无角色</div></div>';
+}
+
+function mRbacOpenCfg(roleId) {
+  const role = (MSRBAC.roles || []).find(r => r.id === roleId);
+  if (!role) return;
+  mRoleCfgId = roleId;
+  document.getElementById("mRoleCfgName").innerText = role.name;
+  const menus = MSRBAC.menu_registry || [];
+  const perms = MSRBAC.permission_registry || [];
+  const permsByMenu = {};
+  perms.forEach(p => { (permsByMenu[p.menu] = permsByMenu[p.menu] || []).push(p); });
+
+  const menuHtml = menus.map(m => `<label class="m-cb">
+      <input type="checkbox" class="m-rbac-menu" value="${mEsc(m.key)}" ${role.menus.includes(m.key) ? "checked" : ""}> ${m.icon || ""} ${mEsc(m.name)}
+    </label>`).join("");
+
+  const permHtml = menus.map(m => {
+    const group = permsByMenu[m.key] || [];
+    if (!group.length) return "";
+    return `<div class="m-perm-grp"><div class="m-perm-t">${mEsc(m.name)}</div><div class="m-cb-grid">` +
+      group.map(p => `<label class="m-cb" title="${mEsc(p.desc || "")}">
+        <input type="checkbox" class="m-rbac-perm" value="${mEsc(p.key)}" ${role.permissions.includes(p.key) ? "checked" : ""}> ${mEsc(p.name)}
+      </label>`).join("") + `</div></div>`;
+  }).join("");
+
+  document.getElementById("mRoleCfgBody").innerHTML =
+    `<div class="m-fg-label" style="font-size:0.8rem;">📋 可见菜单</div>
+     <div class="m-cb-grid" style="margin-bottom:14px;">${menuHtml}</div>
+     <div class="m-fg-label" style="font-size:0.8rem;">🔘 按钮权限</div>
+     ${permHtml || '<div style="font-size:0.76rem;color:#94a3b8;">(无按钮权限点)</div>'}`;
+  openSetSheet(document.getElementById("mSheetRoleCfg"));
+}
+
+async function mRbacSaveCfg() {
+  if (mRoleCfgId == null) return;
+  const body = document.getElementById("mRoleCfgBody");
+  const menus = Array.from(body.querySelectorAll(".m-rbac-menu:checked")).map(cb => cb.value);
+  const permissions = Array.from(body.querySelectorAll(".m-rbac-perm:checked")).map(cb => cb.value);
+  const res = await mRbacApi("/api/rbac/roles/" + mRoleCfgId + "/config", "POST", { menus, permissions });
+  if (res && res.ok) { closeSetSheets(); showToast("✅ 角色权限已保存（对绑定用户即时生效）"); mRbacLoad(); }
+}
+
+function mRbacAskDelete(roleId, roleName) {
+  mConfirmCb = async () => {
+    const res = await mRbacApi("/api/rbac/roles/" + roleId + "/delete", "POST", {});
+    if (res && res.ok) { closeSetSheets(); mRbacLoad(); }
+  };
+  document.getElementById("mConfirmBody").innerHTML = `确定删除角色「<b>${mEsc(roleName)}</b>」吗？`;
+  openSetSheet(document.getElementById("mSheetConfirm"));
+}
+
+function mRbacOpenNew() {
+  document.getElementById("mNewRoleCode").value = "";
+  document.getElementById("mNewRoleName").value = "";
+  document.getElementById("mNewRoleDesc").value = "";
+  openSetSheet(document.getElementById("mSheetRoleNew"));
+}
+
+async function mRbacCreate() {
+  const code = document.getElementById("mNewRoleCode").value.trim();
+  const name = document.getElementById("mNewRoleName").value.trim();
+  const description = document.getElementById("mNewRoleDesc").value.trim();
+  if (!code || !name) { showToast("角色标识与名称均必填", "error"); return; }
+  const res = await mRbacApi("/api/rbac/roles", "POST", { code, name, description });
+  if (res && res.role) { closeSetSheets(); showToast("✅ 角色已创建"); mRbacLoad(); }
+}
+
+/* ══════════ 面板分组折叠: 多卡片面板默认只展开第一组 ══════════ */
+(function () {
+  document.querySelectorAll(".settings-panel").forEach(panel => {
+    const cards = Array.from(panel.querySelectorAll(".m-scard"));
+    if (cards.length < 2) return;
+    cards.forEach((card, i) => {
+      const title = card.querySelector(".m-scard-title");
+      if (!title) return;
+      card.classList.add("m-fold");
+      if (i > 0) card.classList.add("m-collapsed");
+      const caret = document.createElement("span");
+      caret.className = "m-fold-caret";
+      caret.textContent = "▼";
+      title.appendChild(caret);
+      title.addEventListener("click", () => card.classList.toggle("m-collapsed"));
+    });
+  });
+})();
+
+/* ══════════ 抽屉控制 ══════════ */
+const mSetMask = document.getElementById("mSetMask");
+const mSetSheets = ["mSheetRoleCfg", "mSheetRoleNew", "mSheetConfirm"].map(id => document.getElementById(id));
+function openSetSheet(el) { mSetMask.classList.add("open"); el.classList.add("open"); }
+function closeSetSheets() { mSetMask.classList.remove("open"); mSetSheets.forEach(s => s.classList.remove("open")); }
+mSetMask.addEventListener("click", closeSetSheets);
+document.getElementById("mRoleCfgCancel").addEventListener("click", closeSetSheets);
+document.getElementById("mRoleNewCancel").addEventListener("click", closeSetSheets);
+document.getElementById("mConfirmCancel").addEventListener("click", closeSetSheets);
+document.getElementById("mRoleCfgSave").addEventListener("click", mRbacSaveCfg);
+document.getElementById("mRoleNewCreate").addEventListener("click", mRbacCreate);
+document.getElementById("mConfirmOk").addEventListener("click", () => { if (mConfirmCb) mConfirmCb(); });
+
+document.getElementById("rbacRefreshBtn").addEventListener("click", mRbacLoad);
+document.getElementById("rbacAddRoleBtn").addEventListener("click", mRbacOpenNew);
+document.querySelector('.settings-nav-item[data-tab="rbac"]').addEventListener("click", () => {
+  if (!(MSRBAC.roles || []).length) mRbacLoad();
+});
+</script>
+
+<script src="/static/js/pricing_tool.js?v=20260930_pt12"></script>
+<script src="/static/js/task_cards.js?v=20260925_merge1"></script>
+<script src="/static/js/alert_tasks.js?v=20260927_at1"></script>
+<script src="/static/js/reminders.js?v=20261007_merge1"></script>
+<script src="/static/js/settings.js?v=20260929_miaoshou1"></script>
+{% endblock %}
