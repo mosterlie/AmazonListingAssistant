@@ -7,8 +7,8 @@
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="alternate icon" href="/static/favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=20260928_fwd2">
-  <link rel="stylesheet" href="/static/css/mobile.css?v=20261004_m3">
+  <link rel="stylesheet" href="/static/css/app.css?v=20261101_doc5">
+  <link rel="stylesheet" href="/static/css/mobile.css?v=20261101_doc1">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -45,11 +45,6 @@
       <span class="m-tab-ico">📦</span><span>商品</span>
     </a>
     {% endif %}
-    {% if 'forwarder_integration' in user_menus %}
-    <a href="/forwarder-integration" class="m-tab {% if active_page == 'forwarder_integration' %}active{% endif %}">
-      <span class="m-tab-ico">🚚</span><span>运单</span>
-    </a>
-    {% endif %}
     {% if 'alert_center' in user_menus %}
     <a href="/alerts" class="m-tab {% if active_page == 'alert_center' %}active{% endif %}">
       <span class="m-tab-ico">🚨</span><span>告警</span>
@@ -71,12 +66,11 @@
       {% if 'ads' in user_menus %}<a href="/ads" class="m-sheet-item"><span class="m-sheet-ico">📢</span>广告管理</a>{% endif %}
       {% if 'ads_analysis' in user_menus %}<a href="/ads-analysis" class="m-sheet-item"><span class="m-sheet-ico">📊</span>广告分析</a>{% endif %}
       {% if 'knowledge' in user_menus %}<a href="/knowledge" class="m-sheet-item"><span class="m-sheet-ico">📚</span>知识库</a>{% endif %}
-      {% if 'forwarder_integration' in user_menus %}<a href="/forwarder-integration" class="m-sheet-item"><span class="m-sheet-ico">🚚</span>运单管理</a>{% endif %}
+      {% if 'orders' in user_menus %}<a href="/orders" class="m-sheet-item"><span class="m-sheet-ico">🧾</span>订单管理</a>{% endif %}
       {% if 'forwarder' in user_menus %}<a href="/forwarder" class="m-sheet-item"><span class="m-sheet-ico">🚢</span>货代管理</a>{% endif %}
       {% if 'japan_calendar' in user_menus %}<a href="/japan-calendar" class="m-sheet-item"><span class="m-sheet-ico">🇯🇵</span>日本日历</a>{% endif %}
       {% if 'alert_center' in user_menus %}<a href="/alerts" class="m-sheet-item"><span class="m-sheet-ico">🚨</span>告警中心</a>{% endif %}
       {% if 'settings' in user_menus %}<a href="/settings" class="m-sheet-item"><span class="m-sheet-ico">⚙️</span>系统管理</a>{% endif %}
-      {% if 'users' in user_menus %}<a href="/users" class="m-sheet-item"><span class="m-sheet-ico">👥</span>用户管理</a>{% endif %}
       <a href="/ui-mode/pc" class="m-sheet-item"><span class="m-sheet-ico">🌐</span>桌面版</a>
       <a href="javascript:void(0)" class="m-sheet-item m-danger" onclick="handleSystemLogout()"><span class="m-sheet-ico">🚪</span>退出登录</a>
     </div>

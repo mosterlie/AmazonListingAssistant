@@ -35,6 +35,10 @@ const settingsState = {
   db_agent_token: "",
   // 妙手 ERP 开放平台凭证 (运单管理·妙手同步)
   miaoshou_config: { app_id: "", app_secret: "" },
+  // WorkBuddy 大模型 (订单商品标识识别; 后端留空回退 config.py 内置默认)
+  workbuddy_config: { base_url: "", api_key: "", model: "" },
+  // WorkBuddy 支持的大模型清单 (后端 config.WORKBUDDY_MODELS, 模型下拉框候选)
+  workbuddy_models: [],
   // 邮件配置 (仅 SMTP 发信通道基础参数 + 默认收件人; 存 fwd_doc_* 扁平键)
   email_notify: {
     smtp_host: "smtp.qq.com", smtp_port: 465, smtp_ssl: true,
@@ -50,6 +54,24 @@ function showToast(msg, type = "success") {
   toast.innerText = msg;
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 3500);
+}
+
+/* WorkBuddy 模型下拉框: 候选来自后端 config.WORKBUDDY_MODELS;
+   库里已有但不在候选内的模型名临时补一行, 避免保存时被覆盖成别的模型 */
+function renderWorkbuddyModels(current) {
+  const sel = document.getElementById("wbModelInput");
+  if (!sel) return;
+  const models = [...(settingsState.workbuddy_models || [])];
+  const cur = String(current || "").trim();
+  if (cur && !models.includes(cur)) models.unshift(cur);
+  sel.innerHTML = "";
+  models.forEach(m => {
+    const opt = document.createElement("option");
+    opt.value = m;
+    opt.textContent = m;
+    sel.appendChild(opt);
+  });
+  if (cur) sel.value = cur;
 }
 
 // ============================================================================
@@ -95,6 +117,12 @@ async function loadSettings() {
       }
       if (result.data.miaoshou_config) {
         settingsState.miaoshou_config = { ...settingsState.miaoshou_config, ...result.data.miaoshou_config };
+      }
+      if (result.data.workbuddy_config) {
+        settingsState.workbuddy_config = { ...settingsState.workbuddy_config, ...result.data.workbuddy_config };
+      }
+      if (Array.isArray(result.data.workbuddy_models)) {
+        settingsState.workbuddy_models = result.data.workbuddy_models.slice();
       }
       if (result.data.email_notify) {
         settingsState.email_notify = { ...settingsState.email_notify, ...result.data.email_notify };
@@ -160,6 +188,13 @@ function populateForm() {
   const msSecretInp = document.getElementById("miaoshouAppSecretInput");
   if (msAppIdInp) msAppIdInp.value = settingsState.miaoshou_config.app_id || "";
   if (msSecretInp) msSecretInp.value = settingsState.miaoshou_config.app_secret || "";
+
+  // WorkBuddy 大模型回填 (base url / 模型下拉框 / API Key)
+  const wbBaseInp = document.getElementById("wbBaseUrlInput");
+  const wbKeyInp = document.getElementById("wbApiKeyInput");
+  if (wbBaseInp) wbBaseInp.value = settingsState.workbuddy_config.base_url || "";
+  if (wbKeyInp) wbKeyInp.value = settingsState.workbuddy_config.api_key || "";
+  renderWorkbuddyModels(settingsState.workbuddy_config.model);
 
   // 邮件配置回填 (SMTP 通道 + 默认收件人)
   const en = settingsState.email_notify;
@@ -431,6 +466,12 @@ async function saveSettings() {
       app_id: (document.getElementById("miaoshouAppIdInput")?.value || "").trim(),
       app_secret: (document.getElementById("miaoshouAppSecretInput")?.value || "").trim()
     },
+    // WorkBuddy 大模型 (留空后端回退内置默认)
+    workbuddy_config: {
+      base_url: (document.getElementById("wbBaseUrlInput")?.value || "").trim(),
+      api_key: (document.getElementById("wbApiKeyInput")?.value || "").trim(),
+      model: (document.getElementById("wbModelInput")?.value || "").trim()
+    },
     // 邮件配置 (SMTP 发信通道 + 默认收件人)
     email_notify: {
       smtp_host: (document.getElementById("docSmtpHostInput")?.value || "smtp.qq.com").trim(),
@@ -474,6 +515,9 @@ async function saveSettings() {
       }
       if (result.data.miaoshou_config !== undefined) {
         settingsState.miaoshou_config = { ...settingsState.miaoshou_config, ...result.data.miaoshou_config };
+      }
+      if (result.data.workbuddy_config !== undefined) {
+        settingsState.workbuddy_config = { ...settingsState.workbuddy_config, ...result.data.workbuddy_config };
       }
       if (result.data.email_notify !== undefined) {
         settingsState.email_notify = { ...settingsState.email_notify, ...result.data.email_notify };
@@ -524,6 +568,8 @@ function resetDefaults() {
       model_name: "deepseek-v4-flash",
       api_key: ""
     };
+    // 留空 → 后端回退 config.py 内置默认值
+    settingsState.workbuddy_config = { base_url: "", api_key: "", model: "" };
     populateForm();
     renderChannelRules();
     showToast("已重置为默认值，请点击保存生效！");

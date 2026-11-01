@@ -62,10 +62,25 @@
           <button class="btn btn-outline btn-sm" onclick="document.getElementById('wbSearchInput').value=''; loadWaybills();" type="button" style="padding:5px 12px;">重置</button>
         </div>
 
+        <!-- 批量操作条 (勾选运单后出现) -->
+        <div id="wbBatchBar" style="display:none; padding:8px 18px; background:#eff6ff; border-bottom:1px solid #bfdbfe; align-items:center; gap:12px; flex-wrap:wrap;">
+          <span id="wbSelInfo" style="font-size:0.8rem; font-weight:700; color:#1d4ed8;">已选 0 项</span>
+          <button class="btn btn-outline btn-sm" type="button" onclick="clearSelection()" style="padding:4px 12px;">取消选择</button>
+          {% if 'waybill:delete' in user_perms %}
+          <button class="btn btn-sm" type="button" id="wbBatchDeleteBtn" onclick="batchDeleteWaybills()"
+            style="padding:4px 12px; background:#ef4444; color:#fff; border:1px solid #ef4444; font-weight:600;">🗑️ 批量删除</button>
+          {% endif %}
+          <span style="font-size:0.72rem; color:#64748b;">仅删除本地运单库记录，删除后可重新粘贴入库</span>
+        </div>
+
         <div class="table-wrapper" style="overflow-x:auto;">
           <table class="matrix-table" style="min-width:1250px; width:100%;">
             <thead>
               <tr style="background:#f8fafc;">
+                <th style="width:38px; text-align:center;">
+                  <input type="checkbox" id="wbCheckAll" title="全选/取消全选" onchange="toggleSelectAll(this.checked)"
+                    style="width:15px; height:15px; cursor:pointer; vertical-align:middle;">
+                </th>
                 <th style="width:50px; text-align:center;">#</th>
                 <th style="min-width:160px;">货代单号</th>
                 <th style="min-width:180px;">跨境运单号</th>
@@ -79,7 +94,7 @@
             </thead>
             <tbody id="wbTableBody">
               <tr>
-                <td colspan="9" style="text-align:center; padding:40px; color:var(--text-muted);">
+                <td colspan="10" style="text-align:center; padding:40px; color:var(--text-muted);">
                   ⏳ 正在加载运单数据...
                 </td>
               </tr>
@@ -121,6 +136,7 @@
   const USER_PERMS = {{ user_perms | tojson }};
   function hasPerm(key) { return IS_ADMIN || USER_PERMS.includes(key); }
   let waybills = [];
+  let selectedIds = new Set();   // 批量操作: 已勾选的运单 id
   let trackModalData = null;
 
   function escapeHtml(s) {
@@ -210,11 +226,14 @@
     try {
       const body = await api("/api/chudao/waybills" + (kw ? `?keyword=${encodeURIComponent(kw)}` : ""));
       waybills = body.data || [];
+      // 勾选集与最新列表对齐: 已不在列表中的 id 从选择集中剔除
+      const aliveIds = new Set(waybills.map(w => w.id));
+      [...selectedIds].forEach(id => { if (!aliveIds.has(id)) selectedIds.delete(id); });
       renderStats();
       renderWaybills(tbody, kw);
     } catch (e) {
       if (e.message !== "未登录") {
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:40px; color:var(--text-muted);">
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:40px; color:var(--text-muted);">
           ❌ 加载失败: ${escapeHtml(e.message)}</td></tr>`;
       }
     }
@@ -237,12 +256,18 @@
 
   function renderWaybills(tbody, kw) {
     if (!waybills.length) {
-      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:40px; color:var(--text-muted);">
+      tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:40px; color:var(--text-muted);">
         📦 运单库为空${kw ? " (无匹配结果)" : ""}，在上方粘贴单号点「➕ 入库并查询」添加</td></tr>`;
+      updateBatchBar();
       return;
     }
     tbody.innerHTML = waybills.map((w, i) => `
-      <tr>
+      <tr${selectedIds.has(w.id) ? ' style="background:#eff6ff;"' : ''}>
+        <td style="text-align:center;">
+          <input type="checkbox" class="wb-row-check" data-id="${w.id}" ${selectedIds.has(w.id) ? "checked" : ""}
+            onchange="toggleSelect(${w.id}, this.checked)"
+            style="width:15px; height:15px; cursor:pointer; vertical-align:middle;">
+        </td>
         <td style="text-align:center; color:#94a3b8; font-size:0.8rem;">${i + 1}</td>
         <td><b style="color:#0f172a;">${copyCell(w.tracking_number)}</b></td>
         <td style="font-size:0.8rem;">${jumpCell(w.channel_hawbcode, "track17")}</td>
@@ -257,6 +282,71 @@
           ${hasPerm('waybill:delete') ? `<button class="btn btn-outline btn-sm" style="padding:2px 8px; font-size:0.72rem; color:#ef4444; border-color:#fecaca;" onclick="deleteWaybill(${w.id}, '${escapeHtml(w.tracking_number)}')">🗑️</button>` : ""}
         </td>
       </tr>`).join("");
+    updateBatchBar();
+  }
+
+  /* ───────── 批量选择 / 批量删除 ───────── */
+  function updateBatchBar() {
+    const bar = document.getElementById("wbBatchBar");
+    const info = document.getElementById("wbSelInfo");
+    const n = selectedIds.size;
+    if (bar) bar.style.display = n ? "flex" : "none";
+    if (info) info.innerText = `已选 ${n} 项`;
+    const btn = document.getElementById("wbBatchDeleteBtn");
+    if (btn) btn.disabled = !n;
+    // 表头全选框: 全选 / 半选状态
+    const all = document.getElementById("wbCheckAll");
+    if (all) {
+      const total = waybills.length;
+      const sel = waybills.filter(w => selectedIds.has(w.id)).length;
+      all.checked = total > 0 && sel === total;
+      all.indeterminate = sel > 0 && sel < total;
+    }
+  }
+
+  function toggleSelect(id, checked) {
+    id = Number(id);
+    if (checked) selectedIds.add(id); else selectedIds.delete(id);
+    const box = document.querySelector(`.wb-row-check[data-id="${id}"]`);
+    const tr = box ? box.closest("tr") : null;
+    if (tr) tr.style.background = checked ? "#eff6ff" : "";
+    updateBatchBar();
+  }
+
+  function toggleSelectAll(checked) {
+    selectedIds.clear();
+    if (checked) waybills.forEach(w => selectedIds.add(w.id));
+    renderWaybills(document.getElementById("wbTableBody"),
+      document.getElementById("wbSearchInput").value.trim());
+  }
+
+  function clearSelection() {
+    selectedIds.clear();
+    renderWaybills(document.getElementById("wbTableBody"),
+      document.getElementById("wbSearchInput").value.trim());
+  }
+
+  async function batchDeleteWaybills() {
+    const ids = [...selectedIds];
+    if (!ids.length) { showToast("请先勾选要删除的运单", "error"); return; }
+    if (!confirm(`确定删除已选中的 ${ids.length} 票运单吗？\n仅删除本地运单库记录，删除后可重新粘贴入库。`)) return;
+    const btn = document.getElementById("wbBatchDeleteBtn");
+    const oldTxt = btn ? btn.innerText : "";
+    if (btn) { btn.disabled = true; btn.innerText = "⏳ 删除中..."; }
+    try {
+      const body = await api("/api/chudao/waybills/batch-delete", {
+        method: "POST", body: JSON.stringify({ ids })
+      });
+      const r = body.data || {};
+      showToast(body.msg || `已删除 ${r.deleted || 0} 票`, "success");
+      selectedIds.clear();
+      loadWaybills();
+    } catch (e) {
+      if (e.message !== "未登录") showToast("批量删除失败: " + e.message, "error");
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerText = oldTxt; }
+      updateBatchBar();
+    }
   }
 
   /* ───────── 入库 / 刷新 / 删除 ───────── */
@@ -345,6 +435,7 @@
     if (!confirm(`确定从运单库删除「${number}」吗？\n删除后可重新粘贴入库。`)) return;
     try {
       await api(`/api/chudao/waybills/${id}`, { method: "DELETE" });
+      selectedIds.delete(Number(id));
       showToast("运单已删除", "success");
       loadWaybills();
     } catch (e) {

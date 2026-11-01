@@ -289,3 +289,34 @@ class WaybillService:
             conn.commit()
         finally:
             conn.close()
+
+    @staticmethod
+    def delete_waybills(waybill_ids: List[int]) -> Dict[str, Any]:
+        """批量删除运单 (单条 SQL, 不存在的 id 记入 missing 不报错)
+
+        返回 {"deleted": n, "missing": [id...], "total": 请求数}
+        """
+        ids = sorted({int(i) for i in (waybill_ids or []) if str(i).strip()})
+        if not ids:
+            raise ValueError("请先选择要删除的运单")
+        if len(ids) > MAX_BATCH_ADD:
+            raise ValueError(f"单次最多删除 {MAX_BATCH_ADD} 票 (本次 {len(ids)} 票)")
+        existing = set()
+        conn = get_db_connection()
+        try:
+            marks = ",".join("?" * len(ids))
+            rows = conn.execute(
+                f"SELECT id FROM forwarder_waybills WHERE id IN ({marks})", ids).fetchall()
+            existing = {r["id"] for r in rows}
+            deleted = 0
+            if existing:
+                exist_ids = sorted(existing)
+                exist_marks = ",".join("?" * len(exist_ids))
+                cur = conn.execute(
+                    f"DELETE FROM forwarder_waybills WHERE id IN ({exist_marks})", exist_ids)
+                deleted = cur.rowcount
+                conn.commit()
+        finally:
+            conn.close()
+        return {"deleted": deleted, "total": len(ids),
+                "missing": [i for i in ids if i not in existing]}

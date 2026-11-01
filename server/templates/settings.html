@@ -50,6 +50,7 @@
     <button class="settings-nav-item" data-tab="alert_tasks" type="button">🔔 告警任务</button>
     <button class="settings-nav-item" data-tab="reminders" type="button">📨 提醒任务</button>
     <button class="settings-nav-item" data-tab="rbac" type="button">🛡️ 角色权限</button>
+    <button class="settings-nav-item" data-tab="users" type="button">👥 用户管理</button>
   </nav>
 
   <!-- 右侧配置面板 -->
@@ -276,6 +277,41 @@
           </div>
         </div>
       </div>
+
+      <div class="form-card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="card-title-icon">🧠</div>
+            <span>WorkBuddy 大模型 (订单商品标识识别)</span>
+          </div>
+          <span class="tag-badge" style="background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">同步订单时自动识别</span>
+        </div>
+        <div class="card-body">
+          <div class="grid-2">
+            <div class="form-group">
+              <label class="form-label required">API Base URL <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(OpenAI 兼容)</span></label>
+              <input type="text" class="form-input" id="wbBaseUrlInput" placeholder="https://copilot.tencent.com/v2"
+                autocomplete="off" spellcheck="false">
+            </div>
+            <div class="form-group">
+              <label class="form-label required">模型名称 <span style="font-weight:400; color:var(--text-muted); font-size:0.8rem;">(WorkBuddy 支持的模型)</span></label>
+              <select class="form-select" id="wbModelInput"></select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label required">API Key</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="password" class="form-input" id="wbApiKeyInput" placeholder="WorkBuddy API Key"
+                autocomplete="new-password" style="flex:1;">
+              <button type="button" class="btn btn-outline btn-sm" onclick="toggleTokenVisibility(this, 'wbApiKeyInput')"
+                title="显示/隐藏密钥" style="padding:6px 10px;">👁</button>
+            </div>
+          </div>
+          <small style="color:var(--text-muted); font-size:0.78rem;">
+            「订单管理 → 同步」后按商品标题识别「商品标识」时使用该 Key 与模型；留空则回退系统内置默认值。修改后点击右上角「💾 保存配置」即刻生效。
+          </small>
+        </div>
+      </div>
     </div>
 
     <!-- 6. 归档 / 会话 / 令牌 (合并面板) -->
@@ -493,6 +529,11 @@
       <div id="rbacRolesWrap" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:14px;"></div>
     </div>
 
+    <!-- 12. 用户管理 (原独立菜单并入系统管理: 面板内容与 /users 页共用 partial) -->
+    <div class="settings-panel" data-panel="users">
+      {% include "partials/users_panel.html" %}
+    </div>
+
   </div>
 </div>
 
@@ -646,5 +687,6 @@ document.addEventListener("DOMContentLoaded", () => {
 <script src="/static/js/task_cards.js?v=20260925_merge1"></script>
 <script src="/static/js/alert_tasks.js?v=20260927_at1"></script>
 <script src="/static/js/reminders.js?v=20261007_merge1"></script>
-<script src="/static/js/settings.js?v=20260929_miaoshou1"></script>
+<script src="/static/js/users.js?v=20261101_merge1"></script>
+<script src="/static/js/settings.js?v=20261101_workbuddy2"></script>
 {% endblock %}

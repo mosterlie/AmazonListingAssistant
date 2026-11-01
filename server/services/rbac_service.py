@@ -21,12 +21,13 @@ MENU_REGISTRY: List[Dict[str, Any]] = [
     {"key": "ads",                    "name": "广告管理", "icon": "📣", "url": "/ads",                 "pages": ["/ads"],                       "sort": 3},
     {"key": "ads_analysis",           "name": "广告分析", "icon": "📊", "url": "/ads-analysis",        "pages": ["/ads-analysis"],              "sort": 4},
     {"key": "knowledge",              "name": "知识库",   "icon": "📚", "url": "/knowledge",           "pages": ["/knowledge"],                 "sort": 5},
-    {"key": "forwarder_integration",  "name": "运单管理", "icon": "🚚", "url": "/forwarder-integration", "pages": ["/forwarder-integration"],   "sort": 6},
-    {"key": "forwarder",              "name": "货代管理", "icon": "🛳️", "url": "/forwarder",          "pages": ["/forwarder"],                 "sort": 7},
-    {"key": "japan_calendar",         "name": "日本日历", "icon": "📅", "url": "/japan-calendar",      "pages": ["/japan-calendar"],            "sort": 8},
-    {"key": "alert_center",           "name": "告警中心", "icon": "🚨", "url": "/alerts",              "pages": ["/alerts"],                    "sort": 9},
-    {"key": "settings",               "name": "系统管理", "icon": "⚙️", "url": "/settings",            "pages": ["/settings"],                  "sort": 10},
-    {"key": "users",                  "name": "用户管理", "icon": "👥", "url": "/users",               "pages": ["/users"],                     "sort": 11},
+    {"key": "orders",                 "name": "订单管理", "icon": "🧾", "url": "/orders",              "pages": ["/orders"],                    "sort": 6},
+    {"key": "forwarder_integration",  "name": "运单管理", "icon": "🚚", "url": "/forwarder-integration", "pages": ["/forwarder-integration"],   "sort": 7},
+    {"key": "forwarder",              "name": "货代管理", "icon": "🛳️", "url": "/forwarder",          "pages": ["/forwarder"],                 "sort": 8},
+    {"key": "japan_calendar",         "name": "日本日历", "icon": "📅", "url": "/japan-calendar",      "pages": ["/japan-calendar"],            "sort": 9},
+    {"key": "alert_center",           "name": "告警中心", "icon": "🚨", "url": "/alerts",              "pages": ["/alerts"],                    "sort": 10},
+    # 用户管理已并入系统管理: 菜单只保留「系统管理」, /users 页面仍独立存在 (仅管理员)
+    {"key": "settings",               "name": "系统管理", "icon": "⚙️", "url": "/settings",            "pages": ["/settings", "/users"],        "sort": 11},
 ]
 MENU_KEYS = {m["key"] for m in MENU_REGISTRY}
 
@@ -48,6 +49,7 @@ PERMISSION_REGISTRY: Dict[str, Dict[str, str]] = {
     "publish:run":         {"name": "商品上件",   "desc": "触发店小秘ERP自动上件",    "menu": "list"},
     "ads:create":          {"name": "广告新建",   "desc": "新建广告任务",             "menu": "ads"},
     "ads:operate":         {"name": "广告操作",   "desc": "刷新/重试/删除广告任务",   "menu": "ads"},
+    "order:sync":          {"name": "订单同步",   "desc": "从妙手ERP同步订单包裹",     "menu": "orders"},
 }
 
 # ══════════════════════════ 预置角色 ══════════════════════════
@@ -58,7 +60,7 @@ BUILTIN_ROLES: List[Dict[str, Any]] = [
     },
     {
         "code": "user", "name": "普通用户", "description": "常用页面与操作, 删除类权限默认不授",
-        "menus": ["list", "tasks", "knowledge", "forwarder_integration", "japan_calendar", "alert_center"],
+        "menus": ["list", "tasks", "knowledge", "orders", "forwarder_integration", "japan_calendar", "alert_center"],
         "permissions": ["product:create", "product:edit", "publish:run", "waybill:sync", "waybill:refresh_all"],
     },
 ]

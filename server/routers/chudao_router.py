@@ -28,6 +28,11 @@ class WaybillRefreshSchema(BaseModel):
     ids: Optional[List[int]] = None
 
 
+class WaybillBatchDeleteSchema(BaseModel):
+    """批量删除运单: ids 为运单库主键"""
+    ids: List[int] = Field(default_factory=list, description="运单 id 列表")
+
+
 @router.get("/waybills", summary="运单列表 (keyword 模糊搜索单号)")
 def list_waybills(keyword: str = Query("", max_length=128),
                   user: dict = Depends(get_current_user)):
@@ -73,6 +78,19 @@ def delete_waybill(waybill_id: int, user: dict = Depends(require_perm("waybill:d
     except ValueError as ve:
         raise HTTPException(status_code=404, detail=str(ve))
     return {"code": 0, "msg": "删除成功", "data": None}
+
+
+@router.post("/waybills/batch-delete", summary="批量删除运单 (需「运单删除」按钮权限)")
+def batch_delete_waybills(payload: WaybillBatchDeleteSchema,
+                          user: dict = Depends(require_perm("waybill:delete"))):
+    try:
+        data = WaybillService.delete_waybills(payload.ids)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    msg = f"已删除 {data['deleted']} 票"
+    if data["missing"]:
+        msg += f", {len(data['missing'])} 票不存在"
+    return {"code": 0, "msg": msg, "data": data}
 
 
 @router.get("/track", summary="实时查询运单轨迹 (不落库)")

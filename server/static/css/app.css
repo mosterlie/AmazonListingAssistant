@@ -84,17 +84,25 @@ body {
 
 .nav-links {
   display: flex;
-  gap: 8px;
+  gap: 4px;
+  /* 菜单项较多 (11 项): 默认紧凑排版; 极窄屏允许横向滚动, 避免换行 */
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
+.nav-links::-webkit-scrollbar { display: none; }
+
 .nav-item {
-  padding: 8px 16px;
+  padding: 7px 10px;
   border-radius: var(--radius-sm);
   text-decoration: none;
-  font-size: 0.92rem;
+  font-size: 0.86rem;
   font-weight: 500;
   color: var(--text-muted);
   transition: var(--transition);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .nav-item:hover {
@@ -106,6 +114,23 @@ body {
   background: var(--primary-light);
   color: var(--primary);
   font-weight: 600;
+}
+
+/* 菜单项较多时隐藏副标题, 并逐级收紧间距, 保证桌面端一屏放得下 */
+@media (max-width: 1800px) {
+  .brand-sub { display: none; }
+  .nav-item { padding: 6px 9px; font-size: 0.84rem; }
+}
+
+@media (max-width: 1560px) {
+  .nav-links { gap: 2px; }
+  .nav-item { padding: 6px 7px; font-size: 0.79rem; }
+}
+
+@media (max-width: 1360px) {
+  .nav-container { padding: 0 14px; }
+  .nav-links { gap: 0; }
+  .nav-item { padding: 5px 4px; font-size: 0.74rem; }
 }
 
 /* 运单库: 状态徽章 / 轨迹时间线 */
@@ -1554,4 +1579,114 @@ input[type="text"],
 
   /* ── 日历快捷弹窗适配 ── */
   .cal-popup { width: 92vw !important; max-width: 92vw; left: 50% !important; transform: translateX(-50%); }
+}
+
+/* ============ 订单单据附件列 (采购单/采购发票/发货单/签收单/物流发票/清关证明) ============ */
+.order-doc-add,
+.order-doc-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 7px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+}
+.order-doc-add {
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #94a3b8;
+}
+.order-doc-add:hover { border-color: #0ea5e9; color: #0284c7; background: #f0f9ff; }
+.order-doc-count {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.order-doc-count:hover { background: #dbeafe; }
+
+.order-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  background: #fff;
+}
+.order-doc-thumb {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.order-doc-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* 单据缩略图可点击放大 */
+.order-doc-thumb-zoom { cursor: zoom-in; }
+.order-doc-thumb-zoom:hover { border-color: #93c5fd; box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.35); }
+
+/* 单据单元格: 缩略图直接预览 + 份数按钮 */
+.order-doc-cell { display: inline-flex; align-items: center; gap: 4px; }
+.order-doc-mini {
+  width: 28px; height: 28px; border-radius: 6px; border: 1px solid #e2e8f0;
+  object-fit: cover; background: #fff; cursor: zoom-in; display: block;
+}
+.order-doc-mini:hover { border-color: #93c5fd; box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.35); }
+.order-doc-count.order-doc-count-sm { min-width: 30px; padding: 0 4px; font-size: 0.68rem; }
+
+/* 单据单元格: 全部附件超小预览 + 迷你上传按钮 */
+.order-doc-cell {
+  display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 3px; max-width: 100%;
+}
+.order-doc-mini {
+  width: 16px; height: 16px; border-radius: 3px; border: 1px solid #e2e8f0;
+  object-fit: cover; background: #fff; cursor: zoom-in; display: block;
+}
+.order-doc-mini:hover { border-color: #93c5fd; box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.35); }
+.order-doc-add.order-doc-add-xs {
+  min-width: 16px; height: 16px; padding: 0 3px; border-radius: 4px;
+  font-size: 0.6rem; line-height: 1;
+}
+.order-doc-more {
+  min-width: 14px; height: 16px; padding: 0 2px; border: none; background: transparent;
+  color: #cbd5e1; font-size: 0.72rem; font-weight: 800; cursor: pointer; line-height: 1;
+}
+.order-doc-more:hover { color: #0284c7; }
+
+/* 单据列表: 曲别针入口 + 文件类型醒目徽标 */
+.order-doc-clip {
+  min-width: 18px; height: 18px; padding: 0 2px; border-radius: 4px;
+  border: 1px solid #bfdbfe; background: #eff6ff; color: #1d4ed8;
+  font-size: 0.64rem; line-height: 1; cursor: pointer;
+}
+.order-doc-clip:hover { background: #dbeafe; border-color: #93c5fd; }
+
+.order-doc-name { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+.order-doc-file { font-size: 0.82rem; font-weight: 700; color: #0f172a; word-break: break-all; }
+.order-doc-ext {
+  flex-shrink: 0; padding: 1px 6px; border-radius: 4px;
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.4px;
+}
+.order-doc-ext.pdf,  .order-doc-ext-big.pdf  { background: #fee2e2; color: #b91c1c; }
+.order-doc-ext.doc,  .order-doc-ext-big.doc  { background: #dbeafe; color: #1d4ed8; }
+.order-doc-ext.xls,  .order-doc-ext-big.xls  { background: #dcfce7; color: #15803d; }
+.order-doc-ext.img,  .order-doc-ext-big.img  { background: #fef3c7; color: #b45309; }
+.order-doc-ext.zip,  .order-doc-ext-big.zip  { background: #ede9fe; color: #6d28d9; }
+.order-doc-ext.other,.order-doc-ext-big.other{ background: #f1f5f9; color: #475569; }
+.order-doc-ext-big {
+  display: inline-block; padding: 3px 6px; border-radius: 5px;
+  font-size: 0.66rem; font-weight: 800; letter-spacing: 0.5px;
 }

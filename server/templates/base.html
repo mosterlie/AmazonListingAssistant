@@ -7,7 +7,7 @@
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="alternate icon" href="/static/favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=20260930_m3">
+  <link rel="stylesheet" href="/static/css/app.css?v=20261101_doc5">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -16,7 +16,7 @@
     <div class="nav-container">
       <a href="/list" class="brand-logo">
         <span class="brand-badge">ERP HUB</span>
-        <span>跨境电商运维中台</span>
+        <span class="brand-sub">跨境电商运维中台</span>
       </a>
       <nav class="nav-links">
         {% if 'list' in user_menus %}<a href="/list" class="nav-item {% if active_page == 'list' %}active{% endif %}">📋 商品管理</a>{% endif %}
@@ -24,12 +24,11 @@
         {% if 'ads' in user_menus %}<a href="/ads" class="nav-item {% if active_page == 'ads' %}active{% endif %}">📢 广告管理</a>{% endif %}
         {% if 'ads_analysis' in user_menus %}<a href="/ads-analysis" class="nav-item {% if active_page == 'ads_analysis' %}active{% endif %}">📊 广告分析</a>{% endif %}
         {% if 'knowledge' in user_menus %}<a href="/knowledge" class="nav-item {% if active_page == 'knowledge' %}active{% endif %}">📚 知识库</a>{% endif %}
-        {% if 'forwarder_integration' in user_menus %}<a href="/forwarder-integration" class="nav-item {% if active_page == 'forwarder_integration' %}active{% endif %}">🚚 运单管理</a>{% endif %}
+        {% if 'orders' in user_menus %}<a href="/orders" class="nav-item {% if active_page == 'orders' %}active{% endif %}">🧾 订单管理</a>{% endif %}
         {% if 'forwarder' in user_menus %}<a href="/forwarder" class="nav-item {% if active_page == 'forwarder' %}active{% endif %}">🚢 货代管理</a>{% endif %}
         {% if 'japan_calendar' in user_menus %}<a href="/japan-calendar" class="nav-item {% if active_page == 'japan_calendar' %}active{% endif %}">🇯🇵 日本日历</a>{% endif %}
         {% if 'alert_center' in user_menus %}<a href="/alerts" class="nav-item {% if active_page == 'alert_center' %}active{% endif %}">🚨 告警中心</a>{% endif %}
         {% if 'settings' in user_menus %}<a href="/settings" class="nav-item {% if active_page == 'settings' %}active{% endif %}">⚙️ 系统管理</a>{% endif %}
-        {% if 'users' in user_menus %}<a href="/users" class="nav-item {% if active_page == 'users' %}active{% endif %}">👥 用户管理</a>{% endif %}
       </nav>
 
       {% if current_user %}
@@ -280,7 +279,7 @@
     })();
   </script>
   <script src="/static/js/pricing_tool.js?v=20260930_pt12"></script>
-  <script src="/static/js/app.js?v=20260930_img5m1"></script>
+  <script src="/static/js/app.js?v=20261101_tip350"></script>
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>

@@ -96,6 +96,7 @@
   <button class="settings-nav-item" data-tab="alert_tasks" type="button">🔔 告警任务</button>
   <button class="settings-nav-item" data-tab="reminders" type="button">📨 提醒任务</button>
   <button class="settings-nav-item" data-tab="rbac" type="button">🛡️ 角色权限</button>
+  <button class="settings-nav-item" data-tab="users" type="button">👥 用户管理</button>
 </nav>
 
 <div class="settings-layout">
@@ -366,6 +367,15 @@
       <button class="btn btn-primary btn-sm" id="rbacAddRoleBtn" type="button">➕ 新建角色</button>
     </div>
     <div id="rbacRolesWrap"></div>
+  </div>
+
+  <!-- 11. 用户管理 (原独立菜单并入系统管理; 手机端跳转独立页) -->
+  <div class="settings-panel" data-panel="users">
+    <div class="m-scard">
+      <div class="m-scard-title">👥 用户管理</div>
+      <p class="m-scard-tip">新增/编辑账号、重置密码、绑定角色权限。</p>
+      <a href="/users" class="btn btn-primary" style="display:block; text-align:center; text-decoration:none; min-height:44px; line-height:44px;">打开用户管理</a>
+    </div>
   </div>
 
 </div>

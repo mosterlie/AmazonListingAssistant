@@ -1,0 +1,442 @@
+{% extends "base.html" %}
+
+{% block title %}订单管理{% endblock %}
+
+{% block content %}
+<style>
+  /* 表头统一: 字号 / 字重 / 颜色 / 对齐 一致 (含附件列, 不再单独缩小字号) */
+  #orderTable th {
+    font-size:0.8rem; font-weight:700; color:#475569;
+    text-align:center; white-space:nowrap; padding:10px 6px;
+    vertical-align:middle;
+  }
+  /* 订单矩阵表: 最新轨迹/更新时间 列宽贴合内容 (不预留空白); 单据附件列收窄 */
+  #orderTable th.track-desc-col,
+  #orderTable th.track-time-col { width:1%; white-space:nowrap; padding:10px 6px; text-align:center; }
+  #orderTable td.track-desc-cell { white-space:nowrap; padding:8px 6px; }
+  #orderTable td.track-time-cell { white-space:nowrap; padding:8px 6px; }
+  #orderTable th.doc-col {
+    width:58px; min-width:58px; padding:10px 2px; text-align:center;
+    white-space:normal; line-height:1.25;
+  }
+  #orderTable td.doc-cell { padding:8px 2px; text-align:center; }
+  /* 未补录: 补录按钮边框呼吸发光, 提醒待补录 (已补录则保持普通样式) */
+  @keyframes suppGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); border-color: #fde68a; }
+    50%      { box-shadow: 0 0 6px 2px rgba(245,158,11,.55); border-color: #f59e0b; }
+  }
+  #orderTable .supp-pending {
+    border-color: #fbbf24 !important;
+    animation: suppGlow 1.8s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #orderTable .supp-pending { animation: none; }
+  }
+  /* 操作列图标按钮: 两行排布 (查询/补录 一行, 复制/轨迹 一行), 紧凑不撑高表格行 */
+  #orderTable .row-act {
+    display:inline-flex; align-items:center; justify-content:center;
+    padding:1px 5px; min-height:0; line-height:1; font-size:0; border-radius:6px; color:#475569;
+  }
+  #orderTable .row-act svg { display:block; }
+  #orderTable .row-act:hover { background:#eff6ff; color:#1d4ed8; }
+  #orderTable .row-act.is-edit { color:#b45309; }
+  #orderTable .row-act.is-copy { color:#1d4ed8; }
+  /* 窄屏 (app.css 里有 .matrix-table .btn 的 !important 内边距) 仍需保持两行紧凑 */
+  @media (max-width: 768px) {
+    #orderTable .row-act { padding:1px 4px !important; min-height:0 !important; }
+  }
+  /* 操作列固定在右侧 (横向滚动时不跟随) */
+  #orderTable th:last-child,
+  #orderTable td:last-child {
+    position: sticky;
+    right: 0;
+    background: #fff;
+    z-index: 2;
+    box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.18);
+  }
+  #orderTable thead th:last-child { background: #f8fafc; z-index: 3; }
+  #orderTable tbody tr:hover td:last-child { background: #dbeafe; }
+  /* 行悬停: 高亮更醒目 (覆盖全局的极淡 #fafcff) */
+  #orderTable tbody tr { transition: background-color 0.12s ease; }
+  #orderTable tbody tr:hover { background: #dbeafe; }
+  /* 可复制的内容 (订单号/运单号/SKU/商品标识): 仅手型光标, 悬停不出现下划线 */
+  #orderTable .copy-chip,
+  #orderTable .order-sn-copy,
+  #orderTable .tag-badge[data-v] { cursor:pointer; }
+  /* 附件类型徽标: 每种扩展名独立配色 (与 orders.js docFileType 的 ext-<扩展名> 对应) */
+  .order-doc-ext, .order-doc-ext-big { background:#f1f5f9; color:#475569; }
+  .order-doc-ext.ext-pdf,  .order-doc-ext-big.ext-pdf  { background:#fee2e2; color:#b91c1c; }
+  .order-doc-ext.ext-doc,  .order-doc-ext-big.ext-doc  { background:#dbeafe; color:#1d4ed8; }
+  .order-doc-ext.ext-docx, .order-doc-ext-big.ext-docx { background:#e0e7ff; color:#4338ca; }
+  .order-doc-ext.ext-xls,  .order-doc-ext-big.ext-xls  { background:#dcfce7; color:#15803d; }
+  .order-doc-ext.ext-xlsx, .order-doc-ext-big.ext-xlsx { background:#ccfbf1; color:#0f766e; }
+  .order-doc-ext.ext-csv,  .order-doc-ext-big.ext-csv  { background:#d1fae5; color:#047857; }
+  .order-doc-ext.ext-txt,  .order-doc-ext-big.ext-txt  { background:#e2e8f0; color:#334155; }
+  .order-doc-ext.ext-jpg,  .order-doc-ext-big.ext-jpg  { background:#fef3c7; color:#b45309; }
+  .order-doc-ext.ext-jpeg, .order-doc-ext-big.ext-jpeg { background:#ffedd5; color:#c2410c; }
+  .order-doc-ext.ext-png,  .order-doc-ext-big.ext-png  { background:#e0f2fe; color:#0369a1; }
+  .order-doc-ext.ext-webp, .order-doc-ext-big.ext-webp { background:#ede9fe; color:#6d28d9; }
+  .order-doc-ext.ext-gif,  .order-doc-ext-big.ext-gif  { background:#fce7f3; color:#be185d; }
+  .order-doc-ext.ext-bmp,  .order-doc-ext-big.ext-bmp  { background:#f1f5f9; color:#0f172a; }
+  .order-doc-ext.ext-heic, .order-doc-ext-big.ext-heic { background:#ffe4e6; color:#be123c; }
+  .order-doc-ext.ext-zip,  .order-doc-ext-big.ext-zip  { background:#f3e8ff; color:#7e22ce; }
+  .order-doc-ext.ext-rar,  .order-doc-ext-big.ext-rar  { background:#fae8ff; color:#a21caf; }
+  .order-doc-ext.ext-7z,   .order-doc-ext-big.ext-7z   { background:#fdf4ff; color:#86198f; }
+  /* 搜索区底线与列表顶线合并为一条: 列表去掉顶边及上方圆角, 直接接在头部下方 */
+  .order-table-wrap {
+    border-top: none;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+</style>
+<div class="form-card">
+  <!-- 标题 + 搜索筛选合并为同一展示区 -->
+  <div class="card-header" style="padding:12px 18px; display:flex; align-items:center; gap:8px 12px; flex-wrap:wrap;">
+    <div class="card-title" style="margin:0; flex-shrink:0;">
+      <div class="card-title-icon" style="background:#0ea5e9;">🧾</div>
+      <span>订单管理</span>
+    </div>
+    <!-- 批量选择提示: 选中行后出现在「订单管理」标题之后 -->
+    <span id="orderSelBar" style="display:none; align-items:center; padding:2px 10px;
+      border-radius:9999px; background:#eff6ff; border:1px solid #bfdbfe;">
+      <span id="orderSelHint" style="font-size:0.74rem; color:#1d4ed8; white-space:nowrap;">已选 <b>0</b> 单</span>
+    </span>
+    <!-- 统计合并为一条: 共 N 单 + 各状态数量 -->
+    <div id="orderStatBar" style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+      <span class="tag-badge" style="background:#f1f5f9; color:#475569; border:none;">共 0 单</span>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-left:auto;">
+      <input type="text" id="orderKeyword" class="form-input" placeholder="🔍 订单号 / 包裹号 / 运单号 / 店铺"
+        style="width:168px; padding:6px 10px; font-size:0.82rem;"
+        onkeydown="if(event.key==='Enter'){orderState.page=1;loadOrders();}">
+      <select id="orderStatus" class="form-select" style="width:118px; padding:6px 8px; font-size:0.82rem;">
+        <option value="">全部状态（不含已关闭）</option>
+      </select>
+      <select id="orderShop" class="form-select" style="width:116px; padding:6px 8px; font-size:0.82rem;">
+        <option value="">全部店铺</option>
+      </select>
+      <input type="date" id="orderDateFrom" class="form-input" style="width:118px; padding:6px 8px; font-size:0.82rem;">
+      <span style="color:#94a3b8;">~</span>
+      <input type="date" id="orderDateTo" class="form-input" style="width:118px; padding:6px 8px; font-size:0.82rem;">
+      <button class="btn btn-outline btn-sm" type="button" onclick="orderState.page=1;loadOrders()" style="padding:5px 12px;">查询</button>
+      <button class="btn btn-outline btn-sm" type="button" onclick="resetOrderFilters()" style="padding:5px 12px;">重置</button>
+      <button class="btn btn-outline btn-sm" type="button" id="orderCopyBtn"
+        title="批量复制勾选订单（仅数据行，可直接粘贴到在线文档）" onclick="copyOrdersRows()"
+        style="padding:5px 14px;">复制</button>
+      <button class="btn btn-outline btn-sm" type="button" id="orderBatchUploadBtn"
+        title="勾选订单后，把同一批单据（采购单/采购发票/发货单/配送轨迹/签收单/物流发票/清关证明）同时上传到这些订单"
+        onclick="openBatchUpload()"
+        style="padding:5px 14px;">上传</button>
+      <button class="btn btn-outline btn-sm" type="button" id="orderAppealBtn"
+        title="按亚马逊「直近配送済み自己発送注文のフルフィルメント記録」模板导出选中订单"
+        onclick="exportOrdersAppealXlsx()"
+        style="padding:5px 14px;">导出</button>
+      {% if 'order:sync' in user_perms %}
+      <button class="btn btn-primary btn-sm" type="button" id="orderSyncBtn"
+        title="批量同步妙手订单并更新运单轨迹" onclick="openSyncModal()"
+        style="padding:5px 14px;">同步</button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card-body" style="padding:0;">
+    <!-- 列表 -->
+    <div class="table-wrapper order-table-wrap" style="overflow-x:auto;">
+      <table class="matrix-table" id="orderTable" style="min-width:1630px; width:100%;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="width:34px; text-align:center; padding:10px 4px;">
+              <input type="checkbox" id="orderCheckAll" style="width:14px; height:14px; cursor:pointer;">
+            </th>
+            <th style="width:1%; white-space:nowrap; text-align:center;">amazon 订单号</th>
+            <th style="width:64px; text-align:center;">商品图</th>
+            <th style="width:104px; text-align:center;">商品标识</th>
+            <th style="width:108px; text-align:center;">SKU</th>
+            <th style="width:1%; white-space:nowrap; text-align:center;">订单金额</th>
+            <th style="width:1%; white-space:nowrap; text-align:center;">下单时间</th>
+            <th style="width:1%; white-space:nowrap; text-align:center;">订单状态</th>
+            <th style="width:1%; white-space:nowrap; text-align:center;">运单号</th>
+            <th style="width:1%; white-space:nowrap; text-align:center;">运单状态</th>
+            <th class="track-desc-col">最新轨迹</th>
+            <th class="track-time-col">更新时间</th>
+            {% for dt in doc_types %}
+            <th class="doc-col">{{ dt.label }}</th>
+            {% endfor %}
+            <th style="width:84px; text-align:center; white-space:nowrap;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="orderTableBody">
+          <tr><td colspan="20" style="text-align:center; padding:40px; color:var(--text-muted);">⏳ 正在加载订单数据...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 18px; flex-wrap:wrap; gap:10px;">
+      <div id="orderPageInfo" style="font-size:0.8rem; color:#64748b;"></div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <select id="orderPageSize" class="form-select" onchange="orderState.page=1;loadOrders()"
+          style="width:96px; padding:5px 8px; font-size:0.8rem;">
+          <option value="20" selected>20 条/页</option>
+          <option value="50">50 条/页</option>
+          <option value="100">100 条/页</option>
+        </select>
+        <button class="btn btn-outline btn-sm" type="button" id="orderPrevBtn" onclick="gotoOrderPage(-1)">‹ 上一页</button>
+        <button class="btn btn-outline btn-sm" type="button" id="orderNextBtn" onclick="gotoOrderPage(1)">下一页 ›</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 订单详情弹窗 -->
+<div id="orderDetailModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeOrderDetail()"></div>
+  <div class="custom-modal-dialog" style="max-width:900px; max-height:88vh; display:flex; flex-direction:column;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">🧾</span>
+        <div>
+          <h3 style="margin:0; font-size:1.05rem; color:#0f172a; font-weight:700;" id="orderDetailTitle">订单详情</h3>
+          <div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;" id="orderDetailSub">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeOrderDetail()">✕</button>
+    </div>
+    <div class="custom-modal-body" id="orderDetailBody" style="padding:16px 20px; overflow:auto;"></div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-primary" onclick="closeOrderDetail()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 补录信息弹窗 (采购日期 / 国内包裹数量 / 国内单号) -->
+<div id="orderSupplementModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeOrderSupplement()"></div>
+  <div class="custom-modal-dialog" style="max-width:440px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">📝</span>
+        <div>
+          <h3 style="margin:0; font-size:1.05rem; color:#0f172a; font-weight:700;">补录信息</h3>
+          <div id="orderSuppSub" style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeOrderSupplement()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:16px 20px; display:flex; flex-direction:column; gap:12px;">
+      <label style="font-size:0.8rem; color:#334155;">
+        采购日期 <span style="color:#dc2626;">*</span>
+        <input type="date" id="supPurchaseDate" class="form-input"
+          style="margin-top:4px; padding:6px 9px; font-size:0.82rem;">
+      </label>
+      <label style="font-size:0.8rem; color:#334155;">
+        国内包裹数量 <span style="color:#dc2626;">*</span>
+        <input type="number" id="supPackageCount" min="1" max="9999" step="1" class="form-input"
+          style="margin-top:4px; padding:6px 9px; font-size:0.82rem;" placeholder="1">
+      </label>
+      <label style="font-size:0.8rem; color:#334155;">
+        国内单号 <span style="color:#dc2626;">*</span>
+        <input type="text" id="supTrackingNo" class="form-input"
+          style="margin-top:4px; padding:6px 9px; font-size:0.82rem;" placeholder="多个单号用英文逗号分隔">
+      </label>
+      <div style="font-size:0.72rem; color:#94a3b8; line-height:1.6;">
+        💡 三项均为必填；补录信息仅作记录，妙手同步不会覆盖；国内单号支持多个，用英文逗号分隔。
+      </div>
+    </div>
+    <div class="custom-modal-footer">
+      <button class="btn btn-outline" type="button" onclick="closeOrderSupplement()">取消</button>
+      <button class="btn btn-primary" type="button" id="suppSaveBtn" onclick="saveOrderSupplement()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 未补录提醒弹窗 (点击复制整行时校验) -->
+<div id="orderSuppWarnModal" class="custom-modal" style="display:none; z-index:10020;">
+  <div class="custom-modal-backdrop" onclick="closeSuppWarnModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:440px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">⚠️</span>
+        <div>
+          <h3 style="margin:0; font-size:1.05rem; color:#0f172a; font-weight:700;">尚未补录</h3>
+          <div id="suppWarnSub" style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeSuppWarnModal()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:16px 20px;">
+      <div id="suppWarnMissing" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;"></div>
+      <div style="font-size:0.74rem; color:#94a3b8; line-height:1.6;">
+        💡 缺少采购日期 / 国内包裹数量 / 国内单号时，复制出去的行粘贴到表格会缺数据；建议先补录再复制。
+      </div>
+    </div>
+    <div class="custom-modal-footer">
+      <button class="btn btn-outline" type="button" onclick="closeSuppWarnModal()">取消复制</button>
+      <button class="btn btn-outline" type="button" id="suppWarnGoBtn"
+        onclick="suppWarnGoSupplement()">去补录</button>
+      <button class="btn btn-primary" type="button" onclick="suppWarnCopyAnyway()">仍要复制</button>
+    </div>
+  </div>
+</div>
+
+<!-- 商品图放大预览 -->
+<div id="orderImgModal" class="custom-modal" style="display:none; z-index:10050;">
+  <div class="custom-modal-backdrop" onclick="closeOrderImg()"></div>
+  <div class="custom-modal-dialog" style="max-width:860px; max-height:88vh; overflow:auto;
+    background:transparent; box-shadow:none; padding:0;">
+    <img id="orderImgLarge" alt="" style="max-width:100%; max-height:86vh; min-width:240px; min-height:200px;
+      object-fit:contain; display:block; margin:0 auto; border-radius:10px; background:#fff; cursor:zoom-out;"
+      onclick="closeOrderImg()">
+  </div>
+</div>
+
+<!-- 运单轨迹弹窗 (初道 gettrack 时间线) -->
+<div id="orderTrackModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeOrderTrack()"></div>
+  <div class="custom-modal-dialog" style="max-width:680px; max-height:86vh; display:flex; flex-direction:column;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+        <span style="font-size:1.3rem;">📍</span>
+        <div style="min-width:0;">
+          <h3 style="margin:0; font-size:1.02rem; color:#0f172a; font-weight:700;">运单轨迹</h3>
+          <div style="font-size:0.74rem; color:var(--text-muted); margin-top:2px; word-break:break-all;" id="orderTrackSub">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeOrderTrack()">✕</button>
+    </div>
+    <div class="custom-modal-body" id="orderTrackBody" style="padding:14px 18px; overflow:auto;"></div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="copyOrderTrack()">📋 复制轨迹</button>
+      <button type="button" class="btn btn-outline" id="orderTrackJumpBtn" onclick="jumpOrderTrack()"
+        title="用跨境运单号查询 17TRACK（无跨境运单号时用运单号）">↗ 17TRACK 查询</button>
+      <button type="button" class="btn btn-primary" onclick="closeOrderTrack()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 单据附件弹窗 (采购单/采购发票/发货单/配送轨迹/签收单/物流发票/清关证明) -->
+<div id="orderDocModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeOrderDocs()"></div>
+  <div class="custom-modal-dialog" style="max-width:660px; max-height:84vh; display:flex; flex-direction:column;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+        <span style="font-size:1.3rem;">📎</span>
+        <div style="min-width:0;">
+          <h3 style="margin:0; font-size:1.02rem; color:#0f172a; font-weight:700;" id="orderDocTitle">单据附件</h3>
+          <div style="font-size:0.74rem; color:var(--text-muted); margin-top:2px; word-break:break-all;" id="orderDocSub">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeOrderDocs()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:14px 18px; overflow:auto;">
+      <!-- 附件批量选择条 (有附件时显示) -->
+      <div id="orderDocToolbar" style="display:none; align-items:center; gap:10px; margin-bottom:10px;
+        padding:6px 10px; border-radius:8px; background:#f8fafc; border:1px solid #e2e8f0;
+        font-size:0.76rem; color:#475569;">
+        <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+          <input type="checkbox" id="orderDocCheckAll" style="width:14px; height:14px; cursor:pointer;"> 全选
+        </label>
+        <span id="orderDocSelCount">已选 0 个</span>
+        <button class="btn btn-outline btn-sm" type="button"
+          style="padding:2px 9px; font-size:0.72rem; color:#dc2626; border-color:#fecaca; margin-left:auto;"
+          onclick="batchDeleteOrderDocs()">🗑 批量删除选中</button>
+      </div>
+      <div id="orderDocBody"></div>
+    </div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="downloadDocsZip()">⬇ 批量下载</button>
+      <button type="button" class="btn btn-outline" onclick="uploadMoreDocs()">＋ 上传文件</button>
+      <button type="button" class="btn btn-primary" onclick="closeOrderDocs()">关闭</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="orderDocInput" multiple style="display:none;"
+  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,.rar,.7z">
+
+<!-- 批量上传单据弹窗 (勾选多单后, 同一批文件同步写入每单的对应单据) -->
+<div id="orderBatchUploadModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeBatchUpload()"></div>
+  <div class="custom-modal-dialog" style="max-width:640px; max-height:86vh; display:flex; flex-direction:column;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+        <span style="font-size:1.3rem;">📎</span>
+        <div style="min-width:0;">
+          <h3 style="margin:0; font-size:1.02rem; color:#0f172a; font-weight:700;">批量上传单据</h3>
+          <div id="orderBatchUploadSub" style="font-size:0.74rem; color:var(--text-muted); margin-top:2px;
+            word-break:break-all;">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeBatchUpload()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:14px 18px; overflow:auto;">
+      <div id="orderBatchUploadRows" style="display:flex; flex-direction:column; gap:8px;"></div>
+      <div style="margin-top:10px; font-size:0.72rem; color:#94a3b8; line-height:1.6;">
+        💡 每类单据可多选文件；上传后会分别写入所有已勾选订单的对应单据
+        （文件名按各单订单号/运单号自动编号），只需选择一次文件。
+      </div>
+      <div id="orderBatchUploadProgress" style="display:none; margin-top:12px; padding:10px 12px;
+        border-radius:8px; background:#eff6ff; border:1px solid #bfdbfe; font-size:0.78rem;
+        color:#1d4ed8; line-height:1.6;"></div>
+    </div>
+    <div class="custom-modal-footer">
+      <button class="btn btn-outline" type="button" onclick="clearBatchUpload()">清空文件</button>
+      <button class="btn btn-outline" type="button" onclick="closeBatchUpload()">取消</button>
+      <button class="btn btn-primary" type="button" id="orderBatchUploadStart"
+        onclick="startBatchUpload()">开始上传</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="orderBatchUploadInput" multiple style="display:none;"
+  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,.rar,.7z">
+
+{% if 'order:sync' in user_perms %}
+<!-- 批量更新弹窗 (妙手订单同步 + 运单轨迹; 仅具备订单同步权限的用户渲染) -->
+<div id="orderSyncModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeSyncModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:540px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">🔄</span>
+        <div>
+          <h3 style="margin:0; font-size:1.05rem; color:#0f172a; font-weight:700;">批量更新订单与轨迹</h3>
+          <div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">按状态与时间范围同步妙手订单，并批量更新对应运单轨迹</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeSyncModal()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:16px 20px;">
+      <div style="font-size:0.82rem; font-weight:700; color:#334155; margin-bottom:8px;">订单状态</div>
+      <div id="syncStatusChecks" style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px;"></div>
+      <div style="font-size:0.82rem; font-weight:700; color:#334155; margin-bottom:8px;">时间范围（按妙手创建时间）</div>
+      <select id="syncDays" class="form-select" style="padding:7px 10px; font-size:0.84rem;">
+        <option value="7">最近 7 天</option>
+        <option value="30" selected>最近 30 天</option>
+        <option value="90">最近 90 天</option>
+        <option value="0">不限时间（全量，较慢）</option>
+      </select>
+      <label style="display:flex; align-items:center; gap:6px; margin-top:14px; font-size:0.82rem; color:#334155; cursor:pointer;">
+        <input type="checkbox" id="syncWithTrack" checked style="width:15px; height:15px;">
+        同时更新运单轨迹（每单约 1 秒，数量多时较慢）
+      </label>
+      <div style="margin-top:12px; font-size:0.74rem; color:#94a3b8; line-height:1.6;">
+        💡 妙手限频约 1 次/秒、单页 200 条；轨迹按批次查询（每批 20 单），全量更新可能耗时数分钟，请勿关闭页面。
+      </div>
+      <div id="syncProgress" style="display:none; margin-top:12px; padding:10px 12px; border-radius:8px; background:#eff6ff; border:1px solid #bfdbfe; font-size:0.78rem; color:#1d4ed8; line-height:1.6;"></div>
+    </div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="closeSyncModal()">取消</button>
+      <button type="button" class="btn btn-primary" id="syncStartBtn" onclick="startOrderSync()">开始更新</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const IS_ADMIN = {{ 'true' if current_user and current_user.role == 'admin' else 'false' }};
+  const USER_PERMS = {{ user_perms | tojson }};
+  function hasPerm(key) { return IS_ADMIN || USER_PERMS.includes(key); }
+</script>
+<script src="/static/js/orders.js?v=20261101_orders69"></script>
+{% endblock %}

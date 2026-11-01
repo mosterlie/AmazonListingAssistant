@@ -679,6 +679,114 @@ def init_db():
         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = CURRENT_TIMESTAMP;
         """)
 
+    # 12d. 妙手订单包裹库 (订单管理页面数据源: 订单+收件人+商品明细+物流)
+    #      package_id 为妙手包裹唯一id (opOrderPackageId), 同步按它幂等 UPSERT
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS miaoshou_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        package_id TEXT NOT NULL UNIQUE,
+        order_sn TEXT DEFAULT '',
+        app_package_no TEXT DEFAULT '',
+        platform TEXT DEFAULT '',
+        platform_name TEXT DEFAULT '',
+        site TEXT DEFAULT '',
+        shop_id TEXT DEFAULT '',
+        shop_name TEXT DEFAULT '',
+        order_status TEXT DEFAULT '',
+        order_status_text TEXT DEFAULT '',
+        platform_status TEXT DEFAULT '',
+        package_status TEXT DEFAULT '',
+        package_status_text TEXT DEFAULT '',
+        currency TEXT DEFAULT '',
+        order_amount REAL DEFAULT 0,
+        pay_amount REAL DEFAULT 0,
+        product_amount REAL DEFAULT 0,
+        commission_fee REAL DEFAULT 0,
+        gmt_order TEXT DEFAULT '',
+        gmt_pay TEXT DEFAULT '',
+        gmt_delivery TEXT DEFAULT '',
+        gmt_last_delivery TEXT DEFAULT '',
+        dest_country TEXT DEFAULT '',
+        dest_country_name TEXT DEFAULT '',
+        receiver_state TEXT DEFAULT '',
+        tracking_no TEXT DEFAULT '',
+        prev_tracking_no TEXT DEFAULT '',
+        tracking_no_manual INTEGER DEFAULT 0,
+        tracking_company TEXT DEFAULT '',
+        purchase_date TEXT DEFAULT '',
+        domestic_package_count INTEGER DEFAULT 0,
+        domestic_tracking_no TEXT DEFAULT '',
+        track_status_name TEXT DEFAULT '',
+        track_desc TEXT DEFAULT '',
+        track_time TEXT DEFAULT '',
+        track_refreshed_at TEXT DEFAULT '',
+        items_count INTEGER DEFAULT 0,
+        items_json TEXT DEFAULT '[]',
+        raw_json TEXT DEFAULT '{}',
+        product_label TEXT DEFAULT '',
+        product_label_short TEXT DEFAULT '',
+        label_attempts INTEGER DEFAULT 0,
+        sync_time TEXT DEFAULT '',
+        updated_at TEXT DEFAULT ''
+    );
+    """)
+    # 旧库向下兼容: 商品标识 (WorkBuddy 大模型按商品标题识别"这是什么商品") 与识别尝试次数
+    cursor.execute("PRAGMA table_info(miaoshou_orders);")
+    existing_order_cols = [col["name"] for col in cursor.fetchall()]
+    for col_def, col_name in [
+        ("product_label TEXT DEFAULT ''", "product_label"),
+        ("product_label_short TEXT DEFAULT ''", "product_label_short"),
+        ("label_attempts INTEGER DEFAULT 0", "label_attempts"),
+        # 运单轨迹快照 (与运单管理同源: 初道 gettrack)
+        ("track_status_name TEXT DEFAULT ''", "track_status_name"),
+        ("track_desc TEXT DEFAULT ''", "track_desc"),
+        ("track_time TEXT DEFAULT ''", "track_time"),
+        ("track_refreshed_at TEXT DEFAULT ''", "track_refreshed_at"),
+        # 上一次运单号 (人工修正时保留一份, 用于对比展示)
+        ("prev_tracking_no TEXT DEFAULT ''", "prev_tracking_no"),
+        # 人工修改标记: 1 表示运单号被手工改过, 妙手同步不再覆盖该值
+        ("tracking_no_manual INTEGER DEFAULT 0", "tracking_no_manual"),
+        # 补录信息: 采购日期 / 国内包裹数量 / 国内单号 (人工录入, 同步不覆盖)
+        ("purchase_date TEXT DEFAULT ''", "purchase_date"),
+        ("domestic_package_count INTEGER DEFAULT 0", "domestic_package_count"),
+        ("domestic_tracking_no TEXT DEFAULT ''", "domestic_tracking_no"),
+    ]:
+        if col_name not in existing_order_cols:
+            cursor.execute(f"ALTER TABLE miaoshou_orders ADD COLUMN {col_def};")
+    # 清理早期误加的「商标」字段 (品牌识别已改为商品品类识别)
+    for legacy_col in ("brand_name", "brand_attempts"):
+        if legacy_col in existing_order_cols:
+            try:
+                cursor.execute(f"ALTER TABLE miaoshou_orders DROP COLUMN {legacy_col};")
+            except Exception:
+                pass  # SQLite < 3.35 不支持 DROP COLUMN, 保留不影响功能
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_order_sn ON miaoshou_orders(order_sn);")
+
+    # 12e. 订单单据附件 (采购单/采购发票/发货单/签收单/物流发票/清关证明, 每单每类可多份)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS order_docs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        doc_type TEXT NOT NULL,
+        file_name TEXT DEFAULT '',
+        stored_name TEXT DEFAULT '',
+        relative_url TEXT DEFAULT '',
+        thumb_name TEXT DEFAULT '',
+        mime_type TEXT DEFAULT '',
+        size_bytes INTEGER DEFAULT 0,
+        uploaded_by TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_order_docs_order ON order_docs(order_id, doc_type);")
+    # 旧库向下兼容: 文档首页快照文件名 (用于列表/弹窗预览)
+    cursor.execute("PRAGMA table_info(order_docs);")
+    existing_doc_cols = [col["name"] for col in cursor.fetchall()]
+    if "thumb_name" not in existing_doc_cols:
+        cursor.execute("ALTER TABLE order_docs ADD COLUMN thumb_name TEXT DEFAULT '';")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_order_gmt ON miaoshou_orders(gmt_order);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_order_status ON miaoshou_orders(package_status);")
+
     # 13. 店小秘订单剩余发货时间采集 (临期预警: 黄=剩余<warn_hours / 红=剩余<danger_hours / 超时=剩余<=0)
     #     快照幂等: 每轮 UPSERT (按 order_no); 消失/已发货订单保留最近快照 (last_seen_at 判定)
     cursor.execute("""

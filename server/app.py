@@ -43,7 +43,8 @@ from server.routers import (
     alert_router,
     jp_holiday_router,
     db_agent_router,
-    ads_analysis_router
+    ads_analysis_router,
+    order_router
 )
 
 @asynccontextmanager
@@ -170,6 +171,7 @@ app.include_router(rbac_router.router)
 app.include_router(alert_router.router)
 app.include_router(jp_holiday_router.router)
 app.include_router(ads_analysis_router.router)
+app.include_router(order_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
 app.include_router(db_agent_router.router)
 
@@ -321,7 +323,7 @@ async def render_users_page(request: Request):
         return redirect_resp
 
     return render_page(request, "users.html", context={
-        "active_page": "users",
+        "active_page": "settings",  # 用户管理已并入系统管理: 导航高亮「系统管理」
         "current_user": user
     })
 
@@ -349,6 +351,21 @@ async def render_forwarder_integration_page(request: Request):
     return render_page(request, "forwarder_integration.html", context={
         "active_page": "forwarder_integration",
         "current_user": user
+    })
+
+
+@app.get("/orders", response_class=HTMLResponse, summary="订单管理页面 (妙手订单包裹同步/查询)")
+async def render_orders_page(request: Request):
+    """渲染订单管理页面 (需登录; 数据源为妙手开放平台订单包裹)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
+    if redirect_resp:
+        return redirect_resp
+
+    from server.services.order_doc_service import DOC_TYPES
+    return render_page(request, "orders.html", context={
+        "active_page": "orders",
+        "current_user": user,
+        "doc_types": DOC_TYPES   # 单据附件列 (采购单/采购发票/发货单/配送轨迹/签收单/物流发票/清关证明)
     })
 
 

@@ -6,6 +6,7 @@ import sys
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Union
+from server.config import WORKBUDDY_API_KEY, WORKBUDDY_BASE_URL, WORKBUDDY_MODEL, WORKBUDDY_MODELS
 from server.database import get_setting, set_setting, delete_setting, get_settings_by_prefix
 from server.services.pricing_config import get_global_pricing_config, GLOBAL_PRICING_CONFIG
 from server.dependencies import require_admin_user
@@ -59,6 +60,16 @@ class MiaoshouConfigSchema(BaseModel):
     app_secret: str = Field("", description="妙手开放平台 App Secret (留空使用内置默认)")
 
 
+class WorkbuddyConfigSchema(BaseModel):
+    """WorkBuddy 大模型 (OpenAI 兼容网关) —— 订单「商品标识」识别使用
+
+    留空即回退 server/config.py 内置默认值 (默认值即当前在用的 BASE_URL / API Key / 模型)。
+    """
+    base_url: str = Field(WORKBUDDY_BASE_URL, description="WorkBuddy API Base URL (OpenAI 兼容)")
+    api_key: str = Field(WORKBUDDY_API_KEY, description="WorkBuddy API Key")
+    model: str = Field(WORKBUDDY_MODEL, description="WorkBuddy 模型名称")
+
+
 class StoreBrandItemSchema(BaseModel):
     store_name: str = Field(..., min_length=1, description="店铺账号名称")
     brand_name: str = Field(..., min_length=1, description="对应品牌名称 (1对1必填)")
@@ -76,6 +87,7 @@ class SystemSettingsSchema(BaseModel):
     db_agent_token: Optional[str] = Field("", description="桌面上件助手远程通道令牌 (内嵌图片服务 X-DB-Token 校验, 留空使用默认 erp2024)")
     email_notify: EmailNotifySchema = Field(default_factory=EmailNotifySchema, description="邮件配置 (SMTP 发信通道基础参数 + 默认收件人)")
     miaoshou_config: MiaoshouConfigSchema = Field(default_factory=MiaoshouConfigSchema, description="妙手 ERP 开放平台凭证 (运单管理·妙手同步)")
+    workbuddy_config: WorkbuddyConfigSchema = Field(default_factory=WorkbuddyConfigSchema, description="WorkBuddy 大模型 (订单商品标识识别)")
 
 
 def normalize_store_accounts(raw_stores: Any) -> List[Dict[str, Any]]:
@@ -189,6 +201,13 @@ async def get_system_settings():
             "app_secret": (get_setting("miaoshou_app_secret", "") or "").strip() or _MS_SECRET
         }
 
+        # WorkBuddy 大模型 (订单商品标识识别; 留空回退 server/config.py 内置默认)
+        workbuddy_config = {
+            "base_url": (get_setting("workbuddy_base_url", "") or "").strip() or WORKBUDDY_BASE_URL,
+            "api_key": (get_setting("workbuddy_api_key", "") or "").strip() or WORKBUDDY_API_KEY,
+            "model": (get_setting("workbuddy_model", "") or "").strip() or WORKBUDDY_MODEL
+        }
+
         return {
             "code": 0,
             "msg": "success",
@@ -213,7 +232,9 @@ async def get_system_settings():
                 "ai_config": ai_config,
                 "db_agent_token": db_agent_token,
                 "email_notify": email_notify,
-                "miaoshou_config": miaoshou_config
+                "miaoshou_config": miaoshou_config,
+                "workbuddy_config": workbuddy_config,
+                "workbuddy_models": list(WORKBUDDY_MODELS)   # 模型下拉框候选
             }
         }
     except Exception as e:
@@ -310,7 +331,17 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
         set_setting("miaoshou_app_secret", miaoshou_app_secret)
         miaoshou_config = {"app_id": miaoshou_app_id, "app_secret": miaoshou_app_secret}
 
-        # 11. 物流渠道计费规则已改为每渠道独立存储键 (channel_rule:{key}), 由渠道级接口单独读写;
+        # 11. 保存 WorkBuddy 大模型配置 (订单商品标识识别; 留空回退 config.py 内置默认)
+        wb = payload.workbuddy_config
+        wb_base_url = (wb.base_url or "").strip() or WORKBUDDY_BASE_URL
+        wb_api_key = (wb.api_key or "").strip() or WORKBUDDY_API_KEY
+        wb_model = (wb.model or "").strip() or WORKBUDDY_MODEL
+        set_setting("workbuddy_base_url", wb_base_url)
+        set_setting("workbuddy_api_key", wb_api_key)
+        set_setting("workbuddy_model", wb_model)
+        workbuddy_config = {"base_url": wb_base_url, "api_key": wb_api_key, "model": wb_model}
+
+        # 12. 物流渠道计费规则已改为每渠道独立存储键 (channel_rule:{key}), 由渠道级接口单独读写;
         #     此处不再接收整表覆盖, 防止整批写回波及其他渠道
 
         # 同步刷新内存全局参数
@@ -335,7 +366,8 @@ async def update_system_settings(payload: SystemSettingsSchema, admin: Dict[str,
                 "ai_config": ai_config,
                 "db_agent_token": db_agent_token,
                 "email_notify": email_notify,
-                "miaoshou_config": miaoshou_config
+                "miaoshou_config": miaoshou_config,
+                "workbuddy_config": workbuddy_config
             }
         }
     except Exception as e:

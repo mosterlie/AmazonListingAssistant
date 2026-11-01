@@ -2887,3 +2887,94 @@ function showPromptModal(mode, promptText) {
     return res;
   };
 })();
+
+/* ====================================================================
+ * 全局悬浮提示 (快速版)
+ * 原生 title 提示延迟约 1 秒, 统一改为 150ms 立即展示, 位置跟随鼠标。
+ * 事件委托实现, 动态渲染的元素 (表格行/徽标等) 同样生效。
+ * ==================================================================== */
+(function () {
+  if (window.__fastTooltipInstalled) return;
+  window.__fastTooltipInstalled = true;
+
+  const DELAY = 350;
+  let box = null;
+  let timer = null;
+  let current = null;
+  let lastX = 0;
+  let lastY = 0;
+
+  function ensureBox() {
+    if (box) return box;
+    box = document.createElement("div");
+    box.style.cssText =
+      "position:fixed;z-index:99999;max-width:340px;padding:6px 9px;border-radius:6px;" +
+      "background:rgba(15,23,42,.94);color:#f8fafc;font-size:.74rem;line-height:1.45;" +
+      "box-shadow:0 6px 18px rgba(15,23,42,.25);pointer-events:none;display:none;" +
+      "white-space:pre-line;word-break:break-word;";
+    document.body.appendChild(box);
+    return box;
+  }
+
+  function place(x, y) {
+    if (!box || !current) return;
+    box.style.display = "block";
+    const rect = current.getBoundingClientRect();
+    let left = x + 14;
+    let top = y + 18;
+    if (left + box.offsetWidth > window.innerWidth - 8) {
+      left = Math.max(8, window.innerWidth - box.offsetWidth - 8);
+    }
+    if (top + box.offsetHeight > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - box.offsetHeight - 8);
+    }
+    box.style.left = left + "px";
+    box.style.top = top + "px";
+  }
+
+  function hide() {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (current) {
+      if (current.dataset && current.dataset.fastTip !== undefined) {
+        current.setAttribute("title", current.dataset.fastTip);
+        delete current.dataset.fastTip;
+      }
+      current = null;
+    }
+    if (box) box.style.display = "none";
+  }
+
+  document.addEventListener("mousemove", e => {
+    lastX = e.clientX;
+    lastY = e.clientY;
+    if (current && !document.contains(current)) { hide(); return; }
+    if (box && box.style.display === "block") place(lastX, lastY);
+  }, true);
+
+  document.addEventListener("mouseover", e => {
+    const el = e.target && e.target.closest ? e.target.closest("[title]") : null;
+    if (!el || el === current) return;
+    const text = (el.getAttribute("title") || "").trim();
+    if (!text) return;
+    hide();
+    current = el;
+    el.dataset.fastTip = text;      // 暂存, 移除原生 title 避免浏览器再弹一次
+    el.removeAttribute("title");
+    timer = setTimeout(() => {
+      timer = null;
+      if (!current) return;
+      ensureBox().textContent = text;
+      place(lastX, lastY);
+    }, DELAY);
+  }, true);
+
+  document.addEventListener("mouseout", e => {
+    if (!current) return;
+    if (e.relatedTarget && current.contains(e.relatedTarget)) return;
+    hide();
+  }, true);
+
+  document.addEventListener("mousedown", hide, true);
+  document.addEventListener("scroll", hide, true);
+  window.addEventListener("blur", hide);
+})();

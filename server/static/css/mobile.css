@@ -655,3 +655,13 @@ body {
 
 /* 收起态紧凑工具栏按钮 */
 .m-icon-btn.m-on { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+
+/* ---------- 单据附件小按钮 (订单详情) ---------- */
+.m-doc-add, .m-doc-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 34px; height: 26px; padding: 0 8px; border-radius: 8px;
+  font-size: 0.74rem; font-weight: 700; cursor: pointer; line-height: 1; white-space: nowrap;
+}
+.m-doc-add { border: 1px dashed #cbd5e1; background: #f8fafc; color: #64748b; }
+.m-doc-add:active { background: #e0f2fe; border-color: #7dd3fc; color: #0369a1; }
+.m-doc-count { border: 1px solid #bfdbfe; background: #eff6ff; color: #1d4ed8; }

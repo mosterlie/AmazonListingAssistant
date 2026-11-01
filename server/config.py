@@ -24,6 +24,25 @@ DB_AGENT_TOKEN = os.environ.get("DB_AGENT_TOKEN", "erp2024").strip()
 # 默认 DeepSeek 对话会话链接
 DEFAULT_DEEPSEEK_URL = "https://chat.deepseek.com/a/chat/s/7d257fd5-a7f7-482f-bec5-ba53f94f6725"
 
+# WorkBuddy (OpenAI 兼容接口) — 用于订单「商标标识」识别
+# 注意: 该网关仅支持 Chat Completions 且必须 stream=true, 不支持非流式请求
+# 运行期以系统设置 workbuddy_base_url / workbuddy_api_key / workbuddy_model 为准, 此处为默认值与兜底
+WORKBUDDY_BASE_URL = os.environ.get("WORKBUDDY_BASE_URL", "https://copilot.tencent.com/v2")
+WORKBUDDY_API_KEY = os.environ.get(
+    "WORKBUDDY_API_KEY",
+    "ck_g2ylw91mjfnk.N9P9fVlGuBk8xgbtOsGEARiUvHNKwkQCCVrKvrA5fnw",
+)
+WORKBUDDY_MODEL = os.environ.get("WORKBUDDY_MODEL", "glm-5.3-flash")
+# WorkBuddy 网关可用模型清单 (实测可用的模型; 系统管理页「模型名称」下拉框即取自此处)
+# 新增模型只需在此追加, 前端下拉框自动同步
+WORKBUDDY_MODELS = [
+    "glm-5.3-flash",
+    "glm-5.3",
+    "glm-5.2",
+    "deepseek-v4-flash",
+    "deepseek-v3.2",
+]
+
 # 确保必要的目录存在
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(UPLOADS_DIR, exist_ok=True)

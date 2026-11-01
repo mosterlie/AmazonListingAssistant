@@ -1,0 +1,767 @@
+{% extends "base_mobile.html" %}
+
+{% block title %}订单管理{% endblock %}
+
+{% block content %}
+<!-- 标题条: 统计并入副标题 -->
+<div class="m-pagehead">
+  <div>
+    <h1 class="m-ptitle">🧾 订单</h1>
+    <div class="m-psub" id="mOrdSub">正在加载…</div>
+  </div>
+  <div class="m-pactions">
+    <button type="button" class="m-icon-btn" id="mOrdRefreshBtn" title="刷新">🔄</button>
+    {% if 'order:sync' in user_perms %}
+    <button type="button" class="m-icon-btn m-primary" id="mOrdSyncBtn" title="妙手同步">📥</button>
+    {% endif %}
+  </div>
+</div>
+
+<!-- 吸顶搜索栏 -->
+<div class="m-searchbar">
+  <label class="m-search-input">
+    <span>🔍</span>
+    <input type="search" id="mOrdKw" placeholder="订单号 / 包裹号 / 运单号 / 店铺"
+      enterkeyhint="search" autocomplete="off">
+  </label>
+  <button type="button" class="m-filter-btn" id="mOrdFilterBtn">筛选<span class="m-filter-dot"></span></button>
+</div>
+
+<!-- 订单卡片列表 -->
+<div class="m-card-list" id="mOrdList" style="margin-top:10px;">
+  <div class="m-card" style="text-align:center; padding:32px; color:#94a3b8;">⏳ 正在加载订单数据...</div>
+</div>
+
+<!-- 加载更多 -->
+<div class="m-loadmore" id="mOrdLoadMore" style="display:none;">
+  <button type="button" class="btn btn-outline" id="mOrdMoreBtn">加载更多</button>
+  <small id="mOrdMoreTxt"></small>
+</div>
+
+<!-- 筛选抽屉 -->
+<div class="m-sheet-mask" id="mOrdFilterMask"></div>
+<div class="m-sheet m-filter-sheet" id="mOrdFilterSheet">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">筛选订单</div>
+  <div class="m-field">
+    <label class="m-field-label">🚩 订单状态</label>
+    <select class="form-select" id="mOrdFStatus"><option value="">全部状态</option></select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">🏬 店铺</label>
+    <select class="form-select" id="mOrdFShop"><option value="">全部店铺</option></select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">🌐 平台</label>
+    <select class="form-select" id="mOrdFPlatform"><option value="">全部平台</option></select>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">📅 下单时间</label>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+      <input type="date" class="form-input" id="mOrdFDateFrom">
+      <input type="date" class="form-input" id="mOrdFDateTo">
+    </div>
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mOrdFilterReset">重置</button>
+    <button type="button" class="btn btn-primary" id="mOrdFilterApply">应用筛选</button>
+  </div>
+</div>
+
+<!-- ⋯ 订单快捷操作抽屉 -->
+<div class="m-sheet-mask" id="mOrdActMask"></div>
+<div class="m-sheet" id="mOrdActSheet">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">订单操作</div>
+  <div id="mOrdActInfo"></div>
+  <div class="m-act-list" style="margin-top:12px;" id="mOrdActs"></div>
+</div>
+
+<!-- 妙手同步抽屉 -->
+<div class="m-sheet-mask" id="mOrdSyncMask"></div>
+<div class="m-sheet m-filter-sheet" id="mOrdSyncSheet">
+  <div class="m-sheet-grab"></div>
+  <div class="m-sheet-title">从妙手同步订单</div>
+  <div class="m-field">
+    <label class="m-field-label">🚩 订单状态（可多选）</label>
+    <div id="mOrdSyncStatuses" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+  </div>
+  <div class="m-field">
+    <label class="m-field-label">📅 时间范围（按妙手创建时间）</label>
+    <select class="form-select" id="mOrdSyncDays">
+      <option value="7">最近 7 天</option>
+      <option value="30" selected>最近 30 天</option>
+      <option value="90">最近 90 天</option>
+      <option value="0">不限时间（全量，较慢）</option>
+    </select>
+  </div>
+  <div id="mOrdSyncProgress" style="display:none; margin-bottom:10px; padding:10px 12px; border-radius:10px;
+    background:#eff6ff; border:1px solid #bfdbfe; font-size:0.78rem; color:#1d4ed8; line-height:1.6;"></div>
+  <div style="font-size:0.72rem; color:#94a3b8; line-height:1.6; margin-bottom:10px;">
+    💡 妙手限频约 1 次/秒、单页 200 条，全量同步可能耗时数分钟，请勿关闭页面。
+  </div>
+  <div class="m-sheet-actions">
+    <button type="button" class="btn btn-outline" id="mOrdSyncCancel">取消</button>
+    <button type="button" class="btn btn-primary" id="mOrdSyncStart">开始同步</button>
+  </div>
+</div>
+
+<!-- 单据附件弹窗 (采购单/采购发票/发货单/签收单/物流发票/清关证明) -->
+<div id="mOrdDocModal" class="custom-modal" style="display:none; z-index:10020;">
+  <div class="custom-modal-backdrop" onclick="closeDocModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:94vw; max-height:82vh; display:flex; flex-direction:column; padding:0;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+        <span style="font-size:1.2rem;">📎</span>
+        <div style="min-width:0;">
+          <h3 style="margin:0; font-size:0.98rem; color:#0f172a; font-weight:700;" id="mOrdDocTitle">单据附件</h3>
+          <div style="font-size:0.72rem; color:#94a3b8; margin-top:2px;">支持图片 / PDF / Office 文档 / 压缩包，可上传多份</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeDocModal()">✕</button>
+    </div>
+    <div class="custom-modal-body" id="mOrdDocBody" style="padding:14px 16px; overflow:auto;"></div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="pickDoc(docState.docType)">＋ 上传文件</button>
+      <button type="button" class="btn btn-primary" onclick="closeDocModal()">关闭</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="mOrdDocInput" multiple style="display:none;"
+  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,.rar,.7z">
+
+<!-- 订单详情弹层 -->
+<div id="mOrdDetailModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeOrderDetail()"></div>
+  <div class="custom-modal-dialog" style="max-width:94vw; max-height:84vh; display:flex; flex-direction:column; padding:0;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+        <span style="font-size:1.2rem;">🧾</span>
+        <div style="min-width:0;">
+          <h3 style="margin:0; font-size:0.98rem; color:#0f172a; font-weight:700; word-break:break-all;"
+            id="mOrdDetailTitle">订单详情</h3>
+          <div style="font-size:0.72rem; color:#94a3b8; margin-top:2px; word-break:break-all;" id="mOrdDetailSub">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeOrderDetail()">✕</button>
+    </div>
+    <div class="custom-modal-body" id="mOrdDetailBody" style="padding:14px 16px; overflow:auto;"></div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-primary" onclick="closeOrderDetail()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 商品图放大预览 -->
+<div id="mOrdImgModal" class="custom-modal" style="display:none; z-index:10050;">
+  <div class="custom-modal-backdrop" onclick="closeOrderImg()"></div>
+  <div class="custom-modal-dialog" style="max-width:94vw; max-height:88vh; overflow:auto; background:transparent; box-shadow:none; padding:0 0 52px 0;">
+    <img id="mOrdImgLarge" alt="" style="max-width:100%; max-height:74vh; min-width:220px; min-height:180px;
+      object-fit:contain; display:block; margin:0 auto; border-radius:10px; background:#fff;">
+    <div style="text-align:center; margin-top:12px;">
+      <button type="button" class="btn btn-sm" onclick="closeOrderImg()"
+        style="background:#0f172a; color:#fff; border:none; padding:6px 18px;">关闭</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const IS_ADMIN = {{ 'true' if current_user and current_user.role == 'admin' else 'false' }};
+  const USER_PERMS = {{ user_perms | tojson }};
+  function hasPerm(key) { return IS_ADMIN || USER_PERMS.includes(key); }
+
+  const ORDER_STATUS_STYLE = {
+    unpaid: { cls: "b-amber", text: "未付款" },
+    wait_confirmed: { cls: "b-amber", text: "待审核" },
+    wait_seller_send: { cls: "b-amber", text: "待发货" },
+    wait_receiver_confirm: { cls: "b-green", text: "已发货" },   // 已发货=绿色
+    finished: { cls: "b-green", text: "已完成" },
+    cancelled: { cls: "b-gray", text: "已关闭" },
+    returned: { cls: "b-red", text: "已退款" },
+    refunding: { cls: "b-red", text: "售后中" },
+  };
+  const SYNC_FALLBACK_STATUSES = [
+    { value: "unpaid", label: "未付款" }, { value: "wait_confirmed", label: "待审核" },
+    { value: "wait_seller_send", label: "待发货" }, { value: "wait_receiver_confirm", label: "已发货" },
+    { value: "finished", label: "已完成" }, { value: "cancelled", label: "未发货退款关闭" },
+    { value: "returned", label: "已发货退款" }, { value: "refunding", label: "售后中" },
+  ];
+
+  const st = {
+    rows: [], page: 1, page_size: 20, total: 0, pages: 0, loading: false,
+    keyword: "", status: "", shop_id: "", platform: "", date_from: "", date_to: "",
+    statusOptions: [], actIdx: -1,
+  };
+
+  /* 单据附件类型 (与后端 order_doc_service.DOC_TYPES 保持一致) */
+  const DOC_TYPES = [
+    { key: "purchase_order", label: "采购单", icon: "🧾" },
+    { key: "purchase_invoice", label: "采购发票", icon: "🧮" },
+    { key: "delivery_note", label: "发货单", icon: "📦" },
+    { key: "delivery_track", label: "配送轨迹", icon: "🛣️" },
+    { key: "receipt", label: "签收单", icon: "✍️" },
+    { key: "logistics_invoice", label: "物流发票", icon: "🚚" },
+    { key: "customs_cert", label: "清关证明", icon: "🛃" },
+  ];
+  const docState = { orderId: 0, docType: "" };
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, m => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[m]));
+  }
+
+  async function api(url, options = {}) {
+    const resp = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
+    if (resp.status === 401) { window.location.href = "/login"; throw new Error("未登录"); }
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok || body.code !== 0) throw new Error(body.detail || body.msg || "请求失败");
+    return body;
+  }
+
+  function fmtMoney(amount, currency) {
+    const n = Number(amount || 0);
+    const cur = currency === "JPY" ? "JP¥" : (currency ? currency + " " : "");
+    return `${cur}${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  }
+
+  function statusBadge(status, text) {
+    const conf = ORDER_STATUS_STYLE[status] || { cls: "b-gray", text: "" };
+    return `<span class="m-badge ${conf.cls}">${esc(text || conf.text || status || "未知")}</span>`;
+  }
+
+  /* 商品标识: 卡片显示 ≤5 字简版, 复制/详情展示完整版; 空值显示待识别 (下次同步自动重试) */
+  function productChip(short, full) {
+    const s = (short || "").trim() || (full || "").trim();
+    const f = (full || "").trim() || s;
+    if (!s) return `<span class="m-schip">🏷️ 待识别</span>`;
+    if (s === "未知") return `<span class="m-schip">🏷️ 未知</span>`;
+    return `<span class="m-schip amber tap" data-v="${esc(f)}" title="${esc(f)}"
+      onclick="copyToClipboard(this.dataset.v, '商品标识 ')">🏷️ ${esc(s)}</span>`;
+  }
+
+  function copyChip(text, label) {
+    if (!text) return `<span style="color:#cbd5e1;">—</span>`;
+    return `<span class="m-copy-chip" title="点击复制" data-v="${esc(text)}"
+      onclick="copyToClipboard(this.dataset.v, '${label || ""}')">${esc(text)}</span>`;
+  }
+
+  /* ───────── 筛选项 / 统计 ───────── */
+  async function loadFilters() {
+    try {
+      const body = await api("/api/orders/filters");
+      const d = body.data || {};
+      st.statusOptions = d.status_options && d.status_options.length ? d.status_options : SYNC_FALLBACK_STATUSES;
+
+      document.getElementById("mOrdFStatus").innerHTML = `<option value="">全部状态</option>` +
+        st.statusOptions.map(s => `<option value="${esc(s.value)}">${esc(s.label)}</option>`).join("");
+      document.getElementById("mOrdFShop").innerHTML = `<option value="">全部店铺</option>` +
+        (d.shops || []).map(s =>
+          `<option value="${esc(s.shop_id)}">${esc(s.shop_name || s.shop_id)}</option>`).join("");
+      document.getElementById("mOrdFPlatform").innerHTML = `<option value="">全部平台</option>` +
+        (d.platforms || []).map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
+
+      renderSub(d);
+    } catch (e) {
+      if (e.message !== "未登录") showToast("加载筛选项失败: " + e.message, "error");
+    }
+  }
+
+  /* 统计并入副标题: 共 N 单 · 待发货 X · 已发货 Y · 上次同步 */
+  function renderSub(d) {
+    const sub = document.getElementById("mOrdSub");
+    const total = (d && d.total) || 0;
+    if (!total) { sub.innerHTML = "暂无订单，点右上 📥 同步"; return; }
+    const stats = (d && d.stats) || {};
+    const pending = (stats.wait_confirmed || 0) + (stats.wait_seller_send || 0);
+    const shipped = stats.wait_receiver_confirm || 0;
+    const parts = [`共 ${total} 单`];
+    if (pending) parts.push(`<span style="color:#c2410c; font-weight:700;">待处理 ${pending}</span>`);
+    if (shipped) parts.push(`已发货 ${shipped}`);
+    if (d && d.last_sync) parts.push(`上次同步 ${esc(String(d.last_sync).slice(5, 16))}`);
+    sub.innerHTML = parts.join('<span class="m-psub-sep">·</span>');
+  }
+
+  /* ───────── 列表 ───────── */
+  function buildQuery() {
+    return new URLSearchParams({
+      keyword: st.keyword, status: st.status, shop_id: st.shop_id, platform: st.platform,
+      date_from: st.date_from, date_to: st.date_to,
+      page: st.page, page_size: st.page_size,
+    }).toString();
+  }
+
+  async function loadOrders(reset = true) {
+    if (st.loading) return;
+    st.loading = true;
+    const listEl = document.getElementById("mOrdList");
+    if (reset) {
+      st.page = 1;
+      st.rows = [];
+      listEl.innerHTML = `<div class="m-card" style="text-align:center; padding:32px; color:#94a3b8;">⏳ 加载中...</div>`;
+    }
+    try {
+      const body = await api("/api/orders?" + buildQuery());
+      const d = body.data || {};
+      st.total = d.total || 0;
+      st.pages = d.pages || 0;
+      st.rows = reset ? (d.rows || []) : st.rows.concat(d.rows || []);
+      renderCards();
+      renderLoadMore();
+    } catch (e) {
+      if (e.message !== "未登录") {
+        listEl.innerHTML = `<div class="m-empty"><div class="m-empty-ico">❌</div>
+          <div class="m-empty-txt">加载失败：${esc(e.message)}</div></div>`;
+      }
+    } finally {
+      st.loading = false;
+    }
+  }
+
+  function renderLoadMore() {
+    const box = document.getElementById("mOrdLoadMore");
+    if (st.rows.length >= st.total || !st.total) { box.style.display = "none"; return; }
+    box.style.display = "flex";
+    document.getElementById("mOrdMoreTxt").innerText = `已显示 ${st.rows.length} / ${st.total} 单`;
+  }
+
+  function isFiltered() {
+    return !!(st.keyword || st.status || st.shop_id || st.platform || st.date_from || st.date_to);
+  }
+
+  function renderCards() {
+    const listEl = document.getElementById("mOrdList");
+    if (!st.rows.length) {
+      listEl.innerHTML = `<div class="m-empty">
+        <div class="m-empty-ico">${isFiltered() ? "🔍" : "🧾"}</div>
+        <div class="m-empty-txt">${isFiltered()
+          ? "未找到符合条件的订单，试试调整关键词或重置筛选"
+          : "暂无订单数据，点右上角 📥 从妙手同步"}</div></div>`;
+      return;
+    }
+    listEl.innerHTML = st.rows.map((o, i) => {
+      const thumb = o.cover_img || "";
+      const big = o.cover_img_big || thumb;
+      const time = (o.gmt_order || "").slice(0, 16);
+      return `
+      <div class="m-card">
+        <div style="display:flex; gap:10px; align-items:flex-start;">
+          <div style="flex-shrink:0; width:64px; height:64px; border-radius:10px; overflow:hidden;
+              border:1px solid #e2e8f0; background:#f8fafc; display:flex; align-items:center;
+              justify-content:center; color:#cbd5e1; font-size:1.2rem;${big ? " cursor:zoom-in;" : ""}"
+            ${big ? `data-big="${esc(big)}" data-thumb="${esc(thumb)}"` : ""}
+            onclick="openOrderImg(this.dataset.big, this.dataset.thumb)">
+            ${thumb
+              ? `<img src="${esc(thumb)}" alt="" loading="lazy" style="width:100%; height:100%; object-fit:cover; display:block;"
+                   onerror="this.parentElement.innerHTML='🖼️'">`
+              : "🖼️"}
+          </div>
+          <div style="flex:1; min-width:0;">
+            <div class="m-card-title">
+              ${copyChip(o.order_sn, "订单号")}
+              ${statusBadge(o.package_status, o.package_status_text)}
+            </div>
+            <div class="m-card-sub">
+              ${productChip(o.product_label_short, o.product_label)}
+              ${o.shop_name ? `<span class="m-schip">🏬 ${esc(o.shop_name)}</span>` : ""}
+              <span class="m-schip blue">💰 ${fmtMoney(o.order_amount, o.currency)}</span>
+              ${time ? `<span class="m-schip">🕐 ${esc(time)}</span>` : ""}
+              ${o.sku ? `<span class="m-schip tap" data-v="${esc(o.sku)}"
+                 onclick="copyToClipboard(this.dataset.v, 'SKU ')">SKU ${esc(o.sku)}</span>` : ""}
+              ${o.tracking_no ? `<span class="m-schip tap" data-v="${esc(o.tracking_no)}"
+                 onclick="copyToClipboard(this.dataset.v, '运单号 ')">📦 ${esc(o.tracking_no)}</span>` : ""}
+            </div>
+          </div>
+        </div>
+        <div class="m-card-foot">
+          <button class="m-btn-main" type="button" onclick="openOrderDetail(${o.id})">📋 详情</button>
+          <button class="m-more-btn" type="button" onclick="openOrderActions(${i})">⋯</button>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  /* ───────── ⋯ 快捷操作抽屉 ───────── */
+  function infoRow(k, v) { return `<div class="m-info-row"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
+
+  function openOrderActions(i) {
+    const o = st.rows[i];
+    if (!o) return;
+    st.actIdx = i;
+    document.getElementById("mOrdActInfo").innerHTML = `<div class="m-info-list">
+      ${infoRow("订单号", copyChip(o.order_sn, "订单号"))}
+      ${infoRow("妙手包裹", copyChip(o.app_package_no, "包裹号"))}
+      ${infoRow("运单号", copyChip(o.tracking_no, "运单号"))}
+      ${infoRow("店铺", esc(o.shop_name || "—"))}
+      ${infoRow("状态", statusBadge(o.package_status, o.package_status_text))}
+    </div>`;
+    const acts = [];
+    acts.push(`<button class="m-act-item" type="button" onclick="closeOrderActions(); openOrderDetail(${o.id});">
+      <span class="m-act-ico">📋</span>查看订单详情<span class="m-act-arrow">›</span></button>`);
+    if (o.tracking_no) {
+      acts.push(`<button class="m-act-item" type="button" data-v="${esc(o.tracking_no)}"
+        onclick="copyToClipboard(this.dataset.v, '运单号 '); window.open('https://t.17track.net/zh-cn#nums=' + encodeURIComponent(this.dataset.v), '_blank');">
+        <span class="m-act-ico">↗</span>复制并在 17TRACK 查询<span class="m-act-arrow">›</span></button>`);
+    }
+    if (o.cover_img_big || o.cover_img) {
+      const big = o.cover_img_big || o.cover_img;
+      acts.push(`<button class="m-act-item" type="button" data-big="${esc(big)}" data-thumb="${esc(o.cover_img || "")}"
+        onclick="closeOrderActions(); openOrderImg(this.dataset.big, this.dataset.thumb);">
+        <span class="m-act-ico">🖼️</span>查看商品图<span class="m-act-arrow">›</span></button>`);
+    }
+    document.getElementById("mOrdActs").innerHTML = acts.join("");
+    document.getElementById("mOrdActMask").classList.add("open");
+    document.getElementById("mOrdActSheet").classList.add("open");
+  }
+
+  function closeOrderActions() {
+    document.getElementById("mOrdActMask").classList.remove("open");
+    document.getElementById("mOrdActSheet").classList.remove("open");
+  }
+
+  /* ───────── 筛选抽屉 ───────── */
+  function openFilterSheet() {
+    document.getElementById("mOrdFilterMask").classList.add("open");
+    document.getElementById("mOrdFilterSheet").classList.add("open");
+  }
+  function closeFilterSheet() {
+    document.getElementById("mOrdFilterMask").classList.remove("open");
+    document.getElementById("mOrdFilterSheet").classList.remove("open");
+  }
+  function syncFilterDot() {
+    document.getElementById("mOrdFilterBtn").classList.toggle("active", isFiltered());
+  }
+  function applyFilters() {
+    st.keyword = document.getElementById("mOrdKw").value.trim();
+    st.status = document.getElementById("mOrdFStatus").value;
+    st.shop_id = document.getElementById("mOrdFShop").value;
+    st.platform = document.getElementById("mOrdFPlatform").value;
+    st.date_from = document.getElementById("mOrdFDateFrom").value;
+    st.date_to = document.getElementById("mOrdFDateTo").value;
+    syncFilterDot();
+    closeFilterSheet();
+    loadOrders(true);
+  }
+  function resetFilters() {
+    ["mOrdFStatus", "mOrdFShop", "mOrdFPlatform", "mOrdFDateFrom", "mOrdFDateTo"].forEach(id => {
+      document.getElementById(id).value = "";
+    });
+    st.keyword = "";
+    st.status = st.shop_id = st.platform = st.date_from = st.date_to = "";
+    syncFilterDot();
+    closeFilterSheet();
+    loadOrders(true);
+  }
+
+  /* ───────── 详情 ───────── */
+  async function openOrderDetail(id) {
+    docState.orderId = id;
+    const modal = document.getElementById("mOrdDetailModal");
+    const bodyEl = document.getElementById("mOrdDetailBody");
+    document.getElementById("mOrdDetailTitle").innerText = "订单详情";
+    document.getElementById("mOrdDetailSub").innerText = "加载中...";
+    bodyEl.innerHTML = `<div class="m-empty"><div class="m-empty-ico">⏳</div>
+      <div class="m-empty-txt">正在加载订单详情…</div></div>`;
+    modal.style.display = "flex";
+    try {
+      const body = await api(`/api/orders/${id}`);
+      const o = body.data || {};
+      const items = o.items || [];
+      const raw = o.raw || {};
+      const orderInfo = raw.orderInfo || {};
+      const consignee = raw.consigneeInfo || {};
+      const logistics = raw.logisticsAgentProductInfo || {};
+
+      document.getElementById("mOrdDetailTitle").innerText = o.order_sn || "订单详情";
+      document.getElementById("mOrdDetailSub").innerHTML =
+        `${esc(o.platform_name || o.platform || "")}${o.shop_name ? " · " + esc(o.shop_name) : ""}`;
+
+      const row = (k, v) => `<div class="m-detail-row"><span class="m-dr-label">${k}</span>
+        <span class="m-dr-val">${v || "—"}</span></div>`;
+
+      const detailRows = `<div class="m-detail-rows">
+        ${row("订单状态", statusBadge(o.package_status, o.package_status_text))}
+        ${row("商品标识", esc(o.product_label))}
+        ${row("简版标识", productChip(o.product_label_short, o.product_label))}
+        ${row("平台状态", esc(o.platform_status))}
+        ${row("妙手包裹号", copyChip(o.app_package_no, "包裹号"))}
+        ${row("站点", esc(o.site))}
+        ${row("下单时间", esc(o.gmt_order))}
+        ${row("支付时间", esc(o.gmt_pay))}
+        ${row("发货时间", esc(o.gmt_delivery))}
+        ${row("最迟发货", esc(o.gmt_last_delivery))}
+        ${row("订单金额", fmtMoney(o.order_amount, o.currency))}
+        ${row("支付金额", fmtMoney(o.pay_amount, o.currency))}
+        ${row("商品金额", fmtMoney(o.product_amount, o.currency))}
+        ${row("平台佣金", fmtMoney(o.commission_fee, o.currency))}
+        ${row("收货地区", esc([consignee.countryName || consignee.country, consignee.state].filter(Boolean).join(" / ")))}
+        ${row("运单号", copyChip(o.tracking_no, "运单号"))}
+        ${row("物流公司", esc(logistics.logisticsCompany || logistics.productName || ""))}
+        ${row("买家留言", esc(orderInfo.buyerMessage))}
+        ${row("备注", esc(orderInfo.appNote || orderInfo.sellerNote))}
+      </div>`;
+
+      const itemCards = items.map(it => `
+        <div style="display:flex; gap:10px; padding:10px; border:1px solid #e2e8f0; border-radius:10px;
+            margin-bottom:8px; background:#fff;">
+          <div style="width:52px; height:52px; border-radius:8px; overflow:hidden; flex-shrink:0;
+              background:#f1f5f9; display:flex; align-items:center; justify-content:center; color:#cbd5e1;"
+            data-big="${esc(it.originalPicUrl || it.picUrl || "")}" data-thumb="${esc(it.picUrl || "")}"
+            onclick="openOrderImg(this.dataset.big, this.dataset.thumb)">
+            ${it.picUrl ? `<img src="${esc(it.picUrl)}" alt="" style="width:100%; height:100%; object-fit:cover;"
+              onerror="this.parentElement.innerHTML='🖼️'">` : "🖼️"}
+          </div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:0.8rem; color:#0f172a; line-height:1.45;">${esc(it.title || "—")}</div>
+            <div style="font-size:0.72rem; color:#94a3b8; margin-top:4px; word-break:break-all;">
+              SKU: ${esc(it.platformOuterSkuId || it.platformItemId || "—")}
+              ${it.skuSubName ? " · " + esc(it.skuSubName) : ""}
+            </div>
+          </div>
+          <div style="text-align:right; flex-shrink:0;">
+            <div style="font-size:0.78rem; font-weight:700; color:#0f172a;">${fmtMoney(it.originalPrice, o.currency)}</div>
+            <div style="font-size:0.72rem; color:#64748b;">× ${it.quantity || 0}</div>
+          </div>
+        </div>`).join("");
+
+      // 单据附件: 每类显示份数, 未上传可直接点「＋」上传
+      const docCount = {};
+      (o.docs || []).forEach(d => { docCount[d.doc_type] = (docCount[d.doc_type] || 0) + 1; });
+      const docSection = `<div style="font-size:0.82rem; font-weight:700; color:#334155; margin:14px 0 8px;">
+          📎 单据附件</div>
+        <div class="m-detail-rows">
+          ${DOC_TYPES.map(d => `<div class="m-detail-row">
+            <span class="m-dr-label">${d.icon} ${d.label}</span>
+            <span class="m-dr-val" style="display:flex; align-items:center; gap:8px; justify-content:flex-end;">
+              ${docCount[d.key]
+                ? `<button type="button" class="m-doc-count" onclick="openDocList('${d.key}')">📎 ${docCount[d.key]} 个文件</button>`
+                : `<span style="color:#cbd5e1; font-size:0.75rem;">未上传</span>`}
+              <button type="button" class="m-doc-add" title="上传${d.label}" onclick="pickDoc('${d.key}')">＋</button>
+            </span>
+          </div>`).join("")}
+        </div>`;
+
+      bodyEl.innerHTML = detailRows + docSection + `
+        <div style="font-size:0.82rem; font-weight:700; color:#334155; margin:14px 0 8px;">
+          📦 商品明细（${items.length}）</div>
+        ${itemCards || `<div class="m-empty-txt" style="color:#94a3b8;">无商品明细</div>`}`;
+    } catch (e) {
+      if (e.message !== "未登录") {
+        document.getElementById("mOrdDetailSub").innerText = "加载失败";
+        bodyEl.innerHTML = `<div class="m-empty"><div class="m-empty-ico">❌</div>
+          <div class="m-empty-txt">${esc(e.message)}</div></div>`;
+      }
+    }
+  }
+
+  function closeOrderDetail() {
+    document.getElementById("mOrdDetailModal").style.display = "none";
+  }
+
+  /* ───────── 商品图预览 ───────── */
+  function openOrderImg(src, fallback) {
+    if (!src) return;
+    const modal = document.getElementById("mOrdImgModal");
+    const img = document.getElementById("mOrdImgLarge");
+    img.dataset.fallback = fallback || "";
+    img.style.visibility = "visible";
+    img.onerror = function () {
+      const fb = this.dataset.fallback;
+      if (fb && this.src !== fb) { this.dataset.fallback = ""; this.src = fb; return; }
+      this.style.visibility = "hidden";
+      showToast("图片加载失败，可稍后重试", "error");
+    };
+    img.src = src;
+    modal.style.display = "flex";
+  }
+
+  function closeOrderImg() {
+    const modal = document.getElementById("mOrdImgModal");
+    if (modal) modal.style.display = "none";
+    const img = document.getElementById("mOrdImgLarge");
+    if (img) {
+      img.onerror = null;            // 先解绑, 避免清空 src 时触发「图片加载失败」提示
+      img.removeAttribute("src");
+      img.dataset.fallback = "";
+    }
+  }
+
+  /* ───────── 妙手同步 ───────── */
+  function openSyncSheet() {
+    if (!hasPerm("order:sync")) { showToast("无订单同步权限", "error"); return; }
+    const opts = st.statusOptions.length ? st.statusOptions : SYNC_FALLBACK_STATUSES;
+    document.getElementById("mOrdSyncStatuses").innerHTML = opts.map(s =>
+      `<button type="button" class="m-chip m-on" data-v="${esc(s.value)}"
+        onclick="this.classList.toggle('m-on')">${esc(s.label)}</button>`).join("");
+    const prog = document.getElementById("mOrdSyncProgress");
+    prog.style.display = "none";
+    const btn = document.getElementById("mOrdSyncStart");
+    btn.disabled = false;
+    btn.innerText = "开始同步";
+    document.getElementById("mOrdSyncMask").classList.add("open");
+    document.getElementById("mOrdSyncSheet").classList.add("open");
+  }
+
+  function closeSyncSheet() {
+    if (document.getElementById("mOrdSyncStart").disabled) return;  // 同步中不可关闭
+    document.getElementById("mOrdSyncMask").classList.remove("open");
+    document.getElementById("mOrdSyncSheet").classList.remove("open");
+  }
+
+  async function startOrderSync() {
+    const statuses = [...document.querySelectorAll("#mOrdSyncStatuses .m-chip.m-on")].map(x => x.dataset.v);
+    if (!statuses.length) { showToast("请至少选择一个订单状态", "error"); return; }
+    const days = Number(document.getElementById("mOrdSyncDays").value || 0);
+    const btn = document.getElementById("mOrdSyncStart");
+    const prog = document.getElementById("mOrdSyncProgress");
+    btn.disabled = true;
+    btn.innerText = "⏳ 同步中";
+    prog.style.display = "block";
+    prog.innerText = `正在从妙手拉取 ${statuses.length} 个状态的订单，单页 200 条、每次间隔 1.1 秒，请耐心等待…`;
+    try {
+      const body = await api("/api/orders/sync", { method: "POST", body: JSON.stringify({ statuses, days }) });
+      const d = body.data || {};
+      prog.innerHTML = `✅ ${esc(body.msg)}`;
+      showToast(body.msg, d.failed && d.failed.length ? "error" : "success");
+      await loadFilters();
+      await loadOrders(true);
+      btn.innerText = "完成";
+      setTimeout(() => {
+        btn.disabled = false;
+        closeSyncSheet();
+      }, 1200);
+    } catch (e) {
+      if (e.message !== "未登录") {
+        prog.innerHTML = `❌ 同步失败: ${esc(e.message)}`;
+        showToast("同步失败: " + e.message, "error");
+      }
+      btn.disabled = false;
+      btn.innerText = "重试";
+    }
+  }
+
+  /* ───────── 单据附件 (上传/查看/删除) ───────── */
+  function pickDoc(docType) {
+    if (!docState.orderId) return;
+    docState.docType = docType;
+    const input = document.getElementById("mOrdDocInput");
+    input.value = "";
+    input.click();
+  }
+
+  async function uploadDocs(fileList) {
+    const files = [...(fileList || [])];
+    if (!files.length || !docState.orderId) return;
+    const fd = new FormData();
+    fd.append("doc_type", docState.docType);
+    files.forEach(f => fd.append("files", f));
+    showToast("⏳ 正在上传…", "info");
+    try {
+      const resp = await fetch(`/api/orders/${docState.orderId}/docs`, { method: "POST", body: fd });
+      if (resp.status === 401) { window.location.href = "/login"; return; }
+      const body = await resp.json().catch(() => ({}));
+      if (!resp.ok || body.code !== 0) throw new Error(body.detail || body.msg || "上传失败");
+      showToast(body.msg || "上传成功");
+      await openOrderDetail(docState.orderId);   // 刷新详情内各单据份数
+      if (document.getElementById("mOrdDocModal").style.display === "flex") await openDocList(docState.docType);
+    } catch (e) {
+      showToast("上传失败: " + e.message, "error");
+    }
+  }
+
+  async function openDocList(docType) {
+    if (!docState.orderId) return;
+    docState.docType = docType;
+    const meta = DOC_TYPES.find(d => d.key === docType) || { label: docType, icon: "📎" };
+    document.getElementById("mOrdDocTitle").innerText = `${meta.icon} ${meta.label}`;
+    document.getElementById("mOrdDocModal").style.display = "flex";
+    const box = document.getElementById("mOrdDocBody");
+    box.innerHTML = `<div class="m-empty"><div class="m-empty-ico">⏳</div><div class="m-empty-txt">加载中…</div></div>`;
+    try {
+      const body = await api(`/api/orders/${docState.orderId}/docs`);
+      const docs = (body.data || []).filter(d => d.doc_type === docType);
+      if (!docs.length) {
+        box.innerHTML = `<div style="text-align:center; padding:26px 0; color:#94a3b8; font-size:0.82rem;">
+          暂无文件，点下方「＋ 上传文件」添加</div>`;
+        return;
+      }
+      box.innerHTML = docs.map(d => `
+        <div style="display:flex; gap:10px; align-items:center; padding:9px 10px; border:1px solid #e2e8f0;
+            border-radius:10px; margin-bottom:8px; background:#fff;">
+          <div style="width:52px; height:52px; border-radius:8px; border:1px solid #e2e8f0; background:#f8fafc;
+              display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0;
+              ${d.preview_url ? "cursor:zoom-in;" : ""}"
+            ${d.preview_url ? `data-src="${esc(d.preview_url)}" data-dl="${esc(d.relative_url || "")}"
+              onclick="openOrderImg(this.dataset.src, this.dataset.dl)"` : ""}>
+            ${d.preview_url
+              ? `<img src="${esc(d.preview_url)}" alt=""
+                   style="width:100%; height:100%; object-fit:${d.is_image ? "cover" : "contain"}; background:#fff;">`
+              : `<span style="font-size:1.25rem;">📄</span>`}
+          </div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:0.8rem; font-weight:700; color:#0f172a; word-break:break-all;">${esc(d.file_name)}</div>
+            <div style="font-size:0.7rem; color:#94a3b8; margin-top:2px;">${esc(d.size_text || "")} · ${esc((d.created_at || "").slice(0, 16))}</div>
+          </div>
+          <a class="m-doc-count" style="text-decoration:none;" href="/api/orders/docs/${d.id}/download" target="_blank">下载</a>
+          <button type="button" class="m-doc-add" style="color:#dc2626; border-color:#fecaca;"
+            onclick="deleteDoc(${d.id})">✕</button>
+        </div>`).join("");
+    } catch (e) {
+      if (e.message !== "未登录") {
+        box.innerHTML = `<div style="text-align:center; padding:26px 0; color:#dc2626; font-size:0.82rem;">
+          加载失败: ${esc(e.message)}</div>`;
+      }
+    }
+  }
+
+  async function deleteDoc(docId) {
+    if (!confirm("确定删除该附件吗？删除后文件不可恢复。")) return;
+    try {
+      await api(`/api/orders/docs/${docId}`, { method: "DELETE" });
+      showToast("附件已删除");
+      await openDocList(docState.docType);
+      await openOrderDetail(docState.orderId);
+    } catch (e) {
+      showToast("删除失败: " + e.message, "error");
+    }
+  }
+
+  function closeDocModal() {
+    document.getElementById("mOrdDocModal").style.display = "none";
+  }
+
+  document.getElementById("mOrdDocInput").addEventListener("change", function () {
+    uploadDocs(this.files);
+  });
+
+  /* ───────── 事件绑定 ───────── */
+  (function initOrdersMobile() {
+    document.getElementById("mOrdKw").addEventListener("keydown", e => {
+      if (e.key === "Enter") { st.keyword = e.target.value.trim(); syncFilterDot(); loadOrders(true); }
+    });
+    document.getElementById("mOrdFilterBtn").addEventListener("click", openFilterSheet);
+    document.getElementById("mOrdFilterMask").addEventListener("click", closeFilterSheet);
+    document.getElementById("mOrdFilterApply").addEventListener("click", applyFilters);
+    document.getElementById("mOrdFilterReset").addEventListener("click", resetFilters);
+    document.getElementById("mOrdActMask").addEventListener("click", closeOrderActions);
+    document.getElementById("mOrdRefreshBtn").addEventListener("click", () => {
+      loadFilters();
+      loadOrders(true);
+    });
+    const syncBtn = document.getElementById("mOrdSyncBtn");
+    if (syncBtn) syncBtn.addEventListener("click", openSyncSheet);
+    document.getElementById("mOrdSyncMask").addEventListener("click", closeSyncSheet);
+    document.getElementById("mOrdSyncCancel").addEventListener("click", closeSyncSheet);
+    document.getElementById("mOrdSyncStart").addEventListener("click", startOrderSync);
+    document.getElementById("mOrdMoreBtn").addEventListener("click", () => {
+      if (st.page >= st.pages) return;
+      st.page += 1;
+      loadOrders(false);
+    });
+    loadFilters();
+    loadOrders(true);
+  })();
+</script>
+{% endblock %}
