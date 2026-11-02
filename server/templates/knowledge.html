@@ -180,12 +180,12 @@
 
 {% block content %}
 <style>
-  /* 知识库子菜单切换 (网站导航 | 提示词模板) */
+  /* 知识库子菜单切换 (网站导航 | 文档库 | 提示词模板 | 发票解析) */
   .kb-subnav {
-    display: flex; gap: 8px; margin-bottom: 16px;
+    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;
     background: var(--bg-card, #fff); border: 1px solid var(--border);
     border-radius: var(--radius-sm); padding: 6px; box-shadow: 0 2px 8px rgba(15,23,42,0.05);
-    width: fit-content;
+    width: fit-content; max-width: 100%;
   }
   .kb-subnav-item {
     display: inline-flex; align-items: center; gap: 6px;
@@ -207,11 +207,14 @@
   .prompt-action-cell { white-space: nowrap; text-align: center; }
 </style>
 
-<!-- 子菜单: 与网站导航并列 -->
+<!-- 子菜单: 网站导航 / 文档库 / 提示词模板 / 发票解析 平级并列 -->
 <div class="kb-subnav" id="kbSubnav">
   <button class="kb-subnav-item active" data-tab="sites" type="button">🔗 网站导航</button>
   <button class="kb-subnav-item" data-tab="docs" type="button">📄 文档库</button>
   <button class="kb-subnav-item" data-tab="prompts" type="button">📝 提示词模板</button>
+  {% if 'knowledge_invoice' in user_menus %}
+  <button class="kb-subnav-item" data-tab="invoice" type="button">🧾 发票解析</button>
+  {% endif %}
 </div>
 
 <div class="kb-panel active" data-panel="sites">
@@ -368,10 +371,34 @@
   </div>
 </div><!-- /kb-panel docs -->
 
+<!-- 发票解析面板 (与网站导航/文档库/提示词模板并列的子菜单) -->
+{% if 'knowledge_invoice' in user_menus %}
+<div class="kb-panel" data-panel="invoice">
+  {% include "partials/knowledge_invoice_panel.html" %}
+</div><!-- /kb-panel invoice -->
+{% endif %}
+
 <script>
   window.IS_ADMIN = {{ 'true' if (current_user and current_user.role == 'admin') else 'false' }};
 </script>
 <script src="/static/js/knowledge.js?v=20260927_kb_v11"></script>
 <script src="/static/js/prompts.js?v=20260919_prompt_v11"></script>
-<script src="/static/js/knowledge_docs.js?v=20260930_img5m1"></script>
+<script src="/static/js/knowledge_docs.js?v=20261102_docs_v12"></script>
+<script src="/static/js/knowledge_invoice.js?v=20261102_inv_tab1"></script>
+<script>
+  /* 支持 /knowledge?tab=invoice 直达指定子菜单 (侧边栏二级入口使用) */
+  (function () {
+    function activate() {
+      const tab = new URLSearchParams(window.location.search).get("tab");
+      if (!tab) return;
+      const btn = document.querySelector(`.kb-subnav-item[data-tab="${tab}"]`);
+      if (btn) btn.click();
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", activate);
+    } else {
+      activate();
+    }
+  })();
+</script>
 {% endblock %}

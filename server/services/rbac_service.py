@@ -21,6 +21,8 @@ MENU_REGISTRY: List[Dict[str, Any]] = [
     {"key": "ads",                    "name": "广告管理", "icon": "📣", "url": "/ads",                 "pages": ["/ads"],                       "sort": 3},
     {"key": "ads_analysis",           "name": "广告分析", "icon": "📊", "url": "/ads-analysis",        "pages": ["/ads-analysis"],              "sort": 4},
     {"key": "knowledge",              "name": "知识库",   "icon": "📚", "url": "/knowledge",           "pages": ["/knowledge"],                 "sort": 5},
+    # 知识库二级菜单: 发票解析 (导航中嵌套在「知识库」下)
+    {"key": "knowledge_invoice",      "name": "发票解析", "icon": "🧾", "url": "/knowledge/invoice-parse", "pages": ["/knowledge/invoice-parse"], "sort": 5, "parent": "knowledge"},
     {"key": "orders",                 "name": "订单管理", "icon": "🧾", "url": "/orders",              "pages": ["/orders"],                    "sort": 6},
     {"key": "forwarder_integration",  "name": "运单管理", "icon": "🚚", "url": "/forwarder-integration", "pages": ["/forwarder-integration"],   "sort": 7},
     {"key": "forwarder",              "name": "货代管理", "icon": "🛳️", "url": "/forwarder",          "pages": ["/forwarder"],                 "sort": 8},
@@ -60,7 +62,8 @@ BUILTIN_ROLES: List[Dict[str, Any]] = [
     },
     {
         "code": "user", "name": "普通用户", "description": "常用页面与操作, 删除类权限默认不授",
-        "menus": ["list", "tasks", "knowledge", "orders", "forwarder_integration", "japan_calendar", "alert_center"],
+        "menus": ["list", "tasks", "knowledge", "knowledge_invoice", "orders",
+                  "forwarder_integration", "japan_calendar", "alert_center"],
         "permissions": ["product:create", "product:edit", "publish:run", "waybill:sync", "waybill:refresh_all"],
     },
 ]

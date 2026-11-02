@@ -115,7 +115,7 @@ function renderDocTable() {
           <div style="display:flex; gap:6px; justify-content:center; align-items:center;">
             <a href="${d.download_url}" class="btn btn-outline btn-sm" style="padding:2px 8px; font-size:0.75rem; text-decoration:none;" title="下载到本地">⬇️ 下载</a>
             ${isAdmin ? `
-              <button class="btn btn-danger btn-sm" type="button" onclick="deleteDocument(${d.id}, '${escapeHtml(d.name)}')" style="padding:2px 7px; font-size:0.75rem;">
+              <button class="btn btn-danger btn-sm" type="button" onclick="deleteDocument(${d.id})" style="padding:2px 7px; font-size:0.75rem;">
                 🗑️ 删除
               </button>
             ` : ''}
@@ -226,7 +226,9 @@ async function uploadDocuments() {
   }
 }
 
-async function deleteDocument(docId, name) {
+async function deleteDocument(docId) {
+  const doc = docsState.documents.find(d => d.id === docId);
+  const name = doc ? doc.name : `#${docId}`;
   if (!confirm(`确定要删除文档「${name}」吗？删除后不可恢复。`)) return;
   try {
     const res = await fetch(`/api/knowledge/documents/${docId}`, { method: "DELETE" });

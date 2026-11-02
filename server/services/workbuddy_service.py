@@ -12,6 +12,7 @@ WorkBuddy 大模型服务 (OpenAI 兼容网关)
 配置优先级: 系统设置 (workbuddy_base_url / workbuddy_api_key / workbuddy_model)
             > server/config.py 默认值
 """
+import base64
 import json
 import re
 import time
@@ -66,17 +67,13 @@ def _cfg() -> Tuple[str, str, str]:
     return (base or WORKBUDDY_BASE_URL).rstrip("/"), (key or WORKBUDDY_API_KEY), (model or WORKBUDDY_MODEL)
 
 
-def chat(prompt: str, system: str = "", temperature: float = 0.2,
-         timeout: int = REQUEST_TIMEOUT) -> Tuple[str, Dict[str, int]]:
-    """调用 WorkBuddy 对话接口 (流式聚合), 返回 (完整回复文本, token 用量)"""
+def _stream_chat(messages: List[dict], temperature: float = 0.2,
+                 timeout: int = REQUEST_TIMEOUT) -> Tuple[str, Dict[str, int]]:
+    """向 WorkBuddy 发起流式对话并聚合结果 (纯文本/多模态共用)"""
     base_url, api_key, model = _cfg()
     if not api_key:
         raise WorkBuddyError("未配置 WorkBuddy API Key")
 
-    messages = []
-    if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": prompt})
     payload = json.dumps({
         "model": model,
         "messages": messages,
@@ -135,6 +132,34 @@ def chat(prompt: str, system: str = "", temperature: float = 0.2,
     if not text:
         raise WorkBuddyError("模型未返回内容")
     return text, usage
+
+
+def chat(prompt: str, system: str = "", temperature: float = 0.2,
+         timeout: int = REQUEST_TIMEOUT) -> Tuple[str, Dict[str, int]]:
+    """调用 WorkBuddy 对话接口 (流式聚合), 返回 (完整回复文本, token 用量)"""
+    messages: List[dict] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    return _stream_chat(messages, temperature=temperature, timeout=timeout)
+
+
+def chat_with_images(prompt: str, images: List[bytes], mime: str = "image/jpeg",
+                     system: str = "", temperature: float = 0.1,
+                     timeout: int = REQUEST_TIMEOUT) -> Tuple[str, Dict[str, int]]:
+    """多模态调用: 文本 + 若干张图片 (按顺序以 image_url data URI 传入)"""
+    if not images:
+        raise WorkBuddyError("没有可识别的图片内容")
+    content: List[dict] = [{"type": "text", "text": prompt}]
+    for raw in images:
+        b64 = base64.b64encode(raw).decode("ascii")
+        content.append({"type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{b64}"}})
+    messages: List[dict] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": content})
+    return _stream_chat(messages, temperature=temperature, timeout=timeout)
 
 
 def _extract_json(text: str) -> Optional[dict]:

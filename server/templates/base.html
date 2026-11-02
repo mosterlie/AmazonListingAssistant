@@ -7,7 +7,7 @@
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="alternate icon" href="/static/favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=20261102_rowicons2">
+  <link rel="stylesheet" href="/static/css/app.css?v=20261102_inv1">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -23,7 +23,17 @@
         {% if 'tasks' in user_menus %}<a href="/tasks" class="nav-item {% if active_page == 'tasks' %}active{% endif %}">📌 任务管理</a>{% endif %}
         {% if 'ads' in user_menus %}<a href="/ads" class="nav-item {% if active_page == 'ads' %}active{% endif %}">📢 广告管理</a>{% endif %}
         {% if 'ads_analysis' in user_menus %}<a href="/ads-analysis" class="nav-item {% if active_page == 'ads_analysis' %}active{% endif %}">📊 广告分析</a>{% endif %}
-        {% if 'knowledge' in user_menus %}<a href="/knowledge" class="nav-item {% if active_page == 'knowledge' %}active{% endif %}">📚 知识库</a>{% endif %}
+        {% if 'knowledge' in user_menus %}
+        <div class="nav-dropdown">
+          <a href="/knowledge" class="nav-item {% if active_page == 'knowledge' %}active{% endif %}">📚 知识库 <span class="nav-caret">▾</span></a>
+          {% if 'knowledge_invoice' in user_menus %}
+          <div class="nav-dropdown-menu">
+            <a href="/knowledge?tab=invoice"
+              class="nav-dropdown-item {% if active_page == 'knowledge_invoice' %}active{% endif %}">🧾 发票解析</a>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
         {% if 'orders' in user_menus %}<a href="/orders" class="nav-item {% if active_page == 'orders' %}active{% endif %}">🧾 订单管理</a>{% endif %}
         {% if 'forwarder' in user_menus %}<a href="/forwarder" class="nav-item {% if active_page == 'forwarder' %}active{% endif %}">🚢 货代管理</a>{% endif %}
         {% if 'japan_calendar' in user_menus %}<a href="/japan-calendar" class="nav-item {% if active_page == 'japan_calendar' %}active{% endif %}">🇯🇵 日本日历</a>{% endif %}
@@ -275,6 +285,25 @@
       });
       document.addEventListener("click", (ev) => {
         if (pop.style.display !== "none" && !pop.contains(ev.target)) pop.style.display = "none";
+      });
+    })();
+  </script>
+  <script>
+    /* 导航二级菜单: 悬停时按触发项位置定位 (固定定位, 避免被 nav 横向滚动裁剪) */
+    (function () {
+      document.querySelectorAll(".nav-dropdown").forEach(function (wrap) {
+        const menu = wrap.querySelector(".nav-dropdown-menu");
+        const anchor = wrap.querySelector(".nav-item");
+        if (!menu || !anchor) return;
+        function place() {
+          const r = anchor.getBoundingClientRect();
+          menu.style.left = Math.round(r.left + r.width / 2) + "px";
+          menu.style.top = Math.round(r.bottom + 6) + "px";
+        }
+        wrap.addEventListener("mouseenter", place);
+        anchor.addEventListener("focus", place);
+        window.addEventListener("resize", place);
+        window.addEventListener("scroll", place, true);
       });
     })();
   </script>

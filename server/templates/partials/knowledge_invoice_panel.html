@@ -1,0 +1,110 @@
+<style>
+  .inv-wrap { max-width: 1080px; display: flex; flex-direction: column; gap: 16px; }
+  .inv-drop {
+    border: 2px dashed #cbd5e1; border-radius: 12px; background: #f8fafc;
+    padding: 26px 18px; text-align: center; cursor: pointer; transition: all .16s ease;
+  }
+  .inv-drop:hover, .inv-drop.dragging { border-color: #60a5fa; background: #eff6ff; }
+  .inv-drop-ico { font-size: 1.9rem; }
+  .inv-drop-main { font-size: 0.9rem; font-weight: 700; color: #334155; margin-top: 6px; }
+  .inv-drop-sub { font-size: 0.75rem; color: #94a3b8; margin-top: 4px; line-height: 1.6; }
+  .inv-file {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+    border: 1px solid #e2e8f0; border-radius: 10px; background: #fff;
+  }
+  .inv-file img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; border: 1px solid #e2e8f0; }
+  .inv-file-ico {
+    width: 56px; height: 56px; display: flex; align-items: center; justify-content: center;
+    border-radius: 8px; background: #fee2e2; color: #b91c1c; font-size: 1.4rem;
+  }
+  .inv-file-name { font-size: 0.84rem; font-weight: 700; color: #0f172a; word-break: break-all; }
+  .inv-file-meta { font-size: 0.72rem; color: #94a3b8; margin-top: 3px; }
+  .inv-banner {
+    display: none; padding: 10px 14px; border-radius: 10px; font-size: 0.82rem; line-height: 1.6;
+  }
+  .inv-banner.error { display: block; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+  .inv-banner.loading { display: block; background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+  .inv-kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px 18px; }
+  .inv-kv-item { display: flex; gap: 8px; align-items: baseline; font-size: 0.82rem; padding: 6px 0;
+                border-bottom: 1px dashed #eef2f7; }
+  .inv-kv-label { color: #64748b; flex-shrink: 0; min-width: 76px; }
+  .inv-kv-value { color: #0f172a; font-weight: 700; word-break: break-all; }
+  .inv-kv-value.money { color: #b45309; }
+  .inv-items-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  .inv-items-table th {
+    background: #f8fafc; color: #475569; font-weight: 700; text-align: left;
+    padding: 8px 8px; border-bottom: 1px solid #e2e8f0; white-space: nowrap;
+  }
+  .inv-items-table td { padding: 8px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+  .inv-items-table td.num { text-align: right; white-space: nowrap; }
+  .inv-json { margin-top: 6px; }
+  .inv-json pre {
+    margin: 8px 0 0; padding: 10px 12px; background: #0f172a; color: #e2e8f0;
+    border-radius: 8px; font-size: 0.72rem; max-height: 300px; overflow: auto;
+    white-space: pre-wrap; word-break: break-all;
+  }
+</style>
+
+<div class="inv-wrap">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <div class="card-title-icon">🧾</div>
+        <span>发票解析</span>
+      </div>
+      <span class="tag-badge" style="background:#f0fdf4; color:#15803d; border-color:#bbf7d0;">
+        WorkBuddy 多模态识别
+      </span>
+    </div>
+    <div class="card-body" style="display:flex; flex-direction:column; gap:14px;">
+      <div class="inv-drop" id="invDrop" onclick="pickInvoiceFile()">
+        <div class="inv-drop-ico">📄</div>
+        <div class="inv-drop-main">点击选择，或把发票图片 / PDF 拖到这里</div>
+        <div class="inv-drop-sub">支持 jpg / png / webp / bmp / pdf，单文件 ≤ 20MB；PDF 默认识别前 2 页</div>
+      </div>
+
+      <div class="inv-file" id="invFile" style="display:none;">
+        <div id="invFileThumb"></div>
+        <div style="flex:1; min-width:0;">
+          <div class="inv-file-name" id="invFileName">—</div>
+          <div class="inv-file-meta" id="invFileMeta">—</div>
+        </div>
+        <button class="btn btn-outline btn-sm" type="button" onclick="clearInvoiceFile()">移除</button>
+      </div>
+
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button class="btn btn-primary" type="button" id="invParseBtn"
+          onclick="startInvoiceParse()" disabled>开始解析</button>
+        <span style="font-size:0.74rem; color:#94a3b8;">识别不是发票时会直接报错，不会返回字段</span>
+      </div>
+
+      <div class="inv-banner" id="invBanner"></div>
+    </div>
+  </div>
+
+  <div class="card" id="invResultCard" style="display:none;">
+    <div class="card-header">
+      <div class="card-title">
+        <div class="card-title-icon">📋</div>
+        <span>解析结果</span>
+      </div>
+      <span class="tag-badge" id="invResultMeta"
+        style="background:#e2e8f0; color:#334155; border:1px solid #cbd5e1; font-weight:700;">—</span>
+    </div>
+    <div class="card-body" style="display:flex; flex-direction:column; gap:16px;">
+      <div class="inv-kv" id="invKv"></div>
+      <div>
+        <div style="font-size:0.84rem; font-weight:700; color:#334155; margin-bottom:8px;">发票明细</div>
+        <div class="table-wrapper" style="overflow-x:auto;">
+          <table class="inv-items-table" id="invItemsTable"></table>
+        </div>
+      </div>
+      <details class="inv-json">
+        <summary style="cursor:pointer; font-size:0.8rem; font-weight:700; color:#475569;">模型原始返回 (JSON)</summary>
+        <pre id="invRaw"></pre>
+      </details>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="invInput" accept=".jpg,.jpeg,.png,.webp,.bmp,.pdf" style="display:none;">

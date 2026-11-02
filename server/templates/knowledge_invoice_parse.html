@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}发票解析{% endblock %}
+
+{% block content %}
+{# 面板内容与知识库页面「🧾 发票解析」子菜单共用同一份局部模板 #}
+{% include "partials/knowledge_invoice_panel.html" %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/knowledge_invoice.js?v=20261102_inv_tab1"></script>
+{% endblock %}

@@ -66,6 +66,9 @@
   <button type="button" class="m-seg-btn active" data-tab="sites">🔗 网站导航</button>
   <button type="button" class="m-seg-btn" data-tab="docs">📄 文档库</button>
   <button type="button" class="m-seg-btn" data-tab="prompts">📝 提示词</button>
+  {% if 'knowledge_invoice' in user_menus %}
+  <button type="button" class="m-seg-btn" data-tab="invoice">🧾 发票解析</button>
+  {% endif %}
 </div>
 
 <!-- ================= 网站导航 ================= -->
@@ -98,6 +101,14 @@
   </div>
   <div class="m-card-list" id="mPromptList"></div>
 </div>
+
+<!-- ================= 发票解析 (与文档库并列的子菜单) ================= -->
+{% if 'knowledge_invoice' in user_menus %}
+<div class="m-kb-panel" data-panel="invoice">
+  {% include "partials/knowledge_invoice_panel.html" %}
+</div>
+<script src="/static/js/knowledge_invoice.js?v=20261102_inv_tab1"></script>
+{% endif %}
 
 <!-- ================= 抽屉区 ================= -->
 <div class="m-sheet-mask" id="mKbMask"></div>

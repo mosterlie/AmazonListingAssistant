@@ -44,7 +44,8 @@ from server.routers import (
     jp_holiday_router,
     db_agent_router,
     ads_analysis_router,
-    order_router
+    order_router,
+    invoice_router
 )
 
 @asynccontextmanager
@@ -172,6 +173,7 @@ app.include_router(alert_router.router)
 app.include_router(jp_holiday_router.router)
 app.include_router(ads_analysis_router.router)
 app.include_router(order_router.router)
+app.include_router(invoice_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
 app.include_router(db_agent_router.router)
 
@@ -429,6 +431,20 @@ async def render_knowledge_page(request: Request):
 
     return render_page(request, "knowledge.html", context={
         "active_page": "knowledge",
+        "current_user": user
+    })
+
+
+@app.get("/knowledge/invoice-parse", response_class=HTMLResponse,
+         summary="发票解析: 上传发票图片/PDF 自动提取发票信息 (知识库二级菜单)")
+async def render_invoice_parse_page(request: Request):
+    """渲染发票解析页面 (需登录; 菜单可见性由 RBAC 角色配置控制)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
+    if redirect_resp:
+        return redirect_resp
+
+    return render_page(request, "knowledge_invoice_parse.html", context={
+        "active_page": "knowledge_invoice",
         "current_user": user
     })
 
