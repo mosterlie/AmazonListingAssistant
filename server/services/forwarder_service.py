@@ -56,6 +56,28 @@ class ForwarderService:
         return d
 
     @staticmethod
+    def get_default_link() -> Optional[Dict[str, Any]]:
+        """默认货代 (sort_order 最小) 的第一条「在线链接」
+
+        供订单管理「复制跳转」使用: 复制整行后直接打开该链接 (新页签)。
+        没有登记链接时返回 None。
+        """
+        conn = get_db_connection()
+        try:
+            rows = conn.execute(
+                "SELECT id, name, links_json FROM forwarders ORDER BY sort_order, id LIMIT 20"
+            ).fetchall()
+        finally:
+            conn.close()
+        for row in rows:
+            for lk in _safe_links(row["links_json"]):
+                url = _normalize_url(lk.get("url", ""))
+                if url:
+                    return {"forwarder_id": int(row["id"]), "forwarder_name": row["name"] or "",
+                            "label": lk.get("label") or "在线链接", "url": url}
+        return None
+
+    @staticmethod
     def list_forwarders(include_secret: bool = False) -> List[Dict[str, Any]]:
         conn = get_db_connection()
         try:

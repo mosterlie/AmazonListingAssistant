@@ -20,39 +20,91 @@
     white-space:normal; line-height:1.25;
   }
   #orderTable td.doc-cell { padding:8px 2px; text-align:center; }
-  /* 未补录: 补录按钮边框呼吸发光, 提醒待补录 (已补录则保持普通样式) */
+  /* 未补录: 红色高亮 + 边框呼吸发光, 提醒待补录 (已补录则保持普通样式) */
   @keyframes suppGlow {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); border-color: #fde68a; }
-    50%      { box-shadow: 0 0 6px 2px rgba(245,158,11,.55); border-color: #f59e0b; }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); border-color: #fca5a5; }
+    50%      { box-shadow: 0 0 6px 2px rgba(239,68,68,.55); border-color: #ef4444; }
   }
   #orderTable .supp-pending {
-    border-color: #fbbf24 !important;
+    background: #fef2f2 !important;
+    color: #dc2626 !important;
+    border-color: #ef4444 !important;
     animation: suppGlow 1.8s ease-in-out infinite;
   }
   @media (prefers-reduced-motion: reduce) {
     #orderTable .supp-pending { animation: none; }
   }
-  /* 操作列图标按钮: 两行排布 (查询/补录 一行, 复制/轨迹 一行), 紧凑不撑高表格行 */
+  /* 操作列图标按钮: 两行排布 (详情/补录 一行, 复制/轨迹 一行), 紧凑不撑高表格行 */
   #orderTable .row-act {
     display:inline-flex; align-items:center; justify-content:center;
     padding:1px 5px; min-height:0; line-height:1; font-size:0; border-radius:6px; color:#475569;
   }
   #orderTable .row-act svg { display:block; }
-  #orderTable .row-act:hover { background:#eff6ff; color:#1d4ed8; }
-  #orderTable .row-act.is-edit { color:#b45309; }
-  #orderTable .row-act.is-copy { color:#1d4ed8; }
+  /* 套装二「彩色徽章底」: 详情蓝 / 补录橙 / 复制紫 / 轨迹绿 */
+  #orderTable .row-act-view  { background:#eff6ff; color:#1d4ed8; }
+  #orderTable .row-act-edit  { background:#fff7ed; color:#b45309; }
+  #orderTable .row-act-copy  { background:#f5f3ff; color:#7c3aed; }
+  #orderTable .row-act-track { background:#f0fdf4; color:#15803d; }
+  #orderTable .row-act-view:hover  { background:#dbeafe; color:#1e40af; }
+  #orderTable .row-act-edit:hover  { background:#ffedd5; color:#92400e; }
+  #orderTable .row-act-copy:hover  { background:#ede9fe; color:#6d28d9; }
+  #orderTable .row-act-track:hover { background:#dcfce7; color:#166534; }
+  #orderTable .supp-pending:hover  { background:#fee2e2 !important; color:#b91c1c !important; }
+  /* 复制按钮: 悬停展开「仅复制 / 复制跳转」(向左展开, 不撑行高) */
+  #orderTable .copy-split { position:relative; display:inline-flex; }
+  #orderTable .copy-split-menu {
+    display:none; position:absolute; right:100%; top:50%; transform:translateY(-50%);
+    z-index:30; padding:2px; gap:2px; background:#fff; border:1px solid #e2e8f0;
+    border-radius:7px; box-shadow:0 4px 12px rgba(15,23,42,.14); white-space:nowrap;
+  }
+  #orderTable .copy-split:hover .copy-split-menu { display:flex; }
+  #orderTable .copy-split-item {
+    border:none; background:transparent; cursor:pointer; border-radius:5px;
+    padding:2px 7px; font-size:0.7rem; font-weight:700; color:#334155;
+    white-space:nowrap; line-height:1.4;
+  }
+  #orderTable .copy-split-item:hover { background:#eff6ff; color:#1d4ed8; }
+  #orderTable .copy-split-item.jump:hover { background:#f5f3ff; color:#7c3aed; }
+  /* 触屏设备无 hover: 菜单不展示, 点图标即「仅复制」 */
+  @media (hover: none) {
+    #orderTable .copy-split-menu { display:none !important; }
+  }
+  /* 顶部「复制」按钮: 同样悬停展开两个选项, 向下展开 (含 8px hover 桥接) */
+  .copy-split-top { position:relative; display:inline-flex; }
+  .copy-split-top .copy-split-menu {
+    display:none; position:absolute; top:calc(100% + 6px); left:50%; transform:translateX(-50%);
+    z-index:60; padding:2px; gap:2px; background:#fff; border:1px solid #e2e8f0;
+    border-radius:7px; box-shadow:0 6px 16px rgba(15,23,42,.16); white-space:nowrap;
+  }
+  .copy-split-top .copy-split-menu::before {
+    content:""; position:absolute; left:0; right:0; top:-8px; height:8px;
+  }
+  .copy-split-top:hover .copy-split-menu { display:flex; }
+  .copy-split-top .copy-split-item {
+    border:none; background:transparent; cursor:pointer; border-radius:5px;
+    padding:3px 9px; font-size:0.72rem; font-weight:700; color:#334155;
+    white-space:nowrap; line-height:1.4;
+  }
+  .copy-split-top .copy-split-item:hover { background:#eff6ff; color:#1d4ed8; }
+  .copy-split-top .copy-split-item.jump:hover { background:#f5f3ff; color:#7c3aed; }
+  @media (hover: none) {
+    .copy-split-top .copy-split-menu { display:none !important; }
+  }
   /* 窄屏 (app.css 里有 .matrix-table .btn 的 !important 内边距) 仍需保持两行紧凑 */
   @media (max-width: 768px) {
     #orderTable .row-act { padding:1px 4px !important; min-height:0 !important; }
   }
   /* 操作列固定在右侧 (横向滚动时不跟随) */
+  /* 操作列固定在右侧; 左分隔线用 inset 阴影绘制:
+     table 是 border-collapse:collapse, sticky 单元格的 border-left 在横向滚动时会被
+     相邻单元格合并/覆盖, inset 阴影始终贴着该列左边缘绘制, 滚动中也不会消失 */
   #orderTable th:last-child,
   #orderTable td:last-child {
     position: sticky;
     right: 0;
     background: #fff;
     z-index: 2;
-    box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.18);
+    box-shadow: inset 2px 0 0 #cbd5e1, -6px 0 8px -6px rgba(15, 23, 42, 0.18);
   }
   #orderTable thead th:last-child { background: #f8fafc; z-index: 3; }
   #orderTable tbody tr:hover td:last-child { background: #dbeafe; }
@@ -120,20 +172,28 @@
       <input type="date" id="orderDateTo" class="form-input" style="width:118px; padding:6px 8px; font-size:0.82rem;">
       <button class="btn btn-outline btn-sm" type="button" onclick="orderState.page=1;loadOrders()" style="padding:5px 12px;">查询</button>
       <button class="btn btn-outline btn-sm" type="button" onclick="resetOrderFilters()" style="padding:5px 12px;">重置</button>
-      <button class="btn btn-outline btn-sm" type="button" id="orderCopyBtn"
-        title="批量复制勾选订单（仅数据行，可直接粘贴到在线文档）" onclick="copyOrdersRows()"
-        style="padding:5px 14px;">复制</button>
+      <!-- 复制: 悬停展开「仅复制 / 复制跳转」(复制后打开货代在线链接) -->
+      <span class="copy-split-top">
+        <button class="btn btn-outline btn-sm" type="button" id="orderCopyBtn"
+          aria-label="复制勾选订单（悬停可选仅复制 / 复制跳转）"
+          onclick="copyOrdersRows()"
+          style="padding:5px 14px;">复制</button>
+        <span class="copy-split-menu">
+          <button type="button" class="copy-split-item" onclick="copyOrdersRows()">仅复制</button>
+          <button type="button" class="copy-split-item jump" onclick="copyOrdersRowsAndJump()">复制跳转</button>
+        </span>
+      </span>
       <button class="btn btn-outline btn-sm" type="button" id="orderBatchUploadBtn"
-        title="勾选订单后，把同一批单据（采购单/采购发票/发货单/配送轨迹/签收单/物流发票/清关证明）同时上传到这些订单"
+        aria-label="批量上传单据附件到勾选订单"
         onclick="openBatchUpload()"
         style="padding:5px 14px;">上传</button>
       <button class="btn btn-outline btn-sm" type="button" id="orderAppealBtn"
-        title="按亚马逊「直近配送済み自己発送注文のフルフィルメント記録」模板导出选中订单"
+        aria-label="按亚马逊申诉模板导出勾选订单"
         onclick="exportOrdersAppealXlsx()"
         style="padding:5px 14px;">导出</button>
       {% if 'order:sync' in user_perms %}
       <button class="btn btn-primary btn-sm" type="button" id="orderSyncBtn"
-        title="批量同步妙手订单并更新运单轨迹" onclick="openSyncModal()"
+        aria-label="同步妙手订单并更新运单轨迹" onclick="openSyncModal()"
         style="padding:5px 14px;">同步</button>
       {% endif %}
     </div>
@@ -438,5 +498,5 @@
   const USER_PERMS = {{ user_perms | tojson }};
   function hasPerm(key) { return IS_ADMIN || USER_PERMS.includes(key); }
 </script>
-<script src="/static/js/orders.js?v=20261101_orders69"></script>
+<script src="/static/js/orders.js?v=20261102_orders73"></script>
 {% endblock %}

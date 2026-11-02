@@ -19,6 +19,12 @@ def list_forwarders(user: dict = Depends(get_current_user)):
             "data": ForwarderService.list_forwarders(include_secret=include_secret)}
 
 
+@router.get("/default-link", summary="默认货代的在线链接 (订单「复制跳转」使用)")
+def get_default_forwarder_link(user: dict = Depends(get_current_user)):
+    data = ForwarderService.get_default_link()
+    return {"code": 0, "msg": "success" if data else "货代管理尚未登记在线链接", "data": data}
+
+
 @router.post("", summary="新增货代 (仅管理员)")
 def create_forwarder(payload: ForwarderUpsertSchema, user: dict = Depends(require_admin_user)):
     data = ForwarderService.create_forwarder(payload, operator=user.get("username", ""))

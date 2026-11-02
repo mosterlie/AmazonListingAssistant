@@ -836,23 +836,36 @@ function closeOrderImg() {
   }
 }
 
-/* 操作列图标 (内联 SVG, 线条风格, 比 emoji 更容易区分): view=详情 edit=补录 copy=复制 pin=轨迹 */
+/* 操作列图标 (内联 SVG, 线条风格): view=详情 edit=补录 copy=复制 track=轨迹 */
 const ROW_ICONS = {
-  view: `<path d="M4 1.8h5l3 3v9.4H4z"/><path d="M9 1.8v3h3"/>
+  view: `<path d="M4 2h5l3 3v9H4z"/><path d="M9 2v3h3"/>
          <path d="M5.8 8h4.4M5.8 10.4h4.4"/>`,
-  edit: `<path d="M2.4 13.6h2.7l7.6-7.6-2.7-2.7-7.6 7.6v2.7z"/><path d="M10 3.3l2.7 2.7"/>`,
-  copy: `<rect x="5.3" y="5.3" width="8.4" height="8.4" rx="1.5"/>
-         <path d="M10.7 5.3V3.7A1.7 1.7 0 0 0 9 2H3.7A1.7 1.7 0 0 0 2 3.7V9a1.7 1.7 0 0 0 1.7 1.7h1.6"/>`,
-  pin: `<path d="M8 14.2s4.7-4.6 4.7-7.9A4.7 4.7 0 0 0 3.3 6.3c0 3.3 4.7 7.9 4.7 7.9z"/>
-        <circle cx="8" cy="6.2" r="1.7"/>`,
+  edit: `<path d="m10.6 3.4 2 2L7 11l-2.6.6L5 9z"/><path d="M3 14h10"/>`,
+  copy: `<rect x="5.2" y="5.2" width="7" height="7" rx="1.6"/>
+         <path d="M10.8 3.6h-6a1.6 1.6 0 0 0-1.6 1.6v6"/>`,
+  track: `<path d="M12.2 6.8c0 3.2-4.2 6.4-4.2 6.4S3.8 10 3.8 6.8a4.2 4.2 0 1 1 8.4 0z"/>
+          <circle cx="8" cy="6.8" r="1.5"/>`,
 };
 
+/* 套装二: 彩色徽章底 (row-act-view/edit/copy/track, 配色见 app.css) */
 function rowIconBtn(kind, title, onclick, extraClass = "") {
-  return `<button class="btn btn-outline btn-sm row-act${extraClass}" type="button"
-    title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}" onclick="${onclick}">
+  /* 不设 title: 避免鼠标悬停出现浏览器原生浮框 (仅保留 aria-label 供读屏) */
+  return `<button class="btn btn-outline btn-sm row-act row-act-${kind}${extraClass}" type="button"
+    aria-label="${escapeHtml(title)}" onclick="${onclick}">
     <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor"
       stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${ROW_ICONS[kind] || ""}</svg>
   </button>`;
+}
+
+/* 复制按钮 + 悬停浮层: 仅复制 (保持原效果) / 复制跳转 (复制完打开货代在线链接) */
+function copySplitBtn(orderId) {
+  return `<span class="copy-split">
+    ${rowIconBtn("copy", "复制整行（可直接粘贴到在线表格）", `copyOrderRow(${orderId})`)}
+    <span class="copy-split-menu">
+      <button type="button" class="copy-split-item" onclick="copyOrderRow(${orderId})">仅复制</button>
+      <button type="button" class="copy-split-item jump" onclick="copyOrderRowAndJump(${orderId})">复制跳转</button>
+    </span>
+  </span>`;
 }
 
 function renderOrderRows(tbody, rows) {
@@ -909,8 +922,8 @@ function renderOrderRows(tbody, rows) {
               isSupplemented(o) ? "" : " supp-pending")}
           </div>
           <div style="display:flex; gap:4px;">
-            ${rowIconBtn("copy", "复制整行（可直接粘贴到在线表格）", `copyOrderRow(${o.id})`, " is-copy")}
-            ${o.tracking_no ? rowIconBtn("pin", "查看运单轨迹", `openOrderTrack(${o.id})`) : ""}
+            ${copySplitBtn(o.id)}
+            ${o.tracking_no ? rowIconBtn("track", "查看运单轨迹", `openOrderTrack(${o.id})`) : ""}
           </div>
         </div>
       </td>
@@ -1210,22 +1223,33 @@ function clipCellText(v) {
   return String(v == null ? "" : v).replace(/\s*\n\s*/g, " ").trim();
 }
 
-/* 复制单行订单: 未补录先弹框提醒, 补录完整直接复制 */
-async function copyOrderRow(orderId) {
+/* 复制单行订单: 未补录先弹框提醒, 补录完整直接复制
+   jump=true (复制跳转): 复制成功后打开货代管理默认货代的在线链接 */
+async function copyOrderRow(orderId, jump = false) {
   try {
     const body = await orderApi(`/api/orders/${orderId}`);
     const o = body.data || {};
     const missing = suppMissingFields(o);
-    if (missing.length) { openSuppWarnModal(o, missing); return; }
-    await doCopyOrderRow(o);
+    if (missing.length) { openSuppWarnModal(o, missing, jump); return false; }
+    const ok = await doCopyOrderRow(o);
+    if (!ok) return false;
+    if (jump) await jumpToForwarderLink();
+    else showToast(lastCopyHint, "success");
+    return true;
   } catch (e) {
     if (e.message !== "未登录") showToast("复制失败: " + e.message, "error");
+    return false;
   }
+}
+
+/* 复制跳转 (操作列悬停菜单) */
+async function copyOrderRowAndJump(orderId) {
+  await copyOrderRow(orderId, true);
 }
 
 /* 复制: 仅复制已勾选的订单 → 纯数据行表格 (不含表头), 可直接粘贴到在线文档
    未勾选先提示选择; 勾选中有未补录的则弹框列出缺项, 确认后再复制 */
-async function copyOrdersRows() {
+async function copyOrdersRows(jump = false) {
   const ids = [...orderState.selected];
   if (!ids.length) { showToast("请先勾选要复制的订单", "error"); return; }
   if (ids.length > 100) { showToast("单次最多复制 100 单，请减少勾选", "error"); return; }
@@ -1241,12 +1265,19 @@ async function copyOrdersRows() {
   if (!orders.length) { showToast("订单数据加载失败，请重试", "error"); return; }
 
   const pending = orders.filter(o => suppMissingFields(o).length);
-  if (pending.length) { openBatchSuppWarn(pending, orders); return; }
-  await writeOrdersRows(orders);
+  if (pending.length) { openBatchSuppWarn(pending, orders, jump); return; }
+  const ok = await writeOrdersRows(orders, jump);
+  if (ok && jump) await jumpToForwarderLink();
 }
 
-/* 实际写入剪贴板: 多行订单 (无表头), 粘贴到在线表格即成一整块数据 */
-async function writeOrdersRows(orders) {
+/* 复制跳转 (顶部工具栏): 勾选订单复制后打开货代在线链接 */
+async function copyOrdersRowsAndJump() {
+  await copyOrdersRows(true);
+}
+
+/* 实际写入剪贴板: 多行订单 (无表头), 粘贴到在线表格即成一整块数据
+   silent=true 时不弹复制结果提示 (交给跳转逻辑合并提示) */
+async function writeOrdersRows(orders, silent = false) {
   const rows = orders.map(o => CLIP_COLUMNS.map(c => {
     let v = "";
     try { v = c.value(o); } catch (e) { v = ""; }
@@ -1260,9 +1291,10 @@ async function writeOrdersRows(orders) {
   const ok = await writeRichClipboard(html, text);
   const pending = orders.filter(o => suppMissingFields(o).length).length;
   const extra = pending ? `；其中 ${pending} 单未补录` : "";
-  showToast(ok
-    ? `已复制 ${orders.length} 单${extra}`
-    : "复制失败，请检查浏览器剪贴板权限", ok ? "success" : "error");
+  if (!ok) { showToast("复制失败，请检查浏览器剪贴板权限", "error"); return false; }
+  lastCopyHint = `已复制 ${orders.length} 单${extra}`;
+  if (!silent) showToast(lastCopyHint, "success");
+  return true;
 }
 
 /* 申诉导出: 按亚马逊「フルフィルメント記録」模板导出已勾选订单 (未勾选先提示选择) */
@@ -1285,11 +1317,14 @@ function suppMissingFields(o) {
 
 let suppWarnOrder = null;
 let suppWarnBatch = null;   // 批量复制待确认: {pending:[未补录订单], orders:[全部订单]}
+let suppWarnJump = false;   // 单行复制: 点「仍要复制」后是否继续跳转货代在线链接
+let lastCopyHint = "";      // 最近一次复制的结果文案 (拼进跳转提示)
 
 /* 批量复制前的未补录提醒: 列出未补录订单及缺项, 确认后仍可复制 */
-function openBatchSuppWarn(pending, orders) {
+function openBatchSuppWarn(pending, orders, jump = false) {
   suppWarnOrder = null;
   suppWarnBatch = { pending: pending, orders: orders };
+  suppWarnJump = !!jump;
   const modal = document.getElementById("orderSuppWarnModal");
   if (!modal) {   // 兜底: 弹窗不存在时用 toast 提醒, 不复制
     showToast(`有 ${pending.length} 单未补录，请先补录再复制`, "error");
@@ -1316,9 +1351,10 @@ function openBatchSuppWarn(pending, orders) {
   modal.style.display = "flex";
 }
 
-function openSuppWarnModal(o, missing) {
+function openSuppWarnModal(o, missing, jump = false) {
   suppWarnOrder = o;
   suppWarnBatch = null;
+  suppWarnJump = !!jump;
   const goBtn = document.getElementById("suppWarnGoBtn");
   if (goBtn) goBtn.style.display = "";
   const modal = document.getElementById("orderSuppWarnModal");
@@ -1340,6 +1376,7 @@ function closeSuppWarnModal() {
   if (m) m.style.display = "none";
   suppWarnOrder = null;
   suppWarnBatch = null;
+  suppWarnJump = false;
 }
 
 function suppWarnGoSupplement() {
@@ -1351,12 +1388,21 @@ function suppWarnGoSupplement() {
 async function suppWarnCopyAnyway() {
   const o = suppWarnOrder;
   const batch = suppWarnBatch;
+  const jump = suppWarnJump;
   closeSuppWarnModal();
-  if (batch) { await writeOrdersRows(batch.orders); return; }
-  if (o) await doCopyOrderRow(o);
+  if (batch) {
+    const ok = await writeOrdersRows(batch.orders, jump);
+    if (ok && jump) await jumpToForwarderLink();
+    return;
+  }
+  if (o) {
+    const ok = await doCopyOrderRow(o);
+    if (ok && jump) await jumpToForwarderLink();
+    else if (ok) showToast(lastCopyHint, "success");
+  }
 }
 
-/* 实际写入剪贴板: 按 CLIP_COLUMNS 生成一行数据 */
+/* 实际写入剪贴板: 按 CLIP_COLUMNS 生成一行数据; 返回是否复制成功 */
 async function doCopyOrderRow(o) {
   try {
     const values = CLIP_COLUMNS.map(c => {
@@ -1368,12 +1414,39 @@ async function doCopyOrderRow(o) {
     const html = buildClipRowHtml(values);
     const text = values.map(clipCellText).join("\t");
     const ok = await writeRichClipboard(html, text);
-    showToast(ok
-      ? `已复制 ${values.length} 个字段`
-      : "复制失败，请检查浏览器剪贴板权限", ok ? "success" : "error");
+    if (!ok) { showToast("复制失败，请检查浏览器剪贴板权限", "error"); return false; }
+    lastCopyHint = `已复制 ${values.length} 个字段`;
+    return true;
   } catch (e) {
     if (e.message !== "未登录") showToast("复制失败: " + e.message, "error");
+    return false;
   }
+}
+
+/* 复制跳转: 打开「货代管理」默认货代的在线链接 (新标签页) */
+let forwarderLinkCache = null;   // 会话内缓存, 避免每次点击都请求
+async function jumpToForwarderLink() {
+  let link = forwarderLinkCache;
+  if (!link) {
+    try {
+      const body = await orderApi("/api/forwarders/default-link");
+      link = body.data || null;
+    } catch (e) {
+      if (e.message !== "未登录") showToast("获取货代在线链接失败: " + e.message, "error");
+      return;
+    }
+    forwarderLinkCache = link;
+  }
+  if (!link || !link.url) {
+    showToast(lastCopyHint + "，但货代管理还没有登记「在线链接」", "error");
+    return;
+  }
+  const opened = window.open(link.url, "_blank", "noopener");
+  if (!opened) {   // 被浏览器拦截时给出可点击兜底提示
+    showToast(`${lastCopyHint}；跳转被浏览器拦截，请允许弹窗后重试`, "error");
+    return;
+  }
+  showToast(`${lastCopyHint}，已打开「${link.forwarder_name || "货代"}」在线链接`, "success");
 }
 
 /* ───────── 补录信息 (采购日期 / 国内包裹数量 / 国内单号) ───────── */
