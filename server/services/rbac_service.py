@@ -24,6 +24,12 @@ MENU_REGISTRY: List[Dict[str, Any]] = [
     # 知识库二级菜单: 发票解析 (导航中嵌套在「知识库」下)
     {"key": "knowledge_invoice",      "name": "发票解析", "icon": "🧾", "url": "/knowledge/invoice-parse", "pages": ["/knowledge/invoice-parse"], "sort": 5, "parent": "knowledge"},
     {"key": "orders",                 "name": "订单管理", "icon": "🧾", "url": "/orders",              "pages": ["/orders"],                    "sort": 6},
+    # 履约中心 (独立模块): 工作台 + 四类资料管理
+    {"key": "fulfillment",            "name": "履约工作台", "icon": "📦", "url": "/fulfillment",       "pages": ["/fulfillment", "/fulfillment/upload"], "sort": 7},
+    {"key": "fulfillment_purchase",   "name": "采购单",   "icon": "🧾", "url": "/fulfillment/purchase-orders", "pages": ["/fulfillment/purchase-orders"], "sort": 7, "parent": "fulfillment"},
+    {"key": "fulfillment_packages",   "name": "包裹",     "icon": "📦", "url": "/fulfillment/packages", "pages": ["/fulfillment/packages"],     "sort": 7, "parent": "fulfillment"},
+    {"key": "fulfillment_invoices",   "name": "发票",     "icon": "📄", "url": "/fulfillment/invoices", "pages": ["/fulfillment/invoices"],     "sort": 7, "parent": "fulfillment"},
+    {"key": "fulfillment_tax",        "name": "清关报税", "icon": "🧮", "url": "/fulfillment/tax-certs", "pages": ["/fulfillment/tax-certs"],   "sort": 7, "parent": "fulfillment"},
     {"key": "forwarder_integration",  "name": "运单管理", "icon": "🚚", "url": "/forwarder-integration", "pages": ["/forwarder-integration"],   "sort": 7},
     {"key": "forwarder",              "name": "货代管理", "icon": "🛳️", "url": "/forwarder",          "pages": ["/forwarder"],                 "sort": 8},
     {"key": "japan_calendar",         "name": "日本日历", "icon": "📅", "url": "/japan-calendar",      "pages": ["/japan-calendar"],            "sort": 9},
@@ -52,6 +58,9 @@ PERMISSION_REGISTRY: Dict[str, Dict[str, str]] = {
     "ads:create":          {"name": "广告新建",   "desc": "新建广告任务",             "menu": "ads"},
     "ads:operate":         {"name": "广告操作",   "desc": "刷新/重试/删除广告任务",   "menu": "ads"},
     "order:sync":          {"name": "订单同步",   "desc": "从妙手ERP同步订单包裹",     "menu": "orders"},
+    "fulfillment:edit":    {"name": "履约资料编辑", "desc": "上传/编辑履约资料与业务记录", "menu": "fulfillment"},
+    "fulfillment:parse":   {"name": "履约智能解析", "desc": "调用模型解析发票/采购凭证",   "menu": "fulfillment"},
+    "fulfillment:delete":  {"name": "履约资料删除", "desc": "删除履约记录与附件",         "menu": "fulfillment"},
 }
 
 # ══════════════════════════ 预置角色 ══════════════════════════
@@ -63,8 +72,11 @@ BUILTIN_ROLES: List[Dict[str, Any]] = [
     {
         "code": "user", "name": "普通用户", "description": "常用页面与操作, 删除类权限默认不授",
         "menus": ["list", "tasks", "knowledge", "knowledge_invoice", "orders",
+                  "fulfillment", "fulfillment_purchase", "fulfillment_packages",
+                  "fulfillment_invoices", "fulfillment_tax",
                   "forwarder_integration", "japan_calendar", "alert_center"],
-        "permissions": ["product:create", "product:edit", "publish:run", "waybill:sync", "waybill:refresh_all"],
+        "permissions": ["product:create", "product:edit", "publish:run", "waybill:sync",
+                        "waybill:refresh_all", "fulfillment:edit", "fulfillment:parse"],
     },
 ]
 

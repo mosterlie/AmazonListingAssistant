@@ -7,6 +7,7 @@
 const orderState = {
   page: 1, page_size: 20, total: 0, pages: 0, loading: false,
   selected: new Set(),   // 批量选择: 订单 id (跨页保留)
+  rows: [],              // 当前页数据 (履约模式下附带 fm_docs)
 };
 let orderStatusOptions = [];
 
@@ -66,7 +67,17 @@ function cnyTip(amount) {
 }
 
 /* ───────── 单据附件 (采购单/采购发票/发货单/配送轨迹/签收单/物流发票/清关证明) ───────── */
-const DOC_TYPES = [
+/* 履约工作台模式下, 附件列改用履约素材分类 (数据来自 fm_* 体系) */
+const FM_VARIANT = window.FM_VARIANT === "fulfillment";
+const DOC_TYPES = FM_VARIANT ? [
+  { key: "purchase_order_shot", label: "采购单截图", icon: "🧾" },
+  { key: "transfer_voucher", label: "转账凭证", icon: "💳" },
+  { key: "invoice_purchase", label: "采购发票", icon: "📄" },
+  { key: "delivery_note", label: "发货单", icon: "📦" },
+  { key: "receipt", label: "签收单", icon: "✍️" },
+  { key: "invoice_forwarder", label: "货代发票", icon: "🚚" },
+  { key: "tax_cert", label: "清关报税", icon: "🛃" },
+] : [
   { key: "purchase_order", label: "采购单", icon: "🧾" },
   { key: "purchase_invoice", label: "采购发票", icon: "🧮" },
   { key: "delivery_note", label: "发货单", icon: "📦" },
@@ -84,6 +95,21 @@ function docTypeMeta(key) {
 /* 单元格: 未上传显示小「＋」; 已有附件则显示每份文件的超小预览 + 曲别针
    (曲别针点开详情: 查看/下载/批量下载/删除/继续上传) */
 function docCell(o, key) {
+  if (FM_VARIANT) {
+    // 履约: 列表直接展示素材快照 (点击放大), 图标按钮进入素材详情
+    const meta = docTypeMeta(key);
+    const n = Number((o.fm_docs && o.fm_docs[key]) || 0);
+    if (!n) return `<span class="fm-doc-none" title="${meta.label}：暂无">-</span>`;
+    const previews = ((o.fm_doc_previews || {})[key]) || [];
+    const thumbs = previews.map(p => `<img class="fm-doc-thumb" src="${escapeHtml(encodeURI(p.url))}" alt=""
+      title="${escapeHtml(p.file_name || meta.label)}（点击放大）"
+      data-full="${escapeHtml(encodeURI(p.url))}"
+      onclick="openOrderImg(this.dataset.full)"
+      onerror="this.style.display='none'">`).join("");
+    return `<span class="order-doc-cell">${thumbs}<button type="button" class="fm-doc-icon"
+      title="${meta.label} · ${n} 个文件（点击查看全部）"
+      onclick="openFmMaterials(${o.fm_order_id || 0}, ${o.id}, '${escapeHtml(o.order_sn || "")}')">${meta.icon}<b>${n}</b></button></span>`;
+  }
   const info = (o.docs && o.docs[key]) || {};
   const count = info.count || 0;
   const previews = info.previews || [];
@@ -117,6 +143,10 @@ function docFileType(fileName) {
 }
 
 function pickOrderDoc(orderId, docType, orderSn) {
+  if (FM_VARIANT) {
+    showToast("列表不支持直接上传附件，请在「补录」中统一上传素材", "error");
+    return;
+  }
   docState.orderId = orderId;
   docState.docType = docType;
   docState.orderSn = orderSn || "";
@@ -145,6 +175,11 @@ async function uploadOrderDocs(fileList) {
 }
 
 async function openOrderDocs(orderId, docType, orderSn) {
+  if (FM_VARIANT) {
+    // 履约: 附件列直接打开履约素材清单 (只读), 不再走订单附件弹窗
+    const row = (orderState.rows || []).find(r => Number(r.id) === Number(orderId));
+    return openFmMaterials(row && row.fm_order_id || 0, orderId, orderSn);
+  }
   docState.orderId = orderId;
   docState.docType = docType;
   docState.orderSn = orderSn || "";
@@ -433,27 +468,54 @@ async function startBatchUpload() {
   else setTimeout(() => { if (!batchUploading) closeBatchUpload(); }, 1200);
 }
 
-document.getElementById("orderBatchUploadInput").addEventListener("change", function () {
-  const key = batchUploadState.picking;
-  if (!key) return;
-  const list = batchUploadState.files[key] || [];
-  const seen = new Set(list.map(batchFileKey));
-  [...(this.files || [])].forEach(f => {
-    const k = batchFileKey(f);
-    if (seen.has(k)) return;
-    seen.add(k);
-    list.push(f);
+const batchUploadInputEl = document.getElementById("orderBatchUploadInput");
+if (batchUploadInputEl) {
+  batchUploadInputEl.addEventListener("change", function () {
+    const key = batchUploadState.picking;
+    if (!key) return;
+    const list = batchUploadState.files[key] || [];
+    const seen = new Set(list.map(batchFileKey));
+    [...(this.files || [])].forEach(f => {
+      const k = batchFileKey(f);
+      if (seen.has(k)) return;
+      seen.add(k);
+      list.push(f);
+    });
+    batchUploadState.files[key] = list;
+    renderBatchUploadRows();
   });
-  batchUploadState.files[key] = list;
-  renderBatchUploadRows();
-});
+}
 
-document.getElementById("orderDocInput").addEventListener("change", function () {
-  uploadOrderDocs(this.files);
-});
+const orderDocInputEl = document.getElementById("orderDocInput");
+if (orderDocInputEl) {
+  orderDocInputEl.addEventListener("change", function () {
+    uploadOrderDocs(this.files);
+  });
+}
 
 /* ───────────── 筛选项 / 统计 ───────────── */
 async function loadOrderFilters() {
+  if (FM_VARIANT) {
+    // 履约: 筛选项来自履约模块自身数据
+    try {
+      const body = await orderApi("/api/fulfillment/meta");
+      const d = body.data || {};
+      const statusSel = document.getElementById("orderStatus");
+      // 默认视图不展示已关闭订单; 需要时显式选「已关闭」
+      const opts = (d.order_statuses || []).slice();
+      [["cancelled", "已关闭"], ["returned", "已退还"]].forEach(([code, text]) => {
+        if (!opts.some(s => s.code === code)) opts.push({ code, text, count: 0 });
+      });
+      statusSel.innerHTML = `<option value="">全部状态（不含关闭/退还）</option>` +
+        opts.map(s => `<option value="${escapeHtml(s.code)}">${escapeHtml(s.text)}${s.count ? `（${s.count}）` : ""}</option>`).join("");
+      const shopSel = document.getElementById("orderShop");
+      shopSel.innerHTML = `<option value="">全部店铺</option>` +
+        (d.shops || []).map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join("");
+    } catch (e) {
+      /* 筛选项失败不影响列表 */
+    }
+    return;
+  }
   try {
     const body = await orderApi("/api/orders/filters");
     const d = body.data || {};
@@ -638,6 +700,7 @@ function trackNoItem(label, value) {
 }
 
 async function openOrderTrack(orderId) {
+  if (FM_VARIANT && typeof openFmTrackModal === "function") return openFmTrackModal(orderId);
   trackState.orderId = orderId;
   trackState.data = null;
   const modal = document.getElementById("orderTrackModal");
@@ -733,6 +796,26 @@ function jumpOrderTrack() {
 }
 
 /* ───────────── 列表 ───────────── */
+/* 履约模式: 批量拉取本页订单的履约素材份数 (附件列图标展示, 不支持列表直传) */
+async function attachFmMaterials(rows) {
+  if (!rows.length) return;
+  const ids = rows.map(r => r.id).join(",");
+  const sns = rows.map(r => r.order_sn).filter(Boolean).join(",");
+  try {
+    const body = await orderApi(
+      "/api/fulfillment/materials-summary?order_ids=" + encodeURIComponent(ids) +
+      "&order_sns=" + encodeURIComponent(sns));
+    const map = (body && body.data) || {};
+    rows.forEach(r => {
+      const info = map[String(r.id)] || map["sn:" + (r.order_sn || "")] || null;
+      r.fm_order_id = info ? Number(info.fm_order_id || 0) : 0;
+      r.fm_docs = info ? (info.counts || {}) : {};
+    });
+  } catch (e) {
+    rows.forEach(r => { r.fm_docs = {}; r.fm_order_id = 0; });
+  }
+}
+
 async function loadOrders() {
   const tbody = document.getElementById("orderTableBody");
   if (orderState.loading) return;
@@ -749,11 +832,18 @@ async function loadOrders() {
   });
   tbody.innerHTML = `<tr><td colspan="20" style="text-align:center; padding:40px; color:var(--text-muted);">⏳ 加载中...</td></tr>`;
   try {
-    const body = await orderApi("/api/orders?" + params.toString());
+    // 履约工作台: 列表数据来自履约模块 (fm_orders + 包裹/采购/发票/清关报税), 字段与订单管理同构
+    const body = await orderApi((FM_VARIANT ? "/api/fulfillment/orders?" : "/api/orders?") + params.toString());
     const d = body.data || {};
     orderState.total = d.total || 0;
     orderState.pages = d.pages || 0;
-    renderOrderRows(tbody, d.rows || []);
+    const rows = FM_VARIANT ? (d.items || []) : (d.rows || []);
+    if (FM_VARIANT) {
+      // 履约接口已直接返回素材份数(fm_docs), 这里仅补齐缺失场景
+      rows.forEach(r => { if (!r.fm_docs) r.fm_docs = {}; });
+    }
+    orderState.rows = rows;
+    renderOrderRows(tbody, rows);
     renderOrderPager();
   } catch (e) {
     if (e.message !== "未登录") {
@@ -952,6 +1042,14 @@ function renderOrderPager() {
     total ? `第 ${page} / ${pages} 页 · 共 ${total} 单` : "共 0 单";
   document.getElementById("orderPrevBtn").disabled = page <= 1;
   document.getElementById("orderNextBtn").disabled = pages === 0 || page >= pages;
+  if (FM_VARIANT) {
+    const bar = document.getElementById("orderStatBar");
+    if (bar) {
+      bar.innerHTML =
+        `<span class="tag-badge" style="background:#f1f5f9; color:#475569; border:none;">共 ${orderState.total} 单</span>` +
+        `<span class="tag-badge" style="background:#eff6ff; color:#1d4ed8; border:none;">当前页 ${orderState.rows.length} 单</span>`;
+    }
+  }
 }
 
 function gotoOrderPage(delta) {
@@ -970,6 +1068,7 @@ function resetOrderFilters() {
 
 /* ───────────── 详情 ───────────── */
 async function openOrderDetail(id) {
+  if (FM_VARIANT && typeof openFmDetailModal === "function") return openFmDetailModal(id);
   const modal = document.getElementById("orderDetailModal");
   const bodyEl = document.getElementById("orderDetailBody");
   document.getElementById("orderDetailTitle").innerText = "订单详情";
@@ -1226,6 +1325,18 @@ function clipCellText(v) {
 /* 复制单行订单: 未补录先弹框提醒, 补录完整直接复制
    jump=true (复制跳转): 复制成功后打开货代管理默认货代的在线链接 */
 async function copyOrderRow(orderId, jump = false) {
+  if (FM_VARIANT) {
+    // 履约: 直接用列表行数据 (含补录/包裹/收货人), 不再请求订单接口
+    const o = (orderState.rows || []).find(r => Number(r.id) === Number(orderId));
+    if (!o) { showToast("订单数据已刷新，请重试", "error"); return false; }
+    const missing = suppMissingFields(o);
+    if (missing.length) { openSuppWarnModal(o, missing, jump); return false; }
+    const ok = await doCopyOrderRow(o);
+    if (!ok) return false;
+    if (jump) await jumpToForwarderLink();
+    else showToast(lastCopyHint, "success");
+    return true;
+  }
   try {
     const body = await orderApi(`/api/orders/${orderId}`);
     const o = body.data || {};
@@ -1254,13 +1365,19 @@ async function copyOrdersRows(jump = false) {
   if (!ids.length) { showToast("请先勾选要复制的订单", "error"); return; }
   if (ids.length > 100) { showToast("单次最多复制 100 单，请减少勾选", "error"); return; }
   let orders = [];
-  try {
-    const results = await Promise.all(ids.map(id =>
-      orderApi(`/api/orders/${id}`).then(b => b.data).catch(() => null)));
-    orders = results.filter(Boolean);
-  } catch (e) {
-    if (e.message !== "未登录") showToast("复制失败: " + e.message, "error");
-    return;
+  if (FM_VARIANT) {
+    orders = ids.map(id => (orderState.rows || []).find(r => Number(r.id) === Number(id)))
+      .filter(Boolean);
+    if (!orders.length) { showToast("订单数据已刷新，请重试", "error"); return; }
+  } else {
+    try {
+      const results = await Promise.all(ids.map(id =>
+        orderApi(`/api/orders/${id}`).then(b => b.data).catch(() => null)));
+      orders = results.filter(Boolean);
+    } catch (e) {
+      if (e.message !== "未登录") showToast("复制失败: " + e.message, "error");
+      return;
+    }
   }
   if (!orders.length) { showToast("订单数据加载失败，请重试", "error"); return; }
 
@@ -1299,9 +1416,20 @@ async function writeOrdersRows(orders, silent = false) {
 
 /* 申诉导出: 按亚马逊「フルフィルメント記録」模板导出已勾选订单 (未勾选先提示选择) */
 function exportOrdersAppealXlsx() {
-  const ids = [...orderState.selected];
+  let ids = [...orderState.selected];
   if (!ids.length) { showToast("请先勾选要导出的订单", "error"); return; }
   if (ids.length > 200) { showToast("单次最多导出 200 单，请减少勾选", "error"); return; }
+  if (FM_VARIANT) {
+    // 履约行 id 为 fm_orders.id, 申诉导出需要订单模块的原始行 id
+    ids = ids.map(id => {
+      const r = (orderState.rows || []).find(x => Number(x.id) === Number(id));
+      return r ? Number(r.src_id || 0) : 0;
+    }).filter(Boolean);
+    if (!ids.length) {
+      showToast("勾选订单尚未同步到订单模块，无法导出申诉表", "error");
+      return;
+    }
+  }
   showToast(`正在导出申诉表格 ${ids.length} 单...`);
   window.location.href = `/api/orders/export-appeal-xlsx?ids=${ids.join(",")}`;
 }
@@ -1460,7 +1588,9 @@ async function openOrderSupplement(orderId) {
   sub.innerText = "加载中...";
   modal.style.display = "flex";
   try {
-    const body = await orderApi(`/api/orders/${supplementOrderId}`);
+    const body = FM_VARIANT
+      ? await orderApi(`/api/fulfillment/orders/${supplementOrderId}/supplement`)
+      : await orderApi(`/api/orders/${supplementOrderId}`);
     const o = body.data || {};
     sub.innerText = o.order_sn || "—";
     document.getElementById("supPurchaseDate").value = o.purchase_date || "";
@@ -1468,6 +1598,10 @@ async function openOrderSupplement(orderId) {
     document.getElementById("supTrackingNo").value = o.domestic_tracking_no || "";
   } catch (e) {
     if (e.message !== "未登录") showToast("加载失败: " + e.message, "error");
+  }
+  /* 履约: 补录弹窗内附加全部素材的统一上传区 */
+  if (window.FM_VARIANT === "fulfillment" && typeof renderFmSupplementMaterials === "function") {
+    renderFmSupplementMaterials(supplementOrderId);
   }
 }
 
@@ -1477,24 +1611,36 @@ function closeOrderSupplement() {
   supplementOrderId = 0;
 }
 
-async function saveOrderSupplement() {
-  if (!supplementOrderId) return;
-  const btn = document.getElementById("suppSaveBtn");
+/* 收集并校验补录字段, 校验不过返回 null */
+function collectOrderSupplement() {
   const payload = {
     purchase_date: document.getElementById("supPurchaseDate").value || "",
     domestic_package_count: Number(document.getElementById("supPackageCount").value || 0),
     domestic_tracking_no: (document.getElementById("supTrackingNo").value || "").trim(),
   };
-  if (!payload.purchase_date) { showToast("请选择采购日期", "error"); return; }
-  if (!(payload.domestic_package_count > 0)) { showToast("请填写国内包裹数量", "error"); return; }
-  if (!payload.domestic_tracking_no) { showToast("请填写国内单号", "error"); return; }
+  if (!payload.purchase_date) { showToast("请选择采购日期", "error"); return null; }
+  if (!(payload.domestic_package_count > 0)) { showToast("请填写国内包裹数量", "error"); return null; }
+  if (!payload.domestic_tracking_no) { showToast("请填写国内单号", "error"); return null; }
+  return payload;
+}
+
+/* 只提交补录字段, 不负责关闭弹窗 / 刷新列表 */
+async function postOrderSupplement(payload) {
+  const api = FM_VARIANT
+    ? `/api/fulfillment/orders/${supplementOrderId}/supplement`
+    : `/api/orders/${supplementOrderId}/supplement`;
+  return orderApi(api, { method: "POST", body: JSON.stringify(payload) });
+}
+
+async function saveOrderSupplement() {
+  if (!supplementOrderId) return;
+  const btn = document.getElementById("suppSaveBtn");
+  const payload = collectOrderSupplement();
+  if (!payload) return;
 
   btn.disabled = true;
   try {
-    const body = await orderApi(`/api/orders/${supplementOrderId}/supplement`, {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+    const body = await postOrderSupplement(payload);
     showToast(body.msg || "补录信息已保存", "success");
     closeOrderSupplement();
     await loadOrders();
@@ -1618,6 +1764,26 @@ async function startOrderSync() {
     const summary = `✅ 订单同步完成：新增 ${d.inserted || 0} / 更新 ${d.updated || 0}`;
     prog.innerHTML = summary + (withTrack ? `<div style="margin-top:4px;">② 准备更新运单轨迹…</div>` : "");
 
+    // 履约工作台: 上一步只刷新妙手缓存, 还需写入独立履约表, 否则列表查不到数据
+    let fmMsg = "";
+    if (FM_VARIANT) {
+      btn.innerText = "⏳ 写入履约数据...";
+      prog.innerHTML = summary + `<div style="margin-top:4px;">⏳ 正在写入履约订单 / 包裹…</div>`;
+      try {
+        const fbody = await orderApi("/api/fulfillment/orders/sync", {
+          method: "POST",
+          body: JSON.stringify({ days, pull: false, order_sn: "" }),
+        });
+        fmMsg = (fbody && fbody.msg) || "履约数据已更新";
+        prog.innerHTML = summary + `<div style="margin-top:4px;">✅ ${escapeHtml(fmMsg)}</div>`;
+      } catch (e) {
+        if (e.message === "未登录") throw e;
+        fmMsg = "履约数据写入失败: " + e.message;
+        prog.innerHTML = summary +
+          `<div style="margin-top:4px; color:#dc2626;">❌ ${escapeHtml(fmMsg)}</div>`;
+      }
+    }
+
     let trackMsg = "";
     if (withTrack) {
       btn.innerText = "⏳ 更新轨迹...";
@@ -1626,8 +1792,10 @@ async function startOrderSync() {
     await loadOrderFilters();
     orderState.page = 1;
     await loadOrders();
-    prog.innerHTML = summary + (trackMsg ? `<div style="margin-top:4px;">${escapeHtml(trackMsg)}</div>` : "");
-    showToast(trackMsg || body.msg, (d.failed && d.failed.length) ? "error" : "success");
+    prog.innerHTML = summary
+      + (fmMsg ? `<div style="margin-top:4px;">${escapeHtml(fmMsg)}</div>` : "")
+      + (trackMsg ? `<div style="margin-top:4px;">${escapeHtml(trackMsg)}</div>` : "");
+    showToast(trackMsg || fmMsg || body.msg, (d.failed && d.failed.length) ? "error" : "success");
     btn.innerText = "完成";
     setTimeout(() => closeSyncModal(), 1600);
   } catch (e) {

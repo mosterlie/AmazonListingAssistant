@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}
+{% if fm_mode == 'purchase' %}采购单管理{% elif fm_mode == 'packages' %}包裹管理{% elif fm_mode == 'invoices' %}发票管理{% else %}清关报税管理{% endif %}
+{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="/static/css/fulfillment.css?v=20261106_fm12">
+{% endblock %}
+
+{% block content %}
+{% set titles = {
+  'purchase': ('🧾 国内采购单管理', '采购单建档、采购单截图、转账凭证、关联亚马逊订单'),
+  'packages': ('📦 包裹管理', '妙手包裹与订单自动匹配，维护发货单与签收单'),
+  'invoices': ('📄 发票管理', '订单/包裹/采购单发票统一维护，支持上传、解析与人工修正'),
+  'tax': ('🧮 清关报税管理', '独立维护清关报税，可归档到订单或独立留存')
+} %}
+<div class="fm-page-head">
+  <div>
+    <div class="fm-page-title">{{ titles[fm_mode][0] }}</div>
+    <div class="fm-page-sub">{{ titles[fm_mode][1] }}</div>
+  </div>
+  <div class="fm-toolbar">
+    <input class="fm-input" id="fmManageSearch" placeholder="搜索关键词" style="width:220px;">
+    <button class="fm-btn" id="fmManageRefresh" type="button">↻ 刷新</button>
+    <button class="fm-btn primary" id="fmManageCreate" type="button" style="display:none;"></button>
+  </div>
+</div>
+
+<div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+  <a href="/fulfillment" class="fm-btn">🗂️ 履约工作台</a>
+  {% if 'fulfillment_purchase' in user_menus %}<a href="/fulfillment/purchase-orders" class="fm-btn {% if fm_mode == 'purchase' %}primary{% endif %}">🧾 采购单</a>{% endif %}
+  {% if 'fulfillment_packages' in user_menus %}<a href="/fulfillment/packages" class="fm-btn {% if fm_mode == 'packages' %}primary{% endif %}">📦 包裹</a>{% endif %}
+  {% if 'fulfillment_invoices' in user_menus %}<a href="/fulfillment/invoices" class="fm-btn {% if fm_mode == 'invoices' %}primary{% endif %}">📄 发票</a>{% endif %}
+  {% if 'fulfillment_tax' in user_menus %}<a href="/fulfillment/tax-certs" class="fm-btn {% if fm_mode == 'tax' %}primary{% endif %}">🧮 清关报税</a>{% endif %}
+</div>
+
+<div class="fm-card">
+  <div class="fm-card-body" id="fmManageBody">
+    <div class="fm-empty" style="border:none;">加载中…</div>
+  </div>
+  <div id="fmManagePager" style="padding:0 12px 10px;"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  window.FM_MODE = {{ fm_mode|tojson }};
+  window.FM_CAN_EDIT = {{ 'true' if (current_user and current_user.role == 'admin') or 'fulfillment:edit' in user_perms else 'false' }};
+  window.FM_CAN_PARSE = {{ 'true' if (current_user and current_user.role == 'admin') or 'fulfillment:parse' in user_perms else 'false' }};
+  window.FM_CAN_DELETE = {{ 'true' if (current_user and current_user.role == 'admin') or 'fulfillment:delete' in user_perms else 'false' }};
+</script>
+<script src="/static/js/fulfillment_common.js?v=20261106_fm5"></script>
+<script src="/static/js/fulfillment_manage.js?v=20261106_fm9"></script>
+{% endblock %}

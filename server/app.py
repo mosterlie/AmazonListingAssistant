@@ -45,7 +45,8 @@ from server.routers import (
     db_agent_router,
     ads_analysis_router,
     order_router,
-    invoice_router
+    invoice_router,
+    fulfillment_router
 )
 
 @asynccontextmanager
@@ -174,6 +175,7 @@ app.include_router(jp_holiday_router.router)
 app.include_router(ads_analysis_router.router)
 app.include_router(order_router.router)
 app.include_router(invoice_router.router)
+app.include_router(fulfillment_router.router)
 # 内嵌「图片服务 / DB Agent」: /ping、/file、/query、/execute (X-DB-Token 鉴权)
 app.include_router(db_agent_router.router)
 
@@ -369,6 +371,71 @@ async def render_orders_page(request: Request):
         "current_user": user,
         "doc_types": DOC_TYPES   # 单据附件列 (采购单/采购发票/发货单/配送轨迹/签收单/物流发票/清关证明)
     })
+
+
+# ──────────────────────────────────────────────────────────────
+# 履约中心 (独立模块): 工作台 + 采购单/包裹/发票/清关报税 管理页
+# ──────────────────────────────────────────────────────────────
+@app.get("/fulfillment", response_class=HTMLResponse,
+         summary="履约工作台: 亚马逊订单逐步跟踪 + 包裹自动匹配 + 分类资料上传")
+async def render_fulfillment_workspace(request: Request):
+    """渲染履约工作台 (需登录; 菜单可见性由 RBAC 控制)"""
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
+    if redirect_resp:
+        return redirect_resp
+    from server.services.fulfillment_doc_service import FM_DOC_CATEGORIES
+    return render_page(request, "fulfillment_workspace.html", context={
+        "active_page": "fulfillment",
+        "current_user": user,
+        "fm_categories": FM_DOC_CATEGORIES,
+    })
+
+
+@app.get("/fulfillment/upload", response_class=HTMLResponse,
+         summary="订单素材统一上传: 页面暂存, 提交后统一解析与落库")
+async def render_fulfillment_upload(request: Request):
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
+    if redirect_resp:
+        return redirect_resp
+    from server.services.fulfillment_doc_service import FM_DOC_CATEGORIES
+    return render_page(request, "fulfillment_upload.html", context={
+        "active_page": "fulfillment",
+        "current_user": user,
+        "fm_categories": FM_DOC_CATEGORIES,
+    })
+
+
+def _render_fulfillment_manage(request: Request, mode: str, active_page: str):
+    user, redirect_resp = get_page_auth_user(request, require_admin=False)
+    if redirect_resp:
+        return redirect_resp
+    from server.services.fulfillment_doc_service import FM_DOC_CATEGORIES
+    return render_page(request, "fulfillment_manage.html", context={
+        "active_page": active_page,
+        "current_user": user,
+        "fm_mode": mode,
+        "fm_categories": FM_DOC_CATEGORIES,
+    })
+
+
+@app.get("/fulfillment/purchase-orders", response_class=HTMLResponse, summary="国内采购单管理")
+async def render_fulfillment_purchase_orders(request: Request):
+    return _render_fulfillment_manage(request, "purchase", "fulfillment_purchase")
+
+
+@app.get("/fulfillment/packages", response_class=HTMLResponse, summary="包裹管理 (发货单/签收单)")
+async def render_fulfillment_packages(request: Request):
+    return _render_fulfillment_manage(request, "packages", "fulfillment_packages")
+
+
+@app.get("/fulfillment/invoices", response_class=HTMLResponse, summary="发票管理")
+async def render_fulfillment_invoices(request: Request):
+    return _render_fulfillment_manage(request, "invoices", "fulfillment_invoices")
+
+
+@app.get("/fulfillment/tax-certs", response_class=HTMLResponse, summary="清关报税管理")
+async def render_fulfillment_tax_certs(request: Request):
+    return _render_fulfillment_manage(request, "tax", "fulfillment_tax")
 
 
 @app.get("/japan-calendar", response_class=HTMLResponse, summary="日本节假日日历页面")

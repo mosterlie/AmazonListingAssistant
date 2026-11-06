@@ -35,6 +35,18 @@
         </div>
         {% endif %}
         {% if 'orders' in user_menus %}<a href="/orders" class="nav-item {% if active_page == 'orders' %}active{% endif %}">🧾 订单管理</a>{% endif %}
+        {% if 'fulfillment' in user_menus %}
+        <div class="nav-dropdown">
+          <a href="/fulfillment" class="nav-item {% if active_page == 'fulfillment' %}active{% endif %}">📦 履约中心 <span class="nav-caret">▾</span></a>
+          <div class="nav-dropdown-menu">
+            <a href="/fulfillment" class="nav-dropdown-item {% if active_page == 'fulfillment' %}active{% endif %}">🗂️ 履约工作台</a>
+            {% if 'fulfillment_purchase' in user_menus %}<a href="/fulfillment/purchase-orders" class="nav-dropdown-item {% if active_page == 'fulfillment_purchase' %}active{% endif %}">🧾 采购单</a>{% endif %}
+            {% if 'fulfillment_packages' in user_menus %}<a href="/fulfillment/packages" class="nav-dropdown-item {% if active_page == 'fulfillment_packages' %}active{% endif %}">📦 包裹</a>{% endif %}
+            {% if 'fulfillment_invoices' in user_menus %}<a href="/fulfillment/invoices" class="nav-dropdown-item {% if active_page == 'fulfillment_invoices' %}active{% endif %}">📄 发票</a>{% endif %}
+            {% if 'fulfillment_tax' in user_menus %}<a href="/fulfillment/tax-certs" class="nav-dropdown-item {% if active_page == 'fulfillment_tax' %}active{% endif %}">🧮 清关报税</a>{% endif %}
+          </div>
+        </div>
+        {% endif %}
         {% if 'forwarder' in user_menus %}<a href="/forwarder" class="nav-item {% if active_page == 'forwarder' %}active{% endif %}">🚢 货代管理</a>{% endif %}
         {% if 'japan_calendar' in user_menus %}<a href="/japan-calendar" class="nav-item {% if active_page == 'japan_calendar' %}active{% endif %}">🇯🇵 日本日历</a>{% endif %}
         {% if 'alert_center' in user_menus %}<a href="/alerts" class="nav-item {% if active_page == 'alert_center' %}active{% endif %}">🚨 告警中心</a>{% endif %}

@@ -1,0 +1,592 @@
+{% extends "base.html" %}
+
+{% block title %}履约工作台{% endblock %}
+
+{% block content %}
+<style>
+  /* 与订单管理页完全一致的表头/单元格/操作列样式 */
+  #orderTable th {
+    font-size:0.8rem; font-weight:700; color:#475569;
+    text-align:center; white-space:nowrap; padding:10px 6px;
+    vertical-align:middle;
+  }
+  #orderTable th.track-desc-col,
+  #orderTable th.track-time-col { width:1%; white-space:nowrap; padding:10px 6px; text-align:center; }
+  #orderTable td.track-desc-cell { white-space:nowrap; padding:8px 6px; }
+  #orderTable td.track-time-cell { white-space:nowrap; padding:8px 6px; }
+  #orderTable th.doc-col {
+    width:74px; min-width:74px; padding:10px 2px; text-align:center;
+    white-space:normal; line-height:1.25;
+  }
+  #orderTable td.doc-cell { padding:8px 2px; text-align:center; }
+  @keyframes suppGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); border-color: #fca5a5; }
+    50%      { box-shadow: 0 0 6px 2px rgba(239,68,68,.55); border-color: #ef4444; }
+  }
+  #orderTable .supp-pending {
+    background: #fef2f2 !important;
+    color: #dc2626 !important;
+    border-color: #ef4444 !important;
+    animation: suppGlow 1.8s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #orderTable .supp-pending { animation: none; }
+  }
+  #orderTable .row-act {
+    display:inline-flex; align-items:center; justify-content:center;
+    padding:1px 5px; min-height:0; line-height:1; font-size:0; border-radius:6px; color:#475569;
+  }
+  #orderTable .row-act svg { display:block; }
+  #orderTable .row-act-view  { background:#eff6ff; color:#1d4ed8; }
+  #orderTable .row-act-edit  { background:#fff7ed; color:#b45309; }
+  #orderTable .row-act-copy  { background:#f5f3ff; color:#7c3aed; }
+  #orderTable .row-act-track { background:#f0fdf4; color:#15803d; }
+  #orderTable .row-act-view:hover  { background:#dbeafe; color:#1e40af; }
+  #orderTable .row-act-edit:hover  { background:#ffedd5; color:#92400e; }
+  #orderTable .row-act-copy:hover  { background:#ede9fe; color:#6d28d9; }
+  #orderTable .row-act-track:hover { background:#dcfce7; color:#166534; }
+  #orderTable .supp-pending:hover  { background:#fee2e2 !important; color:#b91c1c !important; }
+  #orderTable .copy-split { position:relative; display:inline-flex; }
+  #orderTable .copy-split-menu {
+    display:none; position:absolute; right:100%; top:50%; transform:translateY(-50%);
+    z-index:30; padding:2px; gap:2px; background:#fff; border:1px solid #e2e8f0;
+    border-radius:7px; box-shadow:0 4px 12px rgba(15,23,42,.14); white-space:nowrap;
+  }
+  #orderTable .copy-split:hover .copy-split-menu { display:flex; }
+  #orderTable .copy-split-item {
+    border:none; background:transparent; cursor:pointer; border-radius:5px;
+    padding:2px 7px; font-size:0.7rem; font-weight:700; color:#334155;
+    white-space:nowrap; line-height:1.4;
+  }
+  #orderTable .copy-split-item:hover { background:#eff6ff; color:#1d4ed8; }
+  #orderTable .copy-split-item.jump:hover { background:#f5f3ff; color:#7c3aed; }
+  @media (hover: none) { #orderTable .copy-split-menu { display:none !important; } }
+  .copy-split-top { position:relative; display:inline-flex; }
+  .copy-split-top .copy-split-menu {
+    display:none; position:absolute; top:calc(100% + 6px); left:50%; transform:translateX(-50%);
+    z-index:60; padding:2px; gap:2px; background:#fff; border:1px solid #e2e8f0;
+    border-radius:7px; box-shadow:0 6px 16px rgba(15,23,42,.16); white-space:nowrap;
+  }
+  .copy-split-top .copy-split-menu::before {
+    content:""; position:absolute; left:0; right:0; top:-8px; height:8px;
+  }
+  .copy-split-top:hover .copy-split-menu { display:flex; }
+  .copy-split-top .copy-split-item {
+    border:none; background:transparent; cursor:pointer; border-radius:5px;
+    padding:3px 9px; font-size:0.72rem; font-weight:700; color:#334155;
+    white-space:nowrap; line-height:1.4;
+  }
+  .copy-split-top .copy-split-item:hover { background:#eff6ff; color:#1d4ed8; }
+  .copy-split-top .copy-split-item.jump:hover { background:#f5f3ff; color:#7c3aed; }
+  @media (hover: none) { .copy-split-top .copy-split-menu { display:none !important; } }
+  @media (max-width: 768px) {
+    #orderTable .row-act { padding:1px 4px !important; min-height:0 !important; }
+  }
+  #orderTable th:last-child,
+  #orderTable td:last-child {
+    position: sticky;
+    right: 0;
+    background: #fff;
+    z-index: 2;
+    box-shadow: inset 2px 0 0 #cbd5e1, -6px 0 8px -6px rgba(15, 23, 42, 0.18);
+  }
+  #orderTable thead th:last-child { background: #f8fafc; z-index: 3; }
+  #orderTable tbody tr:hover td:last-child { background: #dbeafe; }
+  #orderTable tbody tr { transition: background-color 0.12s ease; }
+  #orderTable tbody tr:hover { background: #dbeafe; }
+  #orderTable .copy-chip,
+  #orderTable .order-sn-copy,
+  #orderTable .tag-badge[data-v] { cursor:pointer; }
+  .order-doc-ext, .order-doc-ext-big { background:#f1f5f9; color:#475569; }
+  .order-doc-ext.ext-pdf,  .order-doc-ext-big.ext-pdf  { background:#fee2e2; color:#b91c1c; }
+  .order-doc-ext.ext-doc,  .order-doc-ext-big.ext-doc  { background:#dbeafe; color:#1d4ed8; }
+  .order-doc-ext.ext-docx, .order-doc-ext-big.ext-docx { background:#e0e7ff; color:#4338ca; }
+  .order-doc-ext.ext-xls,  .order-doc-ext-big.ext-xls  { background:#dcfce7; color:#15803d; }
+  .order-doc-ext.ext-xlsx, .order-doc-ext-big.ext-xlsx { background:#ccfbf1; color:#0f766e; }
+  .order-doc-ext.ext-csv,  .order-doc-ext-big.ext-csv  { background:#d1fae5; color:#047857; }
+  .order-doc-ext.ext-txt,  .order-doc-ext-big.ext-txt  { background:#e2e8f0; color:#334155; }
+  .order-doc-ext.ext-jpg,  .order-doc-ext-big.ext-jpg  { background:#fef3c7; color:#b45309; }
+  .order-doc-ext.ext-jpeg, .order-doc-ext-big.ext-jpeg { background:#ffedd5; color:#c2410c; }
+  .order-doc-ext.ext-png,  .order-doc-ext-big.ext-png  { background:#e0f2fe; color:#0369a1; }
+  .order-doc-ext.ext-webp, .order-doc-ext-big.ext-webp { background:#ede9fe; color:#6d28d9; }
+  .order-doc-ext.ext-gif,  .order-doc-ext-big.ext-gif  { background:#fce7f3; color:#be185d; }
+  .order-doc-ext.ext-bmp,  .order-doc-ext-big.ext-bmp  { background:#f1f5f9; color:#0f172a; }
+  .order-doc-ext.ext-heic, .order-doc-ext-big.ext-heic { background:#ffe4e6; color:#be123c; }
+  .order-doc-ext.ext-zip,  .order-doc-ext-big.ext-zip  { background:#f3e8ff; color:#7e22ce; }
+  .order-doc-ext.ext-rar,  .order-doc-ext-big.ext-rar  { background:#fae8ff; color:#a21caf; }
+  .order-doc-ext.ext-7z,   .order-doc-ext-big.ext-7z   { background:#fdf4ff; color:#86198f; }
+  .order-table-wrap {
+    border-top: none;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+  /* 履约素材: 列表展示快照 (点击放大) + 图标入口, 不支持直接上传 */
+  #orderTable .order-doc-cell {
+    display:inline-flex; flex-wrap:wrap; align-items:center; justify-content:center;
+    gap:3px; max-width:100%;
+  }
+  #orderTable .fm-doc-thumb {
+    width:30px; height:30px; border-radius:5px; object-fit:cover; display:block;
+    border:1px solid #e2e8f0; background:#fff; cursor:zoom-in;
+  }
+  #orderTable .fm-doc-thumb:hover { border-color:#93c5fd; box-shadow:0 0 0 2px rgba(147,197,253,.35); }
+  #orderTable .fm-doc-icon {
+    display:inline-flex; align-items:center; gap:1px; padding:1px 4px;
+    border:none; background:#f1f5f9; border-radius:6px; cursor:pointer;
+    font-size:0.76rem; line-height:1.3; color:#475569;
+  }
+  #orderTable .fm-doc-icon b { font-size:0.62rem; font-weight:700; color:#1d4ed8; }
+  #orderTable .fm-doc-icon:hover { background:#dbeafe; }
+  #orderTable .fm-doc-none { color:#cbd5e1; font-size:0.8rem; }
+  /* 补录弹窗内的商品信息 */
+  .fm-sup-items { margin-top:0; }
+  .fm-item-row { display:flex; gap:8px; align-items:center; padding:4px 0;
+    border-bottom:1px dashed #f1f5f9; }
+  .fm-item-row:last-child { border-bottom:none; }
+  .fm-item-thumb { width:42px; height:42px; border-radius:6px; object-fit:cover;
+    border:1px solid #e2e8f0; background:#f8fafc; cursor:zoom-in; flex-shrink:0; display:block; }
+  .fm-item-thumb:hover { border-color:#93c5fd; box-shadow:0 0 0 2px rgba(147,197,253,.35); }
+  .fm-item-row .meta { flex:1; min-width:0; }
+  .fm-item-row .nm { font-size:0.78rem; color:#334155; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+  .fm-item-row .sku { font-size:0.7rem; color:#94a3b8; margin-top:2px; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+  .fm-item-row .qty { font-size:0.76rem; color:#64748b; flex-shrink:0; }
+  .fm-sup-preview-dialog .loading { text-align:center; padding:26px; color:#94a3b8;
+    font-size:0.8rem; }
+  /* 补录弹窗内的素材上传区 (紧凑排版) */
+  .fm-sup-mat { border-top:1px dashed #e2e8f0; padding-top:8px; margin-top:2px; }
+  .fm-sup-mat-head { font-size:0.86rem; font-weight:700; color:#334155; display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; }
+  .fm-sup-mat-head .hint { font-weight:400; font-size:0.72rem; color:#94a3b8; }
+  .fm-sup-group { margin-top:9px; }
+  .fm-sup-group-head { display:flex; align-items:center; gap:6px; }
+  .fm-sup-group-title { display:flex; align-items:center; gap:6px; font-size:0.78rem;
+    font-weight:700; color:#1d4ed8; flex:0 0 auto; min-width:0; }
+  /* 归属下拉: 靠右, 自定义箭头 */
+  .fm-sup-owner-select {
+    flex:0 0 auto; width:196px; max-width:48%; height:28px;
+    padding:0 26px 0 9px; font-size:0.76rem; color:#334155; font-weight:400;
+    border:1px solid #cbd5e1; border-radius:7px; background-color:#fff;
+    background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 9px center; background-size:9px;
+    -webkit-appearance:none; appearance:none; cursor:pointer;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  .fm-sup-owner-select:hover { border-color:#93c5fd; }
+  .fm-sup-owner-select:focus { outline:none; border-color:#6366f1;
+    box-shadow:0 0 0 2px rgba(99,102,241,.16); }
+  .fm-sup-owner-select:disabled { background-color:#f8fafc; color:#94a3b8; cursor:not-allowed; }
+  /* 已上传标记 */
+  .fm-sup-thumb.done img { border-color:#86efac; }
+  .fm-sup-thumb.done .x { opacity:.55; }
+  .fm-sup-thumb.done:hover .x { opacity:1; }
+  .fm-sup-thumb .ok { position:absolute; bottom:-4px; right:-4px; width:14px; height:14px;
+    display:flex; align-items:center; justify-content:center; border-radius:50%;
+    background:#22c55e; color:#fff; font-size:0.55rem; line-height:1; font-weight:700;
+    box-shadow:0 1px 2px rgba(0,0,0,.18); }
+  .fm-sup-mat-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(102px, 1fr));
+    gap:7px; margin-top:6px; }
+  .fm-sup-slot { border:1px dashed #cbd5e1; border-radius:7px; padding:7px 5px; cursor:pointer;
+    font-size:0.78rem; color:#334155; text-align:center; background:#f8fafc; line-height:1.35; }
+  .fm-sup-slot:hover { border-color:#6366f1; background:#eef2ff; }
+  .fm-sup-slot .n { display:inline-flex; min-width:16px; justify-content:center; border-radius:999px;
+    background:#e0e7ff; color:#4338ca; font-weight:700; font-size:0.66rem; padding:0 4px; margin-left:4px; }
+  .fm-sup-slot.disabled { opacity:.5; cursor:not-allowed; }
+  /* 素材卡片: 按钮 + 下方快照 (同一区块) */
+  .fm-sup-card { display:flex; flex-direction:column; gap:5px; padding:5px;
+    border:1px solid #e8eef6; border-radius:9px; background:#fcfdff; }
+  .fm-sup-card .fm-sup-slot { background:#fff; }
+  .fm-sup-thumbs { display:flex; flex-wrap:wrap; gap:5px; justify-content:center; }
+  .fm-sup-thumb { position:relative; display:block; width:38px; height:38px; }
+  .fm-sup-thumb .box { display:block; width:100%; height:100%; cursor:zoom-in; }
+  .fm-sup-thumb img { width:38px; height:38px; object-fit:cover; border-radius:5px;
+    border:1px solid #e2e8f0; background:#fff; display:block; }
+  .fm-sup-thumb img:hover { border-color:#93c5fd; box-shadow:0 0 0 2px rgba(147,197,253,.35); }
+  .fm-sup-thumb .doc { display:flex; align-items:center; justify-content:center;
+    width:38px; height:38px; border-radius:5px; border:1px solid #e2e8f0; background:#f8fafc;
+    font-size:0.56rem; font-weight:700; color:#64748b; }
+  .fm-sup-thumb .doc.pdf { background:#fff1f2; border-color:#fecdd3; color:#be123c; }
+  .fm-sup-thumb .x { position:absolute; top:-5px; right:-5px; width:16px; height:16px;
+    border-radius:50%; border:none; background:#ef4444; color:#fff; font-size:0.58rem;
+    line-height:1; cursor:pointer; padding:0; box-shadow:0 1px 3px rgba(0,0,0,.2); }
+  .fm-sup-thumb .x:hover { background:#dc2626; }
+  .fm-sup-actions { display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap; }
+  .fm-sup-actions .state { font-size:0.74rem; color:#64748b; }
+  .fm-sup-actions .state b { color:#1d4ed8; }
+  .fm-sup-fails { margin-top:8px; border:1px solid #fecaca; background:#fef2f2;
+    border-radius:7px; padding:7px 10px; font-size:0.74rem; color:#b91c1c; line-height:1.6; }
+  .fm-sup-fails .t { font-weight:700; margin-bottom:3px; }
+  .fm-sup-fails .tip { color:#dc2626; opacity:.85; margin-top:5px; }
+  .fm-sup-preview-dialog { max-width:min(880px, 92vw); }
+  .fm-sup-preview-dialog img { display:block; max-width:100%; max-height:74vh;
+    margin:0 auto; border-radius:8px; background:#0f172a; }
+</style>
+<div class="form-card">
+  <div class="card-header" style="padding:12px 18px; display:flex; align-items:center; gap:8px 12px; flex-wrap:wrap;">
+    <div class="card-title" style="margin:0; flex-shrink:0;">
+      <div class="card-title-icon" style="background:#0ea5e9;">📦</div>
+      <span>履约工作台</span>
+    </div>
+    <span id="orderSelBar" style="display:none; align-items:center; padding:2px 10px;
+      border-radius:9999px; background:#eff6ff; border:1px solid #bfdbfe;">
+      <span id="orderSelHint" style="font-size:0.74rem; color:#1d4ed8; white-space:nowrap;">已选 <b>0</b> 单</span>
+    </span>
+    <div id="orderStatBar" style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+      <span class="tag-badge" style="background:#f1f5f9; color:#475569; border:none;">共 0 单</span>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-left:auto;">
+      <input type="text" id="orderKeyword" class="form-input" placeholder="🔍 订单号 / 包裹号 / 运单号 / 店铺"
+        style="width:168px; padding:6px 10px; font-size:0.82rem;"
+        onkeydown="if(event.key==='Enter'){orderState.page=1;loadOrders();}">
+      <select id="orderStatus" class="form-select" style="width:118px; padding:6px 8px; font-size:0.82rem;">
+        <option value="">全部状态（不含已关闭）</option>
+      </select>
+      <select id="orderShop" class="form-select" style="width:116px; padding:6px 8px; font-size:0.82rem;">
+        <option value="">全部店铺</option>
+      </select>
+      <input type="date" id="orderDateFrom" class="form-input" style="width:118px; padding:6px 8px; font-size:0.82rem;">
+      <span style="color:#94a3b8;">~</span>
+      <input type="date" id="orderDateTo" class="form-input" style="width:118px; padding:6px 8px; font-size:0.82rem;">
+      <button class="btn btn-outline btn-sm" type="button" onclick="orderState.page=1;loadOrders()" style="padding:5px 12px;">查询</button>
+      <button class="btn btn-outline btn-sm" type="button" onclick="resetOrderFilters()" style="padding:5px 12px;">重置</button>
+      <span class="copy-split-top">
+        <button class="btn btn-outline btn-sm" type="button" id="orderCopyBtn"
+          aria-label="复制勾选订单（悬停可选仅复制 / 复制跳转）"
+          onclick="copyOrdersRows()"
+          style="padding:5px 14px;">复制</button>
+        <span class="copy-split-menu">
+          <button type="button" class="copy-split-item" onclick="copyOrdersRows()">仅复制</button>
+          <button type="button" class="copy-split-item jump" onclick="copyOrdersRowsAndJump()">复制跳转</button>
+        </span>
+      </span>
+      <button class="btn btn-outline btn-sm" type="button" id="orderAppealBtn"
+        aria-label="按亚马逊申诉模板导出勾选订单"
+        onclick="exportOrdersAppealXlsx()"
+        style="padding:5px 14px;">导出</button>
+      {% if 'order:sync' in user_perms %}
+      <button class="btn btn-primary btn-sm" type="button" id="orderSyncBtn"
+        aria-label="同步妙手订单并更新运单轨迹" onclick="openSyncModal()"
+        style="padding:5px 14px;">同步</button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card-body" style="padding:0;">
+    <div class="table-wrapper order-table-wrap" style="overflow-x:auto;">
+      <table class="matrix-table" id="orderTable" style="min-width:1630px; width:100%;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="width:34px; text-align:center; padding:10px 4px;">
+              <input type="checkbox" id="orderCheckAll" style="width:14px; height:14px; cursor:pointer;">
+            </th>
+            <th style="width:1%; white-space:nowrap; text-align:center;">amazon 订单号</th>
+            <th style="width:64px; text-align:center;">商品图</th>
+            <th style="width:104px; text-align:center;">商品标识</th>
+            <th style="width:108px; text-align:center;">SKU</th>
+            <th style="width:1%; white-space:nowrap; text-align:center;">订单金额</th>
+            <th style="width:1%; white-space:nowrap; text-align:center;">下单时间</th>
+            <th style="width:1%; white-space:nowrap; text-align:center;">订单状态</th>
+            <th style="width:1%; white-space:nowrap; text-align:center;">运单号</th>
+            <th style="width:1%; white-space:nowrap; text-align:center;">运单状态</th>
+            <th class="track-desc-col">最新轨迹</th>
+            <th class="track-time-col">更新时间</th>
+            <th class="doc-col">采购单截图</th>
+            <th class="doc-col">转账凭证</th>
+            <th class="doc-col">采购发票</th>
+            <th class="doc-col">发货单</th>
+            <th class="doc-col">签收单</th>
+            <th class="doc-col">货代发票</th>
+            <th class="doc-col">清关报税</th>
+            <th style="width:84px; text-align:center; white-space:nowrap;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="orderTableBody">
+          <tr><td colspan="20" style="text-align:center; padding:40px; color:var(--text-muted);">⏳ 正在加载订单数据...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 18px; flex-wrap:wrap; gap:10px;">
+      <div id="orderPageInfo" style="font-size:0.8rem; color:#64748b;"></div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <select id="orderPageSize" class="form-select" onchange="orderState.page=1;loadOrders()"
+          style="width:96px; padding:5px 8px; font-size:0.8rem;">
+          <option value="20" selected>20 条/页</option>
+          <option value="50">50 条/页</option>
+          <option value="100">100 条/页</option>
+        </select>
+        <button class="btn btn-outline btn-sm" type="button" id="orderPrevBtn" onclick="gotoOrderPage(-1)">‹ 上一页</button>
+        <button class="btn btn-outline btn-sm" type="button" id="orderNextBtn" onclick="gotoOrderPage(1)">下一页 ›</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 订单详情弹窗 (与订单管理一致) -->
+<div id="orderDetailModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeOrderDetail()"></div>
+  <div class="custom-modal-dialog" style="max-width:900px; max-height:88vh; display:flex; flex-direction:column;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">🧾</span>
+        <div>
+          <h3 style="margin:0; font-size:1.05rem; color:#0f172a; font-weight:700;" id="orderDetailTitle">订单详情</h3>
+          <div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;" id="orderDetailSub">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeOrderDetail()">✕</button>
+    </div>
+    <div class="custom-modal-body" id="orderDetailBody" style="padding:16px 20px; overflow:auto;"></div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-primary" onclick="closeOrderDetail()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 补录信息弹窗 + 履约素材上传 (采购日期 / 国内包裹数量 / 国内单号 / 全部素材) -->
+<div id="orderSupplementModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeOrderSupplement()"></div>
+  <div class="custom-modal-dialog" style="max-width:880px; max-height:92vh; display:flex; flex-direction:column;">
+    <div class="custom-modal-header" style="padding:6px 12px !important;">
+      <div style="display:flex; align-items:center; gap:7px; min-width:0;">
+        <span style="font-size:1.05rem;">📝</span>
+        <div id="orderSuppSub" style="font-size:0.82rem; color:#334155; font-weight:600;">—</div>
+      </div>
+      <button class="custom-modal-close" onclick="closeOrderSupplement()">✕</button>
+    </div>
+    <div class="custom-modal-body" id="orderSuppBody" style="padding:10px 14px; display:flex; flex-direction:column; gap:8px; overflow:auto;">
+      <div id="fmSupItems" class="fm-sup-items" style="display:none;"></div>
+      <div class="fm-sup-group-title" style="margin-top:0;">📝 补录信息</div>
+      <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px;">
+        <label style="font-size:0.78rem; color:#334155;">
+          采购日期 <span style="color:#dc2626;">*</span>
+          <input type="date" id="supPurchaseDate" class="form-input"
+            style="margin-top:3px; padding:5px 8px; font-size:0.8rem;">
+        </label>
+        <label style="font-size:0.78rem; color:#334155;">
+          国内包裹数量 <span style="color:#dc2626;">*</span>
+          <input type="number" id="supPackageCount" min="1" max="9999" step="1" class="form-input"
+            style="margin-top:3px; padding:5px 8px; font-size:0.8rem;" placeholder="1">
+        </label>
+        <label style="font-size:0.78rem; color:#334155;">
+          国内单号 <span style="color:#dc2626;">*</span>
+          <input type="text" id="supTrackingNo" class="form-input"
+            style="margin-top:3px; padding:5px 8px; font-size:0.8rem;" placeholder="多个单号用逗号分隔">
+        </label>
+      </div>
+      <div id="fmSupMaterials" class="fm-sup-mat"></div>
+    </div>
+    <div class="custom-modal-footer" style="padding:7px 12px !important;">
+      <button class="btn btn-outline" type="button" style="padding:5px 14px; font-size:0.82rem;"
+        onclick="closeOrderSupplement()">取消</button>
+      <button class="btn btn-primary" type="button" id="suppSaveBtn"
+        style="padding:5px 18px; font-size:0.84rem;" onclick="saveOrderSupplementUnified()">提交补录与素材</button>
+    </div>
+  </div>
+</div>
+
+<!-- 暂存素材预览 -->
+<div id="fmSupPreviewModal" class="custom-modal" style="display:none; z-index:10030;">
+  <div class="custom-modal-backdrop" onclick="closeSupPreview()"></div>
+  <div class="custom-modal-dialog fm-sup-preview-dialog">
+    <div class="custom-modal-header" style="padding:6px 12px !important;">
+      <div style="display:flex; align-items:center; gap:7px; min-width:0;">
+        <span style="font-size:1.05rem;">🔍</span>
+        <div style="min-width:0;">
+          <h3 style="margin:0; font-size:0.9rem; color:#0f172a; font-weight:700;">素材预览</h3>
+          <div id="fmSupPreviewCap" style="font-size:0.7rem; color:var(--text-muted); margin-top:0;
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeSupPreview()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:10px 12px;">
+      <img id="fmSupPreviewImg" alt="素材预览">
+    </div>
+    <div class="custom-modal-footer" style="padding:7px 12px !important;">
+      <button class="btn btn-outline" type="button" style="padding:5px 14px; font-size:0.82rem;"
+        onclick="closeSupPreview()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 未补录提醒弹窗 -->
+<div id="orderSuppWarnModal" class="custom-modal" style="display:none; z-index:10020;">
+  <div class="custom-modal-backdrop" onclick="closeSuppWarnModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:440px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">⚠️</span>
+        <div>
+          <h3 style="margin:0; font-size:1.05rem; color:#0f172a; font-weight:700;">尚未补录</h3>
+          <div id="suppWarnSub" style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeSuppWarnModal()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:16px 20px;">
+      <div id="suppWarnMissing" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px;"></div>
+      <div style="font-size:0.74rem; color:#94a3b8; line-height:1.6;">
+        💡 缺少采购日期 / 国内包裹数量 / 国内单号时，复制出去的行粘贴到表格会缺数据；建议先补录再复制。
+      </div>
+    </div>
+    <div class="custom-modal-footer">
+      <button class="btn btn-outline" type="button" onclick="closeSuppWarnModal()">取消复制</button>
+      <button class="btn btn-outline" type="button" id="suppWarnGoBtn"
+        onclick="suppWarnGoSupplement()">去补录</button>
+      <button class="btn btn-primary" type="button" onclick="suppWarnCopyAnyway()">仍要复制</button>
+    </div>
+  </div>
+</div>
+
+<!-- 商品图放大预览 -->
+<div id="orderImgModal" class="custom-modal" style="display:none; z-index:10050;">
+  <div class="custom-modal-backdrop" onclick="closeOrderImg()"></div>
+  <div class="custom-modal-dialog" style="max-width:860px; max-height:88vh; overflow:auto;
+    background:transparent; box-shadow:none; padding:0;">
+    <img id="orderImgLarge" alt="" style="max-width:100%; max-height:86vh; min-width:240px; min-height:200px;
+      object-fit:contain; display:block; margin:0 auto; border-radius:10px; background:#fff; cursor:zoom-out;"
+      onclick="closeOrderImg()">
+  </div>
+</div>
+
+<!-- 运单轨迹弹窗 -->
+<div id="orderTrackModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeOrderTrack()"></div>
+  <div class="custom-modal-dialog" style="max-width:680px; max-height:86vh; display:flex; flex-direction:column;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+        <span style="font-size:1.3rem;">📍</span>
+        <div style="min-width:0;">
+          <h3 style="margin:0; font-size:1.02rem; color:#0f172a; font-weight:700;">运单轨迹</h3>
+          <div style="font-size:0.74rem; color:var(--text-muted); margin-top:2px; word-break:break-all;" id="orderTrackSub">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeOrderTrack()">✕</button>
+    </div>
+    <div class="custom-modal-body" id="orderTrackBody" style="padding:14px 18px; overflow:auto;"></div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="copyOrderTrack()">📋 复制轨迹</button>
+      <button type="button" class="btn btn-outline" id="orderTrackJumpBtn" onclick="jumpOrderTrack()"
+        title="用跨境运单号查询 17TRACK（无跨境运单号时用运单号）">↗ 17TRACK 查询</button>
+      <button type="button" class="btn btn-primary" onclick="closeOrderTrack()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 单据附件弹窗 (履约模式下不在列表开放上传, 仅查看) -->
+<div id="orderDocModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeOrderDocs()"></div>
+  <div class="custom-modal-dialog" style="max-width:660px; max-height:84vh; display:flex; flex-direction:column;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+        <span style="font-size:1.3rem;">📎</span>
+        <div style="min-width:0;">
+          <h3 style="margin:0; font-size:1.02rem; color:#0f172a; font-weight:700;" id="orderDocTitle">单据附件</h3>
+          <div style="font-size:0.74rem; color:var(--text-muted); margin-top:2px; word-break:break-all;" id="orderDocSub">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeOrderDocs()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:14px 18px; overflow:auto;">
+      <div id="orderDocToolbar" style="display:none; align-items:center; gap:10px; margin-bottom:10px;
+        padding:6px 10px; border-radius:8px; background:#f8fafc; border:1px solid #e2e8f0;
+        font-size:0.76rem; color:#475569;">
+        <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+          <input type="checkbox" id="orderDocCheckAll" style="width:14px; height:14px; cursor:pointer;"> 全选
+        </label>
+        <span id="orderDocSelCount">已选 0 个</span>
+        <button class="btn btn-outline btn-sm" type="button"
+          style="padding:2px 9px; font-size:0.72rem; color:#dc2626; border-color:#fecaca; margin-left:auto;"
+          onclick="batchDeleteOrderDocs()">🗑 批量删除选中</button>
+      </div>
+      <div id="orderDocBody"></div>
+    </div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="downloadDocsZip()">⬇ 批量下载</button>
+      <button type="button" class="btn btn-primary" onclick="closeOrderDocs()">关闭</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="orderDocInput" multiple style="display:none;"
+  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,.rar,.7z">
+<input type="file" id="orderBatchUploadInput" multiple style="display:none;"
+  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip,.rar,.7z">
+
+{% if 'order:sync' in user_perms %}
+<!-- 批量更新弹窗 (妙手订单同步 + 运单轨迹) -->
+<div id="orderSyncModal" class="custom-modal" style="display:none;">
+  <div class="custom-modal-backdrop" onclick="closeSyncModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:540px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">🔄</span>
+        <div>
+          <h3 style="margin:0; font-size:1.05rem; color:#0f172a; font-weight:700;">批量更新订单与轨迹</h3>
+          <div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">按状态与时间范围同步妙手订单，并批量更新对应运单轨迹</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeSyncModal()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:16px 20px;">
+      <div style="font-size:0.82rem; font-weight:700; color:#334155; margin-bottom:8px;">订单状态</div>
+      <div id="syncStatusChecks" style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px;"></div>
+      <div style="font-size:0.82rem; font-weight:700; color:#334155; margin-bottom:8px;">时间范围（按妙手创建时间）</div>
+      <select id="syncDays" class="form-select" style="padding:7px 10px; font-size:0.84rem;">
+        <option value="7">最近 7 天</option>
+        <option value="30">最近 30 天</option>
+        <option value="90">最近 90 天</option>
+        <option value="0" selected>不限时间（全量，推荐）</option>
+      </select>
+      <label style="display:flex; align-items:center; gap:6px; margin-top:14px; font-size:0.82rem; color:#334155; cursor:pointer;">
+        <input type="checkbox" id="syncWithTrack" checked style="width:15px; height:15px;">
+        同时更新运单轨迹（每单约 1 秒，数量多时较慢）
+      </label>
+      <div style="margin-top:12px; font-size:0.74rem; color:#94a3b8; line-height:1.6;">
+        💡 妙手限频约 1 次/秒、单页 200 条；轨迹按批次查询（每批 20 单），全量更新可能耗时数分钟，请勿关闭页面。
+      </div>
+      <div id="syncProgress" style="display:none; margin-top:12px; padding:10px 12px; border-radius:8px; background:#eff6ff; border:1px solid #bfdbfe; font-size:0.78rem; color:#1d4ed8; line-height:1.6;"></div>
+    </div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="closeSyncModal()">取消</button>
+      <button type="button" class="btn btn-primary" id="syncStartBtn" onclick="startOrderSync()">开始更新</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- 履约素材查看弹窗 (列表图标点击, 只读) -->
+<div id="fmMatModal" class="custom-modal" style="display:none; z-index:10060;">
+  <div class="custom-modal-backdrop" onclick="closeFmMaterials()"></div>
+  <div class="custom-modal-dialog" style="max-width:760px; max-height:86vh; display:flex; flex-direction:column;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+        <span style="font-size:1.3rem;">📎</span>
+        <div style="min-width:0;">
+          <h3 style="margin:0; font-size:1.02rem; color:#0f172a; font-weight:700;">履约素材</h3>
+          <div style="font-size:0.74rem; color:var(--text-muted); margin-top:2px; word-break:break-all;" id="fmMatSub">—</div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeFmMaterials()">✕</button>
+    </div>
+    <div class="custom-modal-body" id="fmMatBody" style="padding:14px 18px; overflow:auto;"></div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="openFmSupplementForCurrent()">📝 去补录上传</button>
+      <button type="button" class="btn btn-primary" onclick="closeFmMaterials()">关闭</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const IS_ADMIN = {{ 'true' if current_user and current_user.role == 'admin' else 'false' }};
+  const USER_PERMS = {{ user_perms | tojson }};
+  function hasPerm(key) { return IS_ADMIN || USER_PERMS.includes(key); }
+  window.FM_VARIANT = "fulfillment";
+  window.FM_CAN_EDIT = hasPerm('fulfillment:edit');
+  window.FM_CAN_DELETE = hasPerm('fulfillment:delete');
+</script>
+<script src="/static/js/orders.js?v=20261106_orders79"></script>
+<script src="/static/js/fulfillment_workspace.js?v=20261106_fm32"></script>
+{% endblock %}

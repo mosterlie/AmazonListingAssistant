@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}订单素材统一上传{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="/static/css/fulfillment.css?v=20261106_fm9">
+{% endblock %}
+
+{% block content %}
+<div class="fm-upload-page">
+  <div class="fm-page-head">
+    <div>
+      <div class="fm-page-title">📥 订单素材统一上传</div>
+      <div class="fm-page-sub">先在本页暂存，提交后逐个上传并显示进度；提交前不产生任何记录。</div>
+    </div>
+    <div class="fm-toolbar">
+      <a class="fm-btn" id="fmBackToOrder" href="/fulfillment">← 返回工作台</a>
+    </div>
+  </div>
+
+  <div class="fm-upload-header" id="fmUploadHeader">
+    <div class="fm-upload-order" id="fmUploadOrder">正在加载订单…</div>
+    <div class="fm-upload-order-meta" id="fmUploadOrderMeta"></div>
+  </div>
+
+  <div class="fm-upload-layout">
+    <div class="fm-upload-sections">
+
+      <div class="fm-upload-card">
+        <div class="fm-upload-card-head">
+          <div class="fm-upload-card-title">🧾 采购信息</div>
+          <span class="fm-upload-card-desc">截图建档 / 凭证挂单 / 采购发票</span>
+        </div>
+        <div class="fm-upload-card-body">
+          <div class="fm-upload-grid">
+            <div class="fm-upload-cell">
+              <div class="fm-cell-head">采购单截图<span>每个文件新建一张采购单</span></div>
+              <div class="fm-drop" data-drop="purchase_order_shot">
+                <div class="fm-drop-main">点击选择或拖入</div>
+                <div class="fm-drop-sub">jpg / png / webp / pdf</div>
+                <input type="file" data-input="purchase_order_shot" multiple accept=".jpg,.jpeg,.png,.webp,.pdf" style="display:none;">
+              </div>
+              <div class="fm-stage-list" data-stage="purchase_order_shot"></div>
+            </div>
+            <div class="fm-upload-cell">
+              <div class="fm-cell-head">转账凭证<span>挂到采购单</span></div>
+              <select class="fm-input fm-input-sm" id="fmVoucherPo">
+                <option value="0">自动关联本次生成的采购单</option>
+              </select>
+              <div class="fm-drop" data-drop="transfer_voucher">
+                <div class="fm-drop-main">点击选择或拖入</div>
+                <div class="fm-drop-sub">jpg / png / webp / pdf</div>
+                <input type="file" data-input="transfer_voucher" multiple accept=".jpg,.jpeg,.png,.webp,.pdf" style="display:none;">
+              </div>
+              <div class="fm-stage-list" data-stage="transfer_voucher"></div>
+            </div>
+            <div class="fm-upload-cell">
+              <div class="fm-cell-head">采购发票<span>挂到采购单</span></div>
+              <select class="fm-input fm-input-sm" id="fmInvPo">
+                <option value="0">自动关联本次生成的采购单</option>
+              </select>
+              <div class="fm-drop" data-drop="invoice_purchase">
+                <div class="fm-drop-main">点击选择或拖入</div>
+                <div class="fm-drop-sub">jpg / png / webp / pdf</div>
+                <input type="file" data-input="invoice_purchase" multiple accept=".jpg,.jpeg,.png,.webp,.pdf" style="display:none;">
+              </div>
+              <div class="fm-stage-list" data-stage="invoice_purchase"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="fm-upload-card">
+        <div class="fm-upload-card-head">
+          <div class="fm-upload-card-title">📦 包裹信息</div>
+          <span class="fm-upload-card-desc" id="fmPkgHint">按包裹归档 / 清关报税</span>
+        </div>
+        <div class="fm-upload-card-body">
+          <div class="fm-upload-grid fm-upload-grid-2">
+            <div class="fm-upload-cell">
+              <div class="fm-cell-head">发货单</div>
+              <select class="fm-input fm-input-sm" id="fmDeliveryPkg"></select>
+              <div class="fm-drop" data-drop="delivery_note">
+                <div class="fm-drop-main">点击选择或拖入</div>
+                <div class="fm-drop-sub">图片 / PDF / 压缩包</div>
+                <input type="file" data-input="delivery_note" multiple style="display:none;">
+              </div>
+              <div class="fm-stage-list" data-stage="delivery_note"></div>
+            </div>
+            <div class="fm-upload-cell">
+              <div class="fm-cell-head">签收单</div>
+              <select class="fm-input fm-input-sm" id="fmReceiptPkg"></select>
+              <div class="fm-drop" data-drop="receipt">
+                <div class="fm-drop-main">点击选择或拖入</div>
+                <div class="fm-drop-sub">图片 / PDF / 压缩包</div>
+                <input type="file" data-input="receipt" multiple style="display:none;">
+              </div>
+              <div class="fm-stage-list" data-stage="receipt"></div>
+            </div>
+            <div class="fm-upload-cell">
+              <div class="fm-cell-head">货代发票<span>挂到包裹</span></div>
+              <select class="fm-input fm-input-sm" id="fmInvPkg"></select>
+              <div class="fm-drop" data-drop="invoice_forwarder">
+                <div class="fm-drop-main">点击选择或拖入</div>
+                <div class="fm-drop-sub">jpg / png / webp / pdf</div>
+                <input type="file" data-input="invoice_forwarder" multiple accept=".jpg,.jpeg,.png,.webp,.pdf" style="display:none;">
+              </div>
+              <div class="fm-stage-list" data-stage="invoice_forwarder"></div>
+            </div>
+            <div class="fm-upload-cell">
+              <div class="fm-cell-head">清关报税<span>文件名即名称</span></div>
+              <div class="fm-drop" data-drop="tax_cert">
+                <div class="fm-drop-main">点击选择或拖入</div>
+                <div class="fm-drop-sub">图片 / PDF / 压缩包</div>
+                <input type="file" data-input="tax_cert" multiple style="display:none;">
+              </div>
+              <div class="fm-stage-list" data-stage="tax_cert"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="fm-upload-side">
+      <div class="fm-upload-summary">
+        <div class="fm-upload-summary-title">🗂️ 待提交 <span class="fm-chip" id="fmStageCount">0</span></div>
+        <div style="margin-top:4px;">
+          <div class="fm-summary-row"><span>合计大小</span><b id="fmStageSize">0 B</b></div>
+          <div class="fm-summary-row"><span>涉及分类</span><b id="fmStageKinds">—</b></div>
+        </div>
+        <button class="fm-btn primary" id="fmSubmitAll" type="button">🚀 统一提交并处理</button>
+        <button class="fm-btn" id="fmClearAll" type="button">清空暂存</button>
+        <div class="fm-submit-tip">逐个上传并显示进度，处理中请勿关页；单文件失败不影响其他文件。</div>
+      </div>
+
+      <div class="fm-upload-summary" id="fmResultBox" style="display:none;">
+        <div class="fm-upload-summary-title">📋 处理进度 <span class="fm-chip" id="fmProgressChip">0/0</span></div>
+        <div class="fm-progress"><i id="fmProgressFill"></i></div>
+        <div class="fm-progress-text" id="fmProgressText"></div>
+        <div class="fm-progress-text" id="fmResultSummary"></div>
+        <div class="fm-result-list" id="fmResultList"></div>
+        <button class="fm-btn primary" id="fmBackAfter" type="button">返回工作台</button>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  window.FM_CAN_EDIT = {{ 'true' if (current_user and current_user.role == 'admin') or 'fulfillment:edit' in user_perms else 'false' }};
+  window.FM_CAN_DELETE = {{ 'true' if (current_user and current_user.role == 'admin') or 'fulfillment:delete' in user_perms else 'false' }};
+</script>
+<script src="/static/js/fulfillment_common.js?v=20261106_fm9"></script>
+<script src="/static/js/fulfillment_upload.js?v=20261106_fm9"></script>
+{% endblock %}

@@ -902,6 +902,288 @@ def init_db():
     );
     """)
 
+    # ═══════════ 履约中心 (独立模块: 订单跟踪/包裹/国内采购/发票/清关报税) ═══════════
+    # 说明: 与现有 miaoshou_orders / order_docs 完全隔离; 仅从妙手缓存只读导入,
+    #       现有订单管理页面的数据与接口不受影响。
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS fm_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        platform TEXT DEFAULT '',
+        shop_id TEXT DEFAULT '',
+        shop_name TEXT DEFAULT '',
+        order_sn TEXT NOT NULL,
+        currency TEXT DEFAULT '',
+        order_amount REAL DEFAULT 0,
+        pay_amount REAL DEFAULT 0,
+        order_status TEXT DEFAULT '',
+        order_status_text TEXT DEFAULT '',
+        gmt_order TEXT DEFAULT '',
+        gmt_pay TEXT DEFAULT '',
+        dest_country TEXT DEFAULT '',
+        dest_country_name TEXT DEFAULT '',
+        receiver_state TEXT DEFAULT '',
+        items_count INTEGER DEFAULT 0,
+        items_json TEXT DEFAULT '[]',
+        source_row_id INTEGER DEFAULT 0,
+        sync_time TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(platform, shop_id, order_sn)
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_orders_sn ON fm_orders(order_sn);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_orders_gmt ON fm_orders(gmt_order);")
+    # 履约补录信息 (采购日期 / 国内包裹数量 / 国内单号): 履约模块独立保存, 不写回 orders 表
+    cursor.execute("PRAGMA table_info(fm_orders);")
+    _fm_order_cols = {r[1] for r in cursor.fetchall()}
+    for _col_def, _col_name in [
+        ("purchase_date TEXT DEFAULT ''", "purchase_date"),
+        ("domestic_package_count INTEGER DEFAULT 0", "domestic_package_count"),
+        ("domestic_tracking_no TEXT DEFAULT ''", "domestic_tracking_no"),
+        # 原始报文 (收货人/备注等), 复制整行时使用, 保证履约模块自持数据
+        ("raw_json TEXT DEFAULT '{}'", "raw_json"),
+    ]:
+        if _col_name not in _fm_order_cols:
+            cursor.execute(f"ALTER TABLE fm_orders ADD COLUMN {_col_def};")
+            print(f"📦 fm_orders 已迁移新增 {_col_name} 列")
+    # 历史补录信息回填 (订单管理已录入的采购日期/国内信息, 仅填充空值, 不覆盖履约侧新数据)
+    try:
+        cursor.execute("""
+            UPDATE fm_orders SET
+                purchase_date = CASE WHEN purchase_date <> '' THEN purchase_date
+                    ELSE COALESCE((SELECT m.purchase_date FROM miaoshou_orders m
+                                   WHERE m.id = fm_orders.source_row_id), '') END,
+                domestic_package_count = CASE WHEN domestic_package_count > 0 THEN domestic_package_count
+                    ELSE COALESCE((SELECT m.domestic_package_count FROM miaoshou_orders m
+                                   WHERE m.id = fm_orders.source_row_id), 0) END,
+                domestic_tracking_no = CASE WHEN domestic_tracking_no <> '' THEN domestic_tracking_no
+                    ELSE COALESCE((SELECT m.domestic_tracking_no FROM miaoshou_orders m
+                                   WHERE m.id = fm_orders.source_row_id), '') END
+            WHERE source_row_id > 0
+        """)
+    except Exception as _e:
+        print(f"⚠️ 履约补录信息回填跳过: {_e}")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS fm_packages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_package_id TEXT NOT NULL UNIQUE,
+        app_package_no TEXT DEFAULT '',
+        order_sn TEXT DEFAULT '',
+        package_status TEXT DEFAULT '',
+        package_status_text TEXT DEFAULT '',
+        tracking_no TEXT DEFAULT '',
+        tracking_company TEXT DEFAULT '',
+        gmt_delivery TEXT DEFAULT '',
+        gmt_last_delivery TEXT DEFAULT '',
+        dest_country TEXT DEFAULT '',
+        track_status_name TEXT DEFAULT '',
+        track_desc TEXT DEFAULT '',
+        track_time TEXT DEFAULT '',
+        items_count INTEGER DEFAULT 0,
+        items_json TEXT DEFAULT '[]',
+        source_row_id INTEGER DEFAULT 0,
+        sync_time TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_pkg_tracking ON fm_packages(tracking_no);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_pkg_appno ON fm_packages(app_package_no);")
+
+    # 订单 ↔ 包裹: 多对多 (自动匹配 + 人工确认统一走此表)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS fm_order_packages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER NOT NULL,
+        package_id INTEGER NOT NULL,
+        link_source TEXT DEFAULT 'miaoshou',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(order_id, package_id)
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_op_order ON fm_order_packages(order_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_op_pkg ON fm_order_packages(package_id);")
+
+    # 国内采购单 (支持截图/转账凭证附件, 金额与明细结构化)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS fm_purchase_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        purchase_no TEXT DEFAULT '',
+        supplier_name TEXT DEFAULT '',
+        purchase_date TEXT DEFAULT '',
+        currency TEXT DEFAULT '',
+        total_amount REAL DEFAULT 0,
+        status TEXT DEFAULT '待付款',
+        payment_status TEXT DEFAULT '未付款',
+        source TEXT DEFAULT 'manual',
+        parse_status TEXT DEFAULT '',
+        parse_error TEXT DEFAULT '',
+        raw_json TEXT DEFAULT '',
+        note TEXT DEFAULT '',
+        created_by TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_po_no ON fm_purchase_orders(purchase_no);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_po_date ON fm_purchase_orders(purchase_date);")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS fm_purchase_order_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        purchase_order_id INTEGER NOT NULL,
+        name TEXT DEFAULT '',
+        spec TEXT DEFAULT '',
+        unit TEXT DEFAULT '',
+        quantity REAL DEFAULT 0,
+        unit_price REAL DEFAULT 0,
+        amount REAL DEFAULT 0,
+        sort_order INTEGER DEFAULT 0
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_po_item ON fm_purchase_order_items(purchase_order_id);")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS fm_purchase_order_orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        purchase_order_id INTEGER NOT NULL,
+        order_id INTEGER NOT NULL,
+        allocated_amount REAL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(purchase_order_id, order_id)
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_poo_order ON fm_purchase_order_orders(order_id);")
+
+    # 转账凭证解析后的结构化付款记录
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS fm_purchase_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        purchase_order_id INTEGER NOT NULL,
+        document_id INTEGER DEFAULT 0,
+        transaction_no TEXT DEFAULT '',
+        paid_at TEXT DEFAULT '',
+        amount REAL DEFAULT 0,
+        currency TEXT DEFAULT '',
+        payer TEXT DEFAULT '',
+        payee TEXT DEFAULT '',
+        method TEXT DEFAULT '',
+        note TEXT DEFAULT '',
+        parse_status TEXT DEFAULT '',
+        parse_error TEXT DEFAULT '',
+        raw_json TEXT DEFAULT '',
+        created_by TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_pay_po ON fm_purchase_payments(purchase_order_id);")
+
+    # 清关报税 (独立管理, 可挂订单也可独立存在)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS fm_tax_certs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER DEFAULT 0,
+        title TEXT DEFAULT '',
+        cert_no TEXT DEFAULT '',
+        cert_type TEXT DEFAULT '',
+        tax_period TEXT DEFAULT '',
+        country TEXT DEFAULT '',
+        amount REAL DEFAULT 0,
+        currency TEXT DEFAULT '',
+        issued_date TEXT DEFAULT '',
+        note TEXT DEFAULT '',
+        status TEXT DEFAULT '已归档',
+        created_by TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_tax_order ON fm_tax_certs(order_id);")
+
+    # 统一附件: 采购单截图/转账凭证/发货单/签收单/清关报税/发票文件
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS fm_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_type TEXT NOT NULL,
+        owner_id INTEGER NOT NULL,
+        category TEXT NOT NULL,
+        file_name TEXT DEFAULT '',
+        stored_name TEXT DEFAULT '',
+        relative_url TEXT DEFAULT '',
+        thumb_name TEXT DEFAULT '',
+        mime_type TEXT DEFAULT '',
+        size_bytes INTEGER DEFAULT 0,
+        sha256 TEXT DEFAULT '',
+        note TEXT DEFAULT '',
+        uploaded_by TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_doc_owner ON fm_documents(owner_type, owner_id, category);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_doc_sha ON fm_documents(sha256);")
+
+    # 发票 (订单/包裹/采购单均可关联, 也允许未关联)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS fm_invoices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoice_kind TEXT DEFAULT '其他发票',
+        invoice_code TEXT DEFAULT '',
+        invoice_number TEXT DEFAULT '',
+        invoice_date TEXT DEFAULT '',
+        seller_name TEXT DEFAULT '',
+        seller_tax_id TEXT DEFAULT '',
+        buyer_name TEXT DEFAULT '',
+        buyer_tax_id TEXT DEFAULT '',
+        currency TEXT DEFAULT '',
+        amount_excl_tax REAL DEFAULT 0,
+        tax_amount REAL DEFAULT 0,
+        total_amount REAL DEFAULT 0,
+        total_in_words TEXT DEFAULT '',
+        remark TEXT DEFAULT '',
+        parse_status TEXT DEFAULT 'pending',
+        parse_error TEXT DEFAULT '',
+        verified INTEGER DEFAULT 0,
+        raw_json TEXT DEFAULT '',
+        model TEXT DEFAULT '',
+        created_by TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_inv_no ON fm_invoices(invoice_number);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_inv_status ON fm_invoices(parse_status);")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS fm_invoice_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoice_id INTEGER NOT NULL,
+        name TEXT DEFAULT '',
+        spec TEXT DEFAULT '',
+        unit TEXT DEFAULT '',
+        quantity REAL DEFAULT 0,
+        unit_price REAL DEFAULT 0,
+        amount REAL DEFAULT 0,
+        tax_rate TEXT DEFAULT '',
+        sort_order INTEGER DEFAULT 0
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_inv_item ON fm_invoice_items(invoice_id);")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS fm_invoice_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoice_id INTEGER NOT NULL,
+        owner_type TEXT NOT NULL,
+        owner_id INTEGER NOT NULL,
+        allocated_amount REAL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(invoice_id, owner_type, owner_id)
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_fm_inv_link_owner ON fm_invoice_links(owner_type, owner_id);")
+
     # ═══════════ RBAC 权限体系: 菜单/角色/用户角色/角色权限点 ═══════════
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS roles (
