@@ -88,7 +88,7 @@
     right: 0;
     background: #fff;
     z-index: 2;
-    box-shadow: inset 2px 0 0 #cbd5e1, -6px 0 8px -6px rgba(15, 23, 42, 0.18);
+    box-shadow: inset 1px 0 0 #e2e8f0, -6px 0 8px -6px rgba(15, 23, 42, 0.12);
   }
   #orderTable thead th:last-child { background: #f8fafc; z-index: 3; }
   #orderTable tbody tr:hover td:last-child { background: #dbeafe; }
@@ -464,7 +464,7 @@
       </div>
       <button class="custom-modal-close" onclick="closeOrderTrack()">✕</button>
     </div>
-    <div class="custom-modal-body" id="orderTrackBody" style="padding:14px 18px; overflow:auto;"></div>
+    <div class="custom-modal-body" id="orderTrackBody" style="padding:12px 18px 14px !important;"></div>
     <div class="custom-modal-footer">
       <button type="button" class="btn btn-outline" onclick="copyOrderTrack()">📋 复制轨迹</button>
       <button type="button" class="btn btn-outline" id="orderTrackJumpBtn" onclick="jumpOrderTrack()"
@@ -587,6 +587,6 @@
   window.FM_CAN_EDIT = hasPerm('fulfillment:edit');
   window.FM_CAN_DELETE = hasPerm('fulfillment:delete');
 </script>
-<script src="/static/js/orders.js?v=20261106_orders79"></script>
-<script src="/static/js/fulfillment_workspace.js?v=20261106_fm32"></script>
+<script src="/static/js/orders.js?v=20261115_orders91"></script>
+<script src="/static/js/fulfillment_workspace.js?v=20261106_fm33"></script>
 {% endblock %}

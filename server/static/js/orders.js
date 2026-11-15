@@ -663,28 +663,152 @@ function isSupplemented(o) {
     && String(o.domestic_tracking_no || "").trim());
 }
 
+/* 轨迹接口按妙手订单 id 查询: 履约页的数据主键是 fm_orders.id, 需用来源 id (src_id) */
+function trackOrderId(o) {
+  return FM_VARIANT ? Number(o.src_id || 0) : Number(o.id || 0);
+}
+
 /* 最新轨迹单元格: 单行截断 + 时间, 点击打开时间线弹窗 */
+/* 采购时间: 优先取本月最早的一次采购 (多张采购单时时间最小的那个) */
+function purchaseDateArg(o) {
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const all = (o.purchase_dates || [])
+    .map(d => String(d || "").slice(0, 10)).filter(Boolean).sort();
+  const thisMonth = all.filter(d => d.startsWith(ym));
+  const pick = (thisMonth.length ? thisMonth : all)[0] || String(o.purchase_date || "").slice(0, 10);
+  return String(pick).replace(/[^\d-]/g, "");
+}
+
 function trackSummaryCell(o) {
   const desc = decodeEntities(String(o.track_desc || "").trim());
   const time = String(o.track_time || "").trim();
   if (!desc && !time) return `<span style="color:#cbd5e1;">—</span>`;
-  return `<div style="cursor:pointer; max-width:260px;"
-      onclick="openOrderTrack(${o.id})">
+  const oid = trackOrderId(o);
+  const pdate = purchaseDateArg(o);
+  return `<div style="cursor:pointer; max-width:260px;"${oid ? ` onclick="openOrderTrack(${oid}, '${pdate}')"` : ""}>
     <div style="font-size:0.76rem; color:#334155; line-height:1.4; white-space:nowrap; overflow:hidden;
       text-overflow:ellipsis;">${escapeHtml(desc || "—")}</div>
     ${time ? `<div style="font-size:0.68rem; color:#94a3b8; margin-top:2px;">🕐 ${escapeHtml(time)}</div>` : ""}
   </div>`;
 }
 
+/* 轨迹概览节点: 采购 → 快件电子信息已经收到 → 作业中心(无则第二个节点) → 最新轨迹 */
+function trackSteps(details, purchaseDate) {
+  const list = details || [];
+  const descOf = t => decodeEntities(t.track_description || "").trim();
+  const latest = list[0] || null;                        // 轨迹按时间倒序, 第一条即当前
+  // 仅有「快件电子信息」轨迹时才展示该节点, 没有则不额外增加
+  const infoNode = list.find(t => /快件电子信息/.test(descOf(t)));
+  const center = list.find(t => /作业中心/.test(descOf(t)))
+    || (list.length > 1 ? list[list.length - 2] : null);  // 无该节点时默认取第二个节点
+
+  const steps = [{ label: "采购", time: purchaseDate || "" }];
+  const pushNode = (node, fallback) => {
+    if (!node) return;
+    const label = descOf(node) || fallback;
+    const time = node.track_occur_date || "";
+    if (steps.some(s => s.label === label && s.time === time)) return;
+    steps.push({ label, time });
+  };
+  pushNode(infoNode, "快件电子信息已经收到");
+  pushNode(center, "到达作业中心");
+  pushNode(latest, "最新轨迹");
+
+  // 采购固定在第一位, 其余轨迹节点按时间升序
+  const head = steps.shift();
+  steps.sort((a, b) => String(a.time).localeCompare(String(b.time)));
+  steps.unshift(head);
+  steps.forEach((s, i) => {
+    if (i === 0) { s.gap = ""; s.restTip = ""; return; }
+    s.gap = daysBetween(steps[i - 1].time, s.time);
+    const r = restDaysBetween(steps[i - 1].time, s.time);
+    s.restTip = `含休息日 ${r.total}（节假日 ${r.holiday}、周末 ${r.weekend}）`;
+  });
+  return steps;
+}
+
+/* 两个时间之间的间隔 (用于横向进度条上方标注): 格式 2d5h */
+function trackParseTime(v) {
+  const t = String(v || "").trim();
+  if (!t) return NaN;
+  return new Date(t.replace(/-/g, "/")).getTime();
+}
+
+function daysBetween(a, b) {
+  const t1 = trackParseTime(a), t2 = trackParseTime(b);
+  if (isNaN(t1) || isNaN(t2)) return "";
+  const hours = Math.max(0, Math.round((t2 - t1) / 3600000));
+  const d = Math.floor(hours / 24);
+  return d > 0 ? `${d}d${hours % 24}h` : `${hours % 24}h`;   // 当天不显示 0d
+}
+
+/* 法定节假日 (可维护): 国务院公布的放假日期 */
+const CN_HOLIDAYS = new Set([
+  "2025-01-01",
+  "2025-01-28", "2025-01-29", "2025-01-30", "2025-01-31", "2025-02-01", "2025-02-02", "2025-02-03", "2025-02-04",
+  "2025-04-04", "2025-04-05", "2025-04-06",
+  "2025-05-01", "2025-05-02", "2025-05-03", "2025-05-04", "2025-05-05",
+  "2025-05-31", "2025-06-01", "2025-06-02",
+  "2025-10-01", "2025-10-02", "2025-10-03", "2025-10-04", "2025-10-05", "2025-10-06", "2025-10-07", "2025-10-08",
+  "2026-01-01", "2026-01-02", "2026-01-03",
+  "2026-02-15", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20", "2026-02-21",
+  "2026-04-04", "2026-04-05", "2026-04-06",
+  "2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04", "2026-05-05",
+  "2026-06-19", "2026-06-20", "2026-06-21",
+  "2026-09-25", "2026-09-26", "2026-09-27",
+  "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07",
+]);
+
+/* 区间内的休息日: 法定节假日 + 周末 */
+function restDaysBetween(a, b) {
+  const t1 = trackParseTime(a), t2 = trackParseTime(b);
+  if (isNaN(t1) || isNaN(t2) || t2 <= t1) return { total: 0, holiday: 0, weekend: 0 };
+  const pad2 = n => String(n).padStart(2, "0");
+  // 只统计中间完整跨越的日期: 不含起始日与结束日
+  // 例: 5.1 18:00 → 5.4 22:00, 中间只有 5.2、5.3
+  const cur = new Date(t1);
+  cur.setHours(0, 0, 0, 0);
+  cur.setDate(cur.getDate() + 1);
+  const end = new Date(t2);
+  end.setHours(0, 0, 0, 0);
+  let holiday = 0, weekend = 0;
+  while (cur < end) {
+    const key = `${cur.getFullYear()}-${pad2(cur.getMonth() + 1)}-${pad2(cur.getDate())}`;
+    const wd = cur.getDay();
+    if (CN_HOLIDAYS.has(key)) holiday += 1;
+    else if (wd === 0 || wd === 6) weekend += 1;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return { total: holiday + weekend, holiday, weekend };
+}
+
+/* 横向进度条: 最上方概览 (段与段之间标注间隔天数) */
+function trackStepBar(details, purchaseDate) {
+  const steps = trackSteps(details, purchaseDate);
+  if (!steps.length) return "";
+  return `<div class="wb-steps">${steps.map((s, i) => `
+    <div class="wb-step ${i < steps.length - 1 ? "done" : ""}">
+      ${s.gap ? `<div class="wb-step-gap" data-tip="${escapeHtml(s.restTip || "")}">${escapeHtml(s.gap)}</div>` : ""}
+      <div class="wb-step-dot"></div>
+      <div class="wb-step-label">${escapeHtml(s.label)}</div>
+      <div class="wb-step-time">${escapeHtml(String(s.time || "").slice(0, 16) || "—")}</div>
+    </div>`).join("")}</div>`;
+}
+
 /* 轨迹查询成功后回填当前行 (状态 / 最新轨迹 / 更新时间), 免刷新整页 */
 function patchTrackRow(orderId, d) {
-  const tr = document.querySelector(`#orderTableBody tr[data-oid="${orderId}"]`);
+  const tr = document.querySelector(`#orderTableBody tr[data-oid="${orderId}"]`)
+    || document.querySelector(`#orderTableBody tr[data-src="${orderId}"]`);
   if (!tr) return;
   const st = tr.querySelector(".js-track-status");
   if (st) st.innerHTML = trackChip(d.track_status_name);
   const desc = tr.querySelector(".js-track-desc");
   if (desc) desc.innerHTML = trackSummaryCell({
-    id: orderId, track_desc: d.last_track_desc, track_time: d.last_track_time,
+    id: FM_VARIANT ? 0 : orderId,
+    src_id: FM_VARIANT ? orderId : 0,
+    purchase_date: tr.dataset.purchase || "",
+    track_desc: d.last_track_desc, track_time: d.last_track_time,
   });
   const at = tr.querySelector(".js-track-at");
   if (at) at.innerText = (d.track_refreshed_at || "").slice(0, 16) || "—";
@@ -699,8 +823,8 @@ function trackNoItem(label, value) {
     onclick="copyTextValue(this.dataset.v, '${label}')">${escapeHtml(v)}</b>`;
 }
 
-async function openOrderTrack(orderId) {
-  if (FM_VARIANT && typeof openFmTrackModal === "function") return openFmTrackModal(orderId);
+async function openOrderTrack(orderId, purchaseDate) {
+  if (!orderId) { showToast("该订单未关联妙手订单，暂无轨迹可查", "error"); return; }
   trackState.orderId = orderId;
   trackState.data = null;
   const modal = document.getElementById("orderTrackModal");
@@ -727,12 +851,13 @@ async function openOrderTrack(orderId) {
     patchTrackRow(orderId, d);
 
     const details = d.details || [];
+    const stepBar = trackStepBar(details, purchaseDate);
     if (!details.length) {
-      bodyEl.innerHTML = `<div style="text-align:center; padding:34px; color:#94a3b8;">
+      bodyEl.innerHTML = `${stepBar}<div style="text-align:center; padding:34px; color:#94a3b8;">
         该运单暂无轨迹记录${d.last_track_desc ? `<div style="margin-top:8px; color:#64748b; font-size:0.82rem;">${escapeHtml(decodeEntities(d.last_track_desc))}</div>` : ""}</div>`;
       return;
     }
-    bodyEl.innerHTML = `<div class="wb-timeline">` + details.map((t, i) => `
+    bodyEl.innerHTML = stepBar + `<div class="wb-timeline">` + details.map((t, i) => `
       <div class="wb-timeline-item">
         <div class="wb-timeline-time">🕐 ${escapeHtml(t.track_occur_date || "")}${t.track_location ? " · " + escapeHtml(t.track_location) : ""}
           ${i === 0 ? `<span style="display:inline-block; margin-left:6px; padding:0 6px; border-radius:9999px;
@@ -966,7 +1091,7 @@ function renderOrderRows(tbody, rows) {
     return;
   }
   tbody.innerHTML = rows.map(o => `
-    <tr data-oid="${o.id}">
+    <tr data-oid="${o.id}" data-src="${o.src_id || 0}" data-purchase="${purchaseDateArg(o)}">
       <td style="text-align:center; padding:8px 4px;">
         <input type="checkbox" class="order-row-check" value="${o.id}"
           ${orderState.selected.has(o.id) ? "checked" : ""}
@@ -1013,7 +1138,7 @@ function renderOrderRows(tbody, rows) {
           </div>
           <div style="display:flex; gap:4px;">
             ${copySplitBtn(o.id)}
-            ${o.tracking_no ? rowIconBtn("track", "查看运单轨迹", `openOrderTrack(${o.id})`) : ""}
+            ${o.tracking_no && trackOrderId(o) ? rowIconBtn("track", "查看运单轨迹", `openOrderTrack(${trackOrderId(o)}, '${purchaseDateArg(o)}')`) : ""}
           </div>
         </div>
       </td>
@@ -1586,6 +1711,13 @@ async function openOrderSupplement(orderId) {
   if (!modal) return;
   supplementOrderId = Number(orderId) || 0;
   sub.innerText = "加载中...";
+  // 先铺默认值: 采购日期=当天, 包裹数量=1 (加载失败也保持可用)
+  const now = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  document.getElementById("supPurchaseDate").value = todayStr;
+  document.getElementById("supPackageCount").value = 1;
+  document.getElementById("supTrackingNo").value = "";
   modal.style.display = "flex";
   try {
     const body = FM_VARIANT
@@ -1593,8 +1725,9 @@ async function openOrderSupplement(orderId) {
       : await orderApi(`/api/orders/${supplementOrderId}`);
     const o = body.data || {};
     sub.innerText = o.order_sn || "—";
-    document.getElementById("supPurchaseDate").value = o.purchase_date || "";
-    document.getElementById("supPackageCount").value = o.domestic_package_count || "";
+    document.getElementById("supPurchaseDate").value = o.purchase_date || todayStr;
+    document.getElementById("supPackageCount").value = Number(o.domestic_package_count) > 0
+      ? o.domestic_package_count : 1;
     document.getElementById("supTrackingNo").value = o.domestic_tracking_no || "";
   } catch (e) {
     if (e.message !== "未登录") showToast("加载失败: " + e.message, "error");

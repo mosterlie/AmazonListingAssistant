@@ -357,6 +357,22 @@ class FulfillmentService:
         mats = FulfillmentService.materials_summary(
             [int(o["source_row_id"] or 0) for o in orders if int(o["source_row_id"] or 0)],
             [o["order_sn"] for o in orders if o.get("order_sn")])
+        # 采购日期集合: 该订单关联采购单的日期, 供轨迹概览取本月最早一次采购
+        po_dates: Dict[int, List[str]] = {}
+        if ids:
+            conn = get_db_connection()
+            try:
+                marks = ",".join("?" * len(ids))
+                for r in conn.execute(f"""
+                    SELECT poo.order_id oid, po.purchase_date d
+                    FROM fm_purchase_order_orders poo
+                    JOIN fm_purchase_orders po ON po.id = poo.purchase_order_id
+                    WHERE poo.order_id IN ({marks}) AND IFNULL(po.purchase_date, '') <> ''
+                    ORDER BY po.purchase_date
+                """, ids):
+                    po_dates.setdefault(int(r["oid"]), []).append(r["d"])
+            finally:
+                conn.close()
         # 中文商品标识: 复用订单管理页大模型识别结果 (没有时回退英文标题)
         label_map = FulfillmentService._product_labels(
             [(int(o.get("source_row_id") or 0), o.get("order_sn") or "") for o in orders])
@@ -369,6 +385,10 @@ class FulfillmentService:
             o["fm_docs"] = (info.get("counts") or {}) if info else {}
             o["fm_doc_previews"] = (info.get("previews") or {}) if info else {}
             o["docs"] = {}                       # 订单管理同构占位 (履约不使用 order_docs)
+            _dates = list(po_dates.get(int(o["id"]), []))
+            if o.get("purchase_date"):
+                _dates.append(o["purchase_date"])
+            o["purchase_dates"] = sorted({str(d) for d in _dates if d})
             pkgs = pkg_map.get(int(o["id"]), [])
             o["packages"] = pkgs
             first = pkgs[0] if pkgs else {}

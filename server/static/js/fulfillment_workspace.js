@@ -881,50 +881,6 @@
     }
   }
 
-  async function openFmTrackModal(id) {
-    const modal = document.getElementById("orderTrackModal");
-    const sub = document.getElementById("orderTrackSub");
-    const bodyEl = document.getElementById("orderTrackBody");
-    if (!modal || !bodyEl) return;
-    sub.innerText = "加载中...";
-    bodyEl.innerHTML = `<div style="text-align:center; padding:34px; color:#94a3b8;">⏳ 加载中...</div>`;
-    modal.style.display = "flex";
-    try {
-      const res = await orderApi("/api/fulfillment/orders/" + id);
-      const d = res.data || {};
-      const pkgs = d.packages || [];
-      const o = d.order || {};
-      sub.innerHTML = `${esc(o.order_sn || "")} · ${pkgs.length} 个包裹`;
-      if (!pkgs.length) {
-        bodyEl.innerHTML = `<div style="text-align:center; padding:30px; color:#94a3b8;">该订单暂无匹配包裹，暂无轨迹</div>`;
-        return;
-      }
-      const jumpBtn = document.getElementById("orderTrackJumpBtn");
-      const no = String(pkgs[0].tracking_no || "").trim();
-      if (jumpBtn) jumpBtn.disabled = !no;
-      // 供 orders.js 的 17TRACK 跳转使用
-      if (typeof trackState !== "undefined") {
-        trackState.data = { tracking_no: no, channel_hawbcode: "" };
-      }
-      bodyEl.innerHTML = pkgs.map(p => `
-        <div style="border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px; margin-bottom:8px; background:#fff;">
-          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:0.8rem;">
-            <b>📦 ${esc(p.app_package_no || p.source_package_id || "包裹")}</b>
-            <span style="color:#1d4ed8; font-family:ui-monospace, Menlo, monospace;">${esc(p.tracking_no || "无运单号")}</span>
-            <span class="tag-badge" style="background:#f1f5f9; color:#475569; border:none;">${esc(p.track_status_name || "—")}</span>
-          </div>
-          <div style="font-size:0.74rem; color:#475569; margin-top:6px; line-height:1.5;">
-            ${esc(p.track_desc || "暂无轨迹")}
-          </div>
-          <div style="font-size:0.7rem; color:#94a3b8; margin-top:4px;">
-            更新时间：${esc(p.track_time || "—")} · 承运商：${esc(p.tracking_company || "—")}
-          </div>
-        </div>`).join("");
-    } catch (e) {
-      bodyEl.innerHTML = `<div style="text-align:center; padding:30px; color:#dc2626;">❌ ${esc(e.message)}</div>`;
-    }
-  }
-
   /* 关闭补录弹窗时释放暂存的预览 blob, 避免内存泄漏 */
   const baseCloseOrderSupplement = window.closeOrderSupplement;
   window.closeOrderSupplement = function () {
@@ -944,5 +900,4 @@
   window.closeFmMaterials = closeFmMaterials;
   window.openFmSupplementForCurrent = openFmSupplementForCurrent;
   window.openFmDetailModal = openFmDetailModal;
-  window.openFmTrackModal = openFmTrackModal;
 })();

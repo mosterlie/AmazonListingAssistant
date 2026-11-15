@@ -1716,3 +1716,33 @@ input[type="text"],
 }
 .nav-dropdown-item:hover { background: #eff6ff; color: #1d4ed8; }
 .nav-dropdown-item.active { background: #eff6ff; color: #1d4ed8; }
+
+/* 轨迹概览: 采购 → 中间节点 → 最新节点 (段上方标注间隔) */
+.wb-steps { display:flex; align-items:flex-start; margin:6px 0 14px; padding:14px 10px 12px;
+  background:#f8fafc; border:1px solid #e8eef6; border-radius:10px; }
+.wb-step { position:relative; flex:1; min-width:0; text-align:center; padding:0 8px; }
+.wb-step::before { content:""; position:absolute; top:6px; left:-50%; width:100%; height:2px; background:#dbeafe; }
+.wb-step:first-child::before { display:none; }
+.wb-step-gap { position:absolute; top:-11px; left:-50%; width:100%; text-align:center; cursor:help;
+  font-size:0.66rem; font-weight:700; color:#3b82f6; }
+.wb-step:first-child .wb-step-gap { display:none; }
+/* 悬停浮框: 显示在间隔标注正上方 */
+.wb-step-gap:hover::after {
+  content: attr(data-tip);
+  position:absolute; left:50%; bottom:calc(100% + 3px); transform:translateX(-50%);
+  padding:3px 7px; border-radius:5px; background:#0f172a; color:#fff;
+  font-size:0.64rem; font-weight:400; line-height:1.2; white-space:nowrap;
+  box-shadow:0 4px 12px rgba(15,23,42,.24); pointer-events:none; z-index:30;
+}
+.wb-step-gap:hover::before {
+  content:""; position:absolute; left:50%; bottom:calc(100% + 1px); transform:translateX(-50%);
+  border:3px solid transparent; border-top-color:#0f172a; pointer-events:none; z-index:31;
+}
+.wb-step-dot { position:relative; z-index:1; width:14px; height:14px; margin:0 auto 7px;
+  border-radius:50%; background:#3b82f6; border:2px solid #bfdbfe; box-sizing:border-box; }
+.wb-step:last-child .wb-step-dot { background:#fff; border:4px solid #3b82f6; }
+.wb-step-label { font-size:0.72rem; font-weight:600; color:#334155; line-height:1.35; text-align:center;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.wb-step.done .wb-step-label { color:#1d4ed8; }
+.wb-step:last-child .wb-step-label { font-weight:700; color:#0f172a; }
+.wb-step-time { font-size:0.66rem; color:#94a3b8; margin-top:4px; }

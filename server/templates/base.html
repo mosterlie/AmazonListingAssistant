@@ -7,7 +7,7 @@
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="alternate icon" href="/static/favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-  <link rel="stylesheet" href="/static/css/app.css?v=20261102_inv1">
+  <link rel="stylesheet" href="/static/css/app.css?v=20261115_track7">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -34,12 +34,12 @@
           {% endif %}
         </div>
         {% endif %}
-        {% if 'orders' in user_menus %}<a href="/orders" class="nav-item {% if active_page == 'orders' %}active{% endif %}">🧾 订单管理</a>{% endif %}
+        {# 订单管理已并入履约中心, 旧入口停用 (页面路由保留) #}
         {% if 'fulfillment' in user_menus %}
         <div class="nav-dropdown">
-          <a href="/fulfillment" class="nav-item {% if active_page == 'fulfillment' %}active{% endif %}">📦 履约中心 <span class="nav-caret">▾</span></a>
+          <a href="/fulfillment" class="nav-item {% if active_page == 'fulfillment' %}active{% endif %}">🧾 订单管理 <span class="nav-caret">▾</span></a>
           <div class="nav-dropdown-menu">
-            <a href="/fulfillment" class="nav-dropdown-item {% if active_page == 'fulfillment' %}active{% endif %}">🗂️ 履约工作台</a>
+            <a href="/fulfillment" class="nav-dropdown-item {% if active_page == 'fulfillment' %}active{% endif %}">🗂️ 订单列表</a>
             {% if 'fulfillment_purchase' in user_menus %}<a href="/fulfillment/purchase-orders" class="nav-dropdown-item {% if active_page == 'fulfillment_purchase' %}active{% endif %}">🧾 采购单</a>{% endif %}
             {% if 'fulfillment_packages' in user_menus %}<a href="/fulfillment/packages" class="nav-dropdown-item {% if active_page == 'fulfillment_packages' %}active{% endif %}">📦 包裹</a>{% endif %}
             {% if 'fulfillment_invoices' in user_menus %}<a href="/fulfillment/invoices" class="nav-dropdown-item {% if active_page == 'fulfillment_invoices' %}active{% endif %}">📄 发票</a>{% endif %}

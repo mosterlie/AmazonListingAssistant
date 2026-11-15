@@ -358,19 +358,13 @@ async def render_forwarder_integration_page(request: Request):
     })
 
 
-@app.get("/orders", response_class=HTMLResponse, summary="订单管理页面 (妙手订单包裹同步/查询)")
+@app.get("/orders", summary="订单管理旧入口 (已并入履约中心)")
 async def render_orders_page(request: Request):
-    """渲染订单管理页面 (需登录; 数据源为妙手开放平台订单包裹)"""
+    """旧订单管理页已并入履约中心, 保留入口但直接跳转, 避免两套页面并存"""
     user, redirect_resp = get_page_auth_user(request, require_admin=False)
     if redirect_resp:
         return redirect_resp
-
-    from server.services.order_doc_service import DOC_TYPES
-    return render_page(request, "orders.html", context={
-        "active_page": "orders",
-        "current_user": user,
-        "doc_types": DOC_TYPES   # 单据附件列 (采购单/采购发票/发货单/配送轨迹/签收单/物流发票/清关证明)
-    })
+    return RedirectResponse(url="/fulfillment", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 # ──────────────────────────────────────────────────────────────
