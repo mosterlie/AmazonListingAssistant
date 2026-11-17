@@ -5,17 +5,19 @@
 - POST /api/alert-tasks/{key}/config          保存任务配置 (仅管理员)
 - POST /api/alert-tasks/{key}/run             立即执行采集批次 (仅管理员)
 - POST /api/alert-tasks/dxm_order/test-login  测试店小秘登录态 (仅管理员)
+- GET  /api/alert-tasks/dxm_order/tracking    按订单号实时查店小秘运单号 (登录用户)
 - GET  /api/reminders                         提醒任务列表=邮件提醒配置 (登录用户可看)
 - POST /api/reminders/{key}/config            保存提醒配置 (仅管理员)
 - POST /api/reminders/{key}/test-email        发送提醒测试邮件 (仅管理员)
 - GET  /api/alerts/summary                    告警中心统计 (登录用户)
 - GET  /api/alerts/list                       统一告警列表 (登录用户)
 """
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from typing import Any, Dict, Optional
 
 from server.dependencies import get_current_user, require_admin_user
 from server.services import alert_service
+from server.services.dxm_order_service import DxmOrderService
 
 router = APIRouter(prefix="/api", tags=["Alert Tasks & Center"])
 
@@ -68,6 +70,22 @@ async def test_dxm_login(payload: Optional[Dict[str, Any]] = Body(default=None),
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"测试登录异常: {e}")
     return {"code": 0 if res.get("ok") else 1, "msg": res.get("msg", ""), "data": res}
+
+
+@router.get("/alert-tasks/dxm_order/tracking", summary="按订单号实时查询店小秘运单号")
+async def dxm_order_tracking(order_no: str = Query(..., min_length=3, description="亚马逊订单号"),
+                             user: Dict[str, Any] = Depends(get_current_user)):
+    """通过亚马逊订单号查店小秘运单号 (复用 9222 已登录浏览器, 实时查询不落库)"""
+    import asyncio
+    try:
+        res = await asyncio.to_thread(DxmOrderService.lookup_tracking, order_no)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"查询异常: {e}")
+    return {"code": 0, "msg": res.get("message") or "success", "data": res}
 
 
 @router.get("/reminders")

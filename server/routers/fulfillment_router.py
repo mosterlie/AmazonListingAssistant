@@ -33,6 +33,8 @@ class SyncSchema(BaseModel):
     days: int = Field(7, ge=0, le=3650, description="最近 N 天; 0=不限")
     order_sn: str = Field("", max_length=80, description="只同步指定订单号")
     pull: bool = Field(False, description="是否先调用妙手在线同步刷新缓存")
+    backfill_tracking: bool = Field(True, description="同步后是否用店小秘回填缺失的运单号")
+    backfill_limit: int = Field(20, ge=1, le=200, description="单次最多回填多少单")
 
 
 class PurchaseOrderSchema(BaseModel):
@@ -128,6 +130,26 @@ def sync_orders(payload: SyncSchema, user: dict = EDIT_DEP):
         msg += f"；商品标识识别 {data['labeled']} 单"
     if data.get("pull_error"):
         msg += f"；妙手在线同步失败: {data['pull_error']}"
+    # 同步完成后: 仍缺运单号的订单用店小秘按订单号查询并回填
+    if payload.backfill_tracking:
+        from server.services.dxm_order_service import DxmOrderService as _Dxm
+        backfill = _Dxm.backfill_missing_tracking(limit=payload.backfill_limit)
+        data["tracking_backfill"] = backfill
+        if backfill.get("filled"):
+            msg += f"；运单号回填 {backfill['filled']} 单"
+        if backfill.get("error"):
+            msg += f"；运单号回填未完成: {backfill['error']}"
+    return {"code": 0, "msg": msg, "data": data}
+
+
+@router.post("/orders/backfill-tracking", summary="手动回填缺失运单号 (店小秘按订单号查询)")
+def backfill_tracking(limit: int = Query(20, ge=1, le=200, description="最多回填多少单"),
+                      user: dict = EDIT_DEP):
+    from server.services.dxm_order_service import DxmOrderService as _Dxm
+    data = _Dxm.backfill_missing_tracking(limit=limit)
+    msg = f"回填 {data['filled']} 单（检查 {data['checked']} 单）"
+    if data.get("error"):
+        msg += f"；失败: {data['error']}"
     return {"code": 0, "msg": msg, "data": data}
 
 

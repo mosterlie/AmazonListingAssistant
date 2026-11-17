@@ -470,7 +470,8 @@
       <div style="font-size:0.82rem; font-weight:700; color:#334155; margin-bottom:8px;">时间范围（按妙手创建时间）</div>
       <select id="syncDays" class="form-select" style="padding:7px 10px; font-size:0.84rem;">
         <option value="7">最近 7 天</option>
-        <option value="30" selected>最近 30 天</option>
+        <option value="15" selected>最近 15 天</option>
+        <option value="30">最近 30 天</option>
         <option value="90">最近 90 天</option>
         <option value="0">不限时间（全量，较慢）</option>
       </select>
@@ -498,5 +499,5 @@
   const USER_PERMS = {{ user_perms | tojson }};
   function hasPerm(key) { return IS_ADMIN || USER_PERMS.includes(key); }
 </script>
-<script src="/static/js/orders.js?v=20261115_orders91"></script>
+<script src="/static/js/orders.js?v=20261117_orders93"></script>
 {% endblock %}

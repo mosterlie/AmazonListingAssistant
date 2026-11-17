@@ -49,6 +49,10 @@ async function orderApi(url, options = {}) {
 function statusChip(status, text) {
   const conf = ORDER_STATUS_STYLE[status] || { bg: "#f1f5f9", color: "#475569" };
   const label = text || conf.text || status || "—";
+  // 已发货: 普通文字即可, 其余状态保持彩色胶囊
+  if (status === "wait_receiver_confirm" || /已发货/.test(String(label))) {
+    return `<span style="font-size:0.76rem; color:#334155;">${escapeHtml(label)}</span>`;
+  }
   return `<span style="display:inline-block; padding:2px 9px; border-radius:9999px; font-size:0.72rem;
     font-weight:700; white-space:nowrap; background:${conf.bg}; color:${conf.color};">${escapeHtml(label)}</span>`;
 }
@@ -1009,12 +1013,9 @@ function productCell(short, full) {
   const s = (short || "").trim() || (full || "").trim();
   const f = (full || "").trim() || s;
   if (!s) return `<span style="color:#cbd5e1; font-size:0.72rem;">待识别</span>`;
-  const isUnknown = s === "未知";
-  return `<span class="tag-badge" title="${escapeHtml(f)}（点击复制完整标识）" data-v="${escapeHtml(f)}"
-    style="display:inline-block; padding:2px 9px; cursor:pointer;
-    border-radius:9999px; font-size:0.72rem; font-weight:700; white-space:nowrap;
-    border:1px solid ${isUnknown ? "#e2e8f0" : "#fed7aa"};
-    background:${isUnknown ? "#f8fafc" : "#fff7ed"}; color:${isUnknown ? "#94a3b8" : "#c2410c"};"
+  // 普通文字展示, 仅保留悬停完整标识与点击复制
+  return `<span title="${escapeHtml(f)}（点击复制完整标识）" data-v="${escapeHtml(f)}"
+    style="cursor:pointer; font-size:0.78rem; color:#334155;"
     onclick="copyTextValue(this.dataset.v, '商品标识')"
     >${escapeHtml(s)}</span>`;
 }
@@ -1822,6 +1823,7 @@ async function saveTrackingNo(orderId) {
 const TRACK_BATCH_SIZE = 20;      // 每批轨迹查询单数 (避免单请求过久)
 const TRACK_MAX_PER_RUN = 1000;   // 单次批量更新轨迹上限
 let syncRunning = false;          // 批量更新进行中 (此时禁止关闭弹窗)
+let syncDone = false;             // 本轮已完成: 按钮变「完成」, 点击只关弹窗
 
 function openSyncModal() {
   const box = document.getElementById("syncStatusChecks");
@@ -1841,6 +1843,7 @@ function openSyncModal() {
   document.getElementById("syncProgress").innerHTML = "";
   document.getElementById("syncStartBtn").disabled = false;
   document.getElementById("syncStartBtn").innerText = "开始更新";
+  syncDone = false;
   document.getElementById("orderSyncModal").style.display = "flex";
 }
 
@@ -1876,6 +1879,8 @@ async function refreshTracksInBatches(ids, progEl) {
 }
 
 async function startOrderSync() {
+  // 已完成状态: 按钮显示「完成」, 点击只关闭弹窗, 不重复同步
+  if (syncDone) { closeSyncModal(); return; }
   const statuses = [...document.querySelectorAll("#syncStatusChecks input:checked")].map(x => x.value);
   if (!statuses.length) { showToast("请至少选择一个订单状态", "error"); return; }
   const days = Number(document.getElementById("syncDays").value || 0);
@@ -1929,8 +1934,8 @@ async function startOrderSync() {
       + (fmMsg ? `<div style="margin-top:4px;">${escapeHtml(fmMsg)}</div>` : "")
       + (trackMsg ? `<div style="margin-top:4px;">${escapeHtml(trackMsg)}</div>` : "");
     showToast(trackMsg || fmMsg || body.msg, (d.failed && d.failed.length) ? "error" : "success");
+    syncDone = true;                 // 转为完成态: 再点按钮只关闭弹窗
     btn.innerText = "完成";
-    setTimeout(() => closeSyncModal(), 1600);
   } catch (e) {
     if (e.message !== "未登录") {
       prog.innerHTML = `❌ 批量更新失败: ${escapeHtml(e.message)}`;

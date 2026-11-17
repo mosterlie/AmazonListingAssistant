@@ -23,6 +23,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from server.database import get_db_connection, get_setting, set_setting
 from server.services.forwarder_doc_service import ForwarderDocService
@@ -71,6 +72,67 @@ _DEFAULT_CONFIG = {
 _RUN_LOCK = threading.Lock()
 _RUNNING = {"running": False, "trigger": None, "started_at": None}
 _OCR = None  # ddddocr 惰性单例 (仅模拟登录时加载)
+
+# ───────── 直连店小秘接口 (不经页面): 仅从 9222 浏览器借 cookie ─────────
+DXM_LIST_URL = "https://www.dianxiaomi.com/api/package/list.json"
+DXM_DETAIL_URL = "https://www.dianxiaomi.com/api/package/detail.json"
+_COOKIE_TTL = 1800          # cookie 缓存 30 分钟
+_FALLBACK_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36")
+
+
+def _cdp_cookie_and_ua():
+    """从 9222 浏览器读取店小秘 cookie 与 UA (只读浏览器存储, 不打开/导航页面)"""
+    import urllib.request
+
+    import websocket
+
+    try:
+        info = json.load(urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=5))
+        ws = websocket.create_connection(info["webSocketDebuggerUrl"], max_size=16 * 1024 * 1024)
+    except Exception:
+        return "", ""
+    try:
+        ws.send(json.dumps({"id": 1, "method": "Storage.getCookies"}))
+        cookies = []
+        while True:
+            msg = json.loads(ws.recv())
+            if msg.get("id") == 1:
+                cookies = ((msg.get("result") or {}).get("cookies")) or []
+                break
+        pairs = [f"{c['name']}={c['value']}" for c in cookies
+                 if "dianxiaomi.com" in (c.get("domain") or "")]
+        return "; ".join(pairs), (info.get("User-Agent") or _FALLBACK_UA)
+    except Exception:
+        return "", ""
+    finally:
+        try:
+            ws.close()
+        except Exception:
+            pass
+
+
+def _load_cookie(force: bool = False):
+    """取店小秘 cookie: 优先本地缓存, 过期/强制时从浏览器重读"""
+    if not force:
+        ck = get_setting("dxm_http_cookie") or ""
+        ua = get_setting("dxm_http_ua") or ""
+        try:
+            ts = int(get_setting("dxm_http_cookie_at") or 0)
+        except Exception:
+            ts = 0
+        if ck and (time.time() - ts) < _COOKIE_TTL:
+            return ck, ua or _FALLBACK_UA
+    ck, ua = _cdp_cookie_and_ua()
+    if ck:
+        try:
+            set_setting("dxm_http_cookie", ck)
+            set_setting("dxm_http_ua", ua or _FALLBACK_UA)
+            set_setting("dxm_http_cookie_at", str(int(time.time())))
+        except Exception:
+            pass
+        return ck, ua or _FALLBACK_UA
+    return "", ""
 
 
 def _get_ocr():
@@ -249,6 +311,184 @@ class DxmOrderService:
             page_no += 1
             time.sleep(0.6)
         return all_orders
+
+    # ───────────────── 按订单号实时查运单号 (直连接口, 不走页面) ─────────────────
+    @staticmethod
+    def _http_headers(cookie: str, ua: str) -> Dict[str, str]:
+        return {
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": ORDER_URL,
+            "Origin": "https://www.dianxiaomi.com",
+            "User-Agent": ua or _FALLBACK_UA,
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Cookie": cookie,
+        }
+
+    @staticmethod
+    def _http_query(order_no: str, cookie: str, ua: str) -> Dict[str, Any]:
+        """直连 /api/package/list.json 按订单号查运单号 (必要时 detail.json 兜底)"""
+        import requests
+
+        no = (order_no or "").strip()
+        tpl = _LIST_POST_TPL.format(page=1, timeout=0)
+        tpl = tpl.replace("isSearch=0", "isSearch=1")
+        tpl = tpl.replace("&orderId=&", f"&orderId={quote(no)}&")
+        r = requests.post(DXM_LIST_URL, data=tpl,
+                          headers=DxmOrderService._http_headers(cookie, ua), timeout=12)
+        if r.status_code != 200:
+            raise RuntimeError(f"HTTP {r.status_code}")
+        try:
+            body = r.json()
+        except Exception:
+            raise RuntimeError("返回非 JSON (cookie 可能已失效)")
+        if body.get("code") != 0:
+            raise RuntimeError(f"接口 code={body.get('code')} msg={body.get('msg')}")
+
+        lst = ((body.get("data") or {}).get("page") or {}).get("list") or []
+        if not lst:
+            return {"order_no": no, "found": False, "tracking_no": "", "package_id": "",
+                    "order_state": "", "shop": "", "source": "", "message": "店小秘未找到该订单"}
+        item = lst[0]
+        pid = str(item.get("id") or "")
+        tracking = str(item.get("trackingNumber") or item.get("agentTrackNum") or "").strip()
+        source = "list" if tracking else ""
+        if not tracking and pid:
+            try:
+                d = requests.post(DXM_DETAIL_URL, data=f"packageId={pid}&history=",
+                                  headers=DxmOrderService._http_headers(cookie, ua),
+                                  timeout=12).json()
+                po = ((d or {}).get("data") or {}).get("parentOrder") or {}
+                tracking = str(po.get("trackingNumber") or po.get("agentTrackNum") or "").strip()
+                if tracking:
+                    source = "detail"
+            except Exception:
+                pass
+        return {
+            "order_no": no, "found": True, "tracking_no": tracking, "package_id": pid,
+            "order_state": item.get("orderStatePlatform") or item.get("orderState") or "",
+            "shop": item.get("shopPlatform") or item.get("shopName") or "",
+            "source": source, "message": "" if tracking else "该订单在店小秘暂无运单号",
+        }
+
+    @staticmethod
+    def lookup_tracking(order_no: str) -> Dict[str, Any]:
+        """亚马逊订单号 → 店小秘运单号 (直连接口查询, 不打开店小秘页面/不启动浏览器)"""
+        no = (order_no or "").strip()
+        if not no:
+            raise ValueError("请提供订单号")
+        cookie, ua = _load_cookie()
+        if not cookie:
+            return {"order_no": no, "found": False, "tracking_no": "", "package_id": "",
+                    "order_state": "", "shop": "", "source": "",
+                    "message": "未取到店小秘登录 cookie：请先在店小秘登录一次，或手动配置 cookie"}
+        try:
+            return DxmOrderService._http_query(no, cookie, ua)
+        except Exception as first:
+            cookie, ua = _load_cookie(force=True)      # cookie 可能过期, 刷新一次重试
+            if not cookie:
+                return {"order_no": no, "found": False, "tracking_no": "", "package_id": "",
+                        "order_state": "", "shop": "", "source": "", "message": f"查询失败: {first}"}
+            try:
+                return DxmOrderService._http_query(no, cookie, ua)
+            except Exception as e:
+                return {"order_no": no, "found": False, "tracking_no": "", "package_id": "",
+                        "order_state": "", "shop": "", "source": "", "message": f"查询失败: {e}"}
+
+    @staticmethod
+    def lookup_tracking_batch(order_nos: List[str]) -> Dict[str, Dict[str, Any]]:
+        """批量按订单号查运单号 (直连接口, 共用一份 cookie, 失败自动刷新重试一次)"""
+        nos = [str(n or "").strip() for n in (order_nos or []) if str(n or "").strip()]
+        if not nos:
+            return {}
+        cookie, ua = _load_cookie()
+        if not cookie:
+            return {"__error__": "未取到店小秘登录 cookie"}
+
+        def run(ck: str, u: str, targets: List[str]) -> Dict[str, Dict[str, Any]]:
+            res: Dict[str, Dict[str, Any]] = {}
+            for no in targets:
+                try:
+                    res[no] = DxmOrderService._http_query(no, ck, u)
+                except Exception as e:
+                    res[no] = {"found": False, "tracking_no": "", "message": f"查询失败: {e}"}
+            return res
+
+        out = run(cookie, ua, nos)
+        failed = [n for n, v in out.items() if str(v.get("message", "")).startswith("查询失败")]
+        if failed:
+            ck2, ua2 = _load_cookie(force=True)
+            if ck2 and ck2 != cookie:
+                out.update(run(ck2, ua2, failed))
+        return out
+
+    @staticmethod
+    def backfill_missing_tracking(limit: int = 20) -> Dict[str, Any]:
+        """同步后回填运单号: 挑出没有运单号的订单, 用店小秘按订单号查询并写回
+
+        只填空值, 不覆盖已有运单号; 手工填写 (tracking_no_manual=1) 的订单跳过。
+        """
+        limit = max(1, min(int(limit or 20), 200))
+        stats: Dict[str, Any] = {"checked": 0, "filled": 0, "not_found": 0,
+                                 "failed": 0, "samples": [], "error": ""}
+        conn = get_db_connection()
+        try:
+            rows = conn.execute("""
+                SELECT order_sn FROM (
+                    SELECT p.order_sn AS order_sn, o.id AS oid, IFNULL(o.gmt_order, '') AS t
+                      FROM fm_packages p JOIN fm_orders o ON o.order_sn = p.order_sn
+                     WHERE IFNULL(p.tracking_no, '') = '' AND IFNULL(p.order_sn, '') <> ''
+                    UNION
+                    SELECT m.order_sn AS order_sn, 0 AS oid, IFNULL(m.gmt_order, '') AS t
+                      FROM miaoshou_orders m
+                     WHERE IFNULL(m.tracking_no, '') = '' AND IFNULL(m.tracking_no_manual, 0) = 0
+                       AND IFNULL(m.order_sn, '') <> ''
+                ) GROUP BY order_sn
+                ORDER BY MAX(t) DESC, MAX(oid) DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
+        finally:
+            conn.close()
+        nos = [r["order_sn"] for r in rows]
+        stats["checked"] = len(nos)
+        if not nos:
+            return stats
+
+        from server.services.dxm_order_service import DxmOrderService  # 延迟导入, 避免启动即加载浏览器依赖
+        try:
+            res = DxmOrderService.lookup_tracking_batch(nos)
+        except Exception as e:
+            stats["failed"] = len(nos)
+            stats["error"] = f"{type(e).__name__}: {e}"
+            return stats
+        if isinstance(res, dict) and res.get("__error__"):
+            stats["failed"] = len(nos)
+            stats["error"] = res["__error__"]
+            return stats
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn = get_db_connection()
+        try:
+            for no, d in (res or {}).items():
+                track = str((d or {}).get("tracking_no") or "").strip()
+                if not track:
+                    stats["not_found"] += 1
+                    continue
+                c1 = conn.execute(
+                    "UPDATE fm_packages SET tracking_no = ? "
+                    "WHERE order_sn = ? AND IFNULL(tracking_no, '') = ''", (track, no))
+                c2 = conn.execute(
+                    "UPDATE miaoshou_orders SET tracking_no = ?, track_refreshed_at = ? "
+                    "WHERE order_sn = ? AND IFNULL(tracking_no, '') = '' "
+                    "  AND IFNULL(tracking_no_manual, 0) = 0", (track, now_str, no))
+                if (c1.rowcount or 0) + (c2.rowcount or 0) > 0:
+                    stats["filled"] += 1
+                    if len(stats["samples"]) < 8:
+                        stats["samples"].append({"order_sn": no, "tracking_no": track})
+            conn.commit()
+        finally:
+            conn.close()
+        return stats
 
     @staticmethod
     def _collect(cfg: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], str]:
