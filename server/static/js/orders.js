@@ -719,6 +719,20 @@ function trackSteps(details, purchaseDate) {
   pushNode(center, "到达作业中心");
   pushNode(latest, "最新轨迹");
 
+  // 未送达时追加「当前」节点并高亮, 表示仍在途
+  const delivered = /签收|配达|配達|受取|お届け完了|delivered|已送达|投递成功/i
+    .test(descOf(latest) || "");
+  if (!delivered) {
+    const now = new Date();
+    const pad2 = n => String(n).padStart(2, "0");
+    steps.push({
+      label: "当前",
+      time: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())} ` +
+            `${pad2(now.getHours())}:${pad2(now.getMinutes())}:00`,
+      current: true,
+    });
+  }
+
   // 采购固定在第一位, 其余轨迹节点按时间升序
   const head = steps.shift();
   steps.sort((a, b) => String(a.time).localeCompare(String(b.time)));
@@ -792,7 +806,7 @@ function trackStepBar(details, purchaseDate) {
   const steps = trackSteps(details, purchaseDate);
   if (!steps.length) return "";
   return `<div class="wb-steps">${steps.map((s, i) => `
-    <div class="wb-step ${i < steps.length - 1 ? "done" : ""}">
+    <div class="wb-step ${i < steps.length - 1 ? "done" : ""}${s.current ? " current" : ""}">
       ${s.gap ? `<div class="wb-step-gap" data-tip="${escapeHtml(s.restTip || "")}">${escapeHtml(s.gap)}</div>` : ""}
       <div class="wb-step-dot"></div>
       <div class="wb-step-label">${escapeHtml(s.label)}</div>

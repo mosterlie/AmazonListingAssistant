@@ -1746,3 +1746,9 @@ input[type="text"],
 .wb-step.done .wb-step-label { color:#1d4ed8; }
 .wb-step:last-child .wb-step-label { font-weight:700; color:#0f172a; }
 .wb-step-time { font-size:0.66rem; color:#94a3b8; margin-top:4px; }
+/* 未送达: 末尾「当前」节点高亮 */
+.wb-step.current::before { background:#fdba74; }
+.wb-step.current .wb-step-dot { background:#f97316; border-color:#fdba74;
+  box-shadow:0 0 0 3px rgba(249,115,22,.18); }
+.wb-step.current .wb-step-label { color:#ea580c; font-weight:700; }
+.wb-step.current .wb-step-time { color:#fb923c; }
