@@ -81,48 +81,129 @@ _FALLBACK_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537
                 "(KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36")
 
 
-def _cdp_cookie_and_ua():
-    """从 9222 浏览器读取店小秘 cookie 与 UA (只读浏览器存储, 不打开/导航页面)"""
+def _cookies_to_header(cookies) -> str:
+    pairs = [f"{c['name']}={c['value']}" for c in (cookies or [])
+             if "dianxiaomi.com" in (c.get("domain") or "")]
+    return "; ".join(pairs)
+
+
+def _cdp_browser_cookie(ua_holder):
+    """browser 级 Storage.getCookies (部分 Chrome 不支持, 报 -32000)"""
     import urllib.request
 
     import websocket
 
-    try:
-        info = json.load(urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=5))
-        ws = websocket.create_connection(info["webSocketDebuggerUrl"], max_size=16 * 1024 * 1024)
-    except Exception:
-        return "", ""
+    info = json.load(urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=5))
+    ua_holder["ua"] = info.get("User-Agent") or _FALLBACK_UA
+    ws = websocket.create_connection(info["webSocketDebuggerUrl"], max_size=16 * 1024 * 1024)
     try:
         ws.send(json.dumps({"id": 1, "method": "Storage.getCookies"}))
-        cookies = []
-        while True:
+        for _ in range(20):
             msg = json.loads(ws.recv())
-            if msg.get("id") == 1:
-                cookies = ((msg.get("result") or {}).get("cookies")) or []
-                break
-        pairs = [f"{c['name']}={c['value']}" for c in cookies
-                 if "dianxiaomi.com" in (c.get("domain") or "")]
-        return "; ".join(pairs), (info.get("User-Agent") or _FALLBACK_UA)
-    except Exception:
-        return "", ""
+            if msg.get("id") != 1:
+                continue
+            if msg.get("error"):
+                return ""
+            cks = ((msg.get("result") or {}).get("cookies")) or []
+            return _cookies_to_header(cks)
     finally:
         try:
             ws.close()
         except Exception:
             pass
+    return ""
+
+
+def _cdp_page_cookie(ua_holder):
+    """页面级 Network.getAllCookies; 无页面时临时开 about:blank, 读完立即关闭"""
+    import urllib.request
+
+    import websocket
+
+    pages = json.load(urllib.request.urlopen("http://127.0.0.1:9222/json", timeout=5))
+    target = next((p for p in pages if p.get("type") == "page"
+                   and "dianxiaomi.com" in (p.get("url") or "")), None) \
+        or next((p for p in pages if p.get("type") == "page" and p.get("webSocketDebuggerUrl")), None)
+    temp_id = ""
+    if not target:
+        req = urllib.request.Request("http://127.0.0.1:9222/json/new?about:blank", method="PUT")
+        target = json.load(urllib.request.urlopen(req, timeout=5))
+        temp_id = target.get("id") or ""
+    ws_url = target.get("webSocketDebuggerUrl")
+    if not ws_url:
+        return ""
+    header = ""
+    try:
+        ws = websocket.create_connection(ws_url, max_size=16 * 1024 * 1024)
+        try:
+            ws.send(json.dumps({"id": 1, "method": "Network.getAllCookies"}))
+            for _ in range(20):
+                msg = json.loads(ws.recv())
+                if msg.get("id") != 1:
+                    continue
+                if msg.get("error"):
+                    break
+                header = _cookies_to_header(((msg.get("result") or {}).get("cookies")) or [])
+                break
+            try:
+                ws.send(json.dumps({"id": 2, "method": "Runtime.evaluate",
+                                    "params": {"expression": "navigator.userAgent", "returnByValue": True}}))
+                for _ in range(20):
+                    m2 = json.loads(ws.recv())
+                    if m2.get("id") == 2:
+                        v = (((m2.get("result") or {}).get("result") or {}).get("value")) or ""
+                        if v:
+                            ua_holder["ua"] = v
+                        break
+            except Exception:
+                pass
+        finally:
+            try:
+                ws.close()
+            except Exception:
+                pass
+    finally:
+        if temp_id:
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:9222/json/close/{temp_id}", timeout=5).read()
+            except Exception:
+                pass
+    return header
+
+
+def _cdp_cookie_and_ua():
+    """从 9222 浏览器读取店小秘 cookie 与 UA (只读存储, 不导航页面)
+
+    通道: ① browser 级 Storage.getCookies → ② 页面级 Network.getAllCookies
+          (该 Chrome 不支持 browser context 管理时, ① 会报 -32000, 自动回落 ②)
+    """
+    holder = {"ua": _FALLBACK_UA}
+    try:
+        header = _cdp_browser_cookie(holder)
+        if header:
+            return header, holder["ua"]
+    except Exception:
+        pass
+    try:
+        header = _cdp_page_cookie(holder)
+        if header:
+            return header, holder["ua"]
+    except Exception:
+        pass
+    return "", ""
 
 
 def _load_cookie(force: bool = False):
-    """取店小秘 cookie: 优先本地缓存, 过期/强制时从浏览器重读"""
-    if not force:
-        ck = get_setting("dxm_http_cookie") or ""
-        ua = get_setting("dxm_http_ua") or ""
-        try:
-            ts = int(get_setting("dxm_http_cookie_at") or 0)
-        except Exception:
-            ts = 0
-        if ck and (time.time() - ts) < _COOKIE_TTL:
-            return ck, ua or _FALLBACK_UA
+    """取店小秘 cookie: 优先本地缓存, 过期/强制时从浏览器重读; 重读失败回退旧缓存"""
+    old_ck = get_setting("dxm_http_cookie") or ""
+    old_ua = get_setting("dxm_http_ua") or ""
+    try:
+        ts = int(get_setting("dxm_http_cookie_at") or 0)
+    except Exception:
+        ts = 0
+    if not force and old_ck and (time.time() - ts) < _COOKIE_TTL:
+        return old_ck, old_ua or _FALLBACK_UA
+
     ck, ua = _cdp_cookie_and_ua()
     if ck:
         try:
@@ -132,6 +213,10 @@ def _load_cookie(force: bool = False):
         except Exception:
             pass
         return ck, ua or _FALLBACK_UA
+
+    # 重读失败: 旧 cookie 往往仍然有效, 先用它兜底
+    if old_ck:
+        return old_ck, old_ua or _FALLBACK_UA
     return "", ""
 
 
@@ -385,12 +470,12 @@ class DxmOrderService:
         try:
             return DxmOrderService._http_query(no, cookie, ua)
         except Exception as first:
-            cookie, ua = _load_cookie(force=True)      # cookie 可能过期, 刷新一次重试
-            if not cookie:
+            ck2, ua2 = _load_cookie(force=True)        # cookie 可能过期, 刷新一次重试
+            if not ck2 or ck2 == cookie:               # 没换到新 cookie 就不重复请求
                 return {"order_no": no, "found": False, "tracking_no": "", "package_id": "",
                         "order_state": "", "shop": "", "source": "", "message": f"查询失败: {first}"}
             try:
-                return DxmOrderService._http_query(no, cookie, ua)
+                return DxmOrderService._http_query(no, ck2, ua2)
             except Exception as e:
                 return {"order_no": no, "found": False, "tracking_no": "", "package_id": "",
                         "order_state": "", "shop": "", "source": "", "message": f"查询失败: {e}"}

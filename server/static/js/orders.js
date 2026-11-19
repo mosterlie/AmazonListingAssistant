@@ -700,7 +700,7 @@ function trackSummaryCell(o) {
 /* 轨迹概览节点: 采购 → 快件电子信息已经收到 → 作业中心(无则第二个节点) → 最新轨迹 */
 function trackSteps(details, purchaseDate) {
   const list = details || [];
-  const descOf = t => decodeEntities(t.track_description || "").trim();
+  const descOf = t => decodeEntities((t && t.track_description) || "").trim();
   const latest = list[0] || null;                        // 轨迹按时间倒序, 第一条即当前
   // 仅有「快件电子信息」轨迹时才展示该节点, 没有则不额外增加
   const infoNode = list.find(t => /快件电子信息/.test(descOf(t)));
@@ -719,10 +719,10 @@ function trackSteps(details, purchaseDate) {
   pushNode(center, "到达作业中心");
   pushNode(latest, "最新轨迹");
 
-  // 未送达时追加「当前」节点并高亮, 表示仍在途
+  // 未送达时追加「当前」节点并高亮, 表示仍在途 (没有任何轨迹时不加, 避免看起来像有轨迹)
   const delivered = /签收|配达|配達|受取|お届け完了|delivered|已送达|投递成功/i
     .test(descOf(latest) || "");
-  if (!delivered) {
+  if (latest && !delivered) {
     const now = new Date();
     const pad2 = n => String(n).padStart(2, "0");
     steps.push({

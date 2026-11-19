@@ -319,6 +319,7 @@ class FulfillmentService:
         ids = [int(o["id"]) for o in orders]
         pkg_map: Dict[int, List[Dict[str, Any]]] = {}
         tail_map: Dict[str, List[str]] = {}
+        track_map: Dict[int, Dict[str, Any]] = {}
         if ids:
             conn = get_db_connection()
             try:
@@ -334,6 +335,16 @@ class FulfillmentService:
                     ORDER BY p.id
                 """, ids):
                     pkg_map.setdefault(int(r["oid"]), []).append(dict(r))
+                # 轨迹以妙手最新刷新为准 (包裹快照可能落后于轨迹更新)
+                src_ids = [int(o.get("source_row_id") or 0) for o in orders
+                           if int(o.get("source_row_id") or 0) > 0]
+                if src_ids:
+                    mk = ",".join("?" * len(src_ids))
+                    for r in conn.execute(f"""
+                        SELECT id, track_desc, track_time, track_status_name, track_refreshed_at
+                        FROM miaoshou_orders WHERE id IN ({mk})
+                    """, src_ids):
+                        track_map[int(r["id"])] = dict(r)
                 # 合单: 同运单号的其他履约订单
                 tails = sorted({(p.get("tracking_no") or "").strip()
                                 for arr in pkg_map.values() for p in arr
@@ -392,11 +403,14 @@ class FulfillmentService:
             pkgs = pkg_map.get(int(o["id"]), [])
             o["packages"] = pkgs
             first = pkgs[0] if pkgs else {}
-            o["tracking_no"] = first.get("tracking_no", "")
+            # 轨迹取妙手最新刷新结果, 没有再用包裹快照兜底
+            ms = track_map.get(src) or {}
+            o["tracking_no"] = first.get("tracking_no", "") or (ms.get("tracking_no") or "")
             o["tracking_company"] = first.get("tracking_company", "")
-            o["track_status_name"] = first.get("track_status_name", "")
-            o["track_desc"] = first.get("track_desc", "")
-            o["track_time"] = first.get("track_time", "")
+            o["track_status_name"] = (ms.get("track_status_name")
+                                      or first.get("track_status_name", ""))
+            o["track_desc"] = ms.get("track_desc") or first.get("track_desc", "")
+            o["track_time"] = ms.get("track_time") or first.get("track_time", "")
             o["package_status"] = first.get("package_status", "")
             o["package_status_text"] = first.get("package_status_text", "")
             o["app_package_no"] = first.get("app_package_no", "")
