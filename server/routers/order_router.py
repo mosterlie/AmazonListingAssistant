@@ -629,6 +629,15 @@ class TrackRefreshSchema(BaseModel):
     ids: List[int] = Field(default_factory=list)
 
 
+@router.post("/{order_id}/mark-delivered", summary="人工标记已送达 (物流未回传时兜底)")
+def mark_delivered(order_id: int, user: dict = Depends(get_current_user)):
+    try:
+        data = OrderService.mark_delivered(order_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"code": 0, "msg": "已标记为送达", "data": data}
+
+
 @router.get("/{order_id}/track", summary="运单轨迹详情 (实时查询初道轨迹 + 时间线)")
 def order_track(order_id: int, user: dict = Depends(get_current_user)):
     try:

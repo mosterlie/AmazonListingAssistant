@@ -746,6 +746,8 @@ def init_db():
         ("prev_tracking_no TEXT DEFAULT ''", "prev_tracking_no"),
         # 人工修改标记: 1 表示运单号被手工改过, 妙手同步不再覆盖该值
         ("tracking_no_manual INTEGER DEFAULT 0", "tracking_no_manual"),
+        # 人工标记送达: 1 表示运单状态被手工标为「标记送达」, 轨迹同步不再覆盖
+        ("track_status_manual INTEGER DEFAULT 0", "track_status_manual"),
         # 补录信息: 采购日期 / 国内包裹数量 / 国内单号 (人工录入, 同步不覆盖)
         ("purchase_date TEXT DEFAULT ''", "purchase_date"),
         ("domestic_package_count INTEGER DEFAULT 0", "domestic_package_count"),

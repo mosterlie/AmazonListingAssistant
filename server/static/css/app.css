@@ -1717,6 +1717,12 @@ input[type="text"],
 .nav-dropdown-item:hover { background: #eff6ff; color: #1d4ed8; }
 .nav-dropdown-item.active { background: #eff6ff; color: #1d4ed8; }
 
+/* 运送时长提示 */
+.wb-transit { display:inline-flex; align-items:center; margin:0 0 8px; padding:3px 10px;
+  border-radius:9999px; font-size:0.75rem; font-weight:700; line-height:1.5; }
+.wb-transit.doing { background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; }
+.wb-transit.done { background:#f0fdf4; color:#15803d; border:1px solid #bbf7d0; }
+
 /* 轨迹概览: 采购 → 中间节点 → 最新节点 (段上方标注间隔) */
 .wb-steps { display:flex; align-items:flex-start; margin:6px 0 14px; padding:14px 10px 12px;
   background:#f8fafc; border:1px solid #e8eef6; border-radius:10px; }
@@ -1752,3 +1758,14 @@ input[type="text"],
   box-shadow:0 0 0 3px rgba(249,115,22,.18); }
 .wb-step.current .wb-step-label { color:#ea580c; font-weight:700; }
 .wb-step.current .wb-step-time { color:#fb923c; }
+
+/* 最新轨迹: 满 5 天无更新时挂一个「停N天」小徽标 (绝对定位, 不撑开单元格) */
+.track-summary { cursor:pointer; max-width:260px; position:relative; }
+.track-summary.stale > div:first-of-type { color:#b91c1c !important; padding-right:38px; }
+.track-summary .stale-badge {
+  position:absolute; top:-2px; right:0; z-index:1;
+  padding:0 5px; height:14px; line-height:14px; border-radius:7px;
+  font-size:0.6rem; font-weight:700; color:#fff; background:#ef4444;
+  box-shadow:0 1px 3px rgba(239,68,68,.35); white-space:nowrap;
+  pointer-events:none;
+}

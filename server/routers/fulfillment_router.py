@@ -120,6 +120,33 @@ def get_meta(user: dict = READ_DEP):
     }}
 
 
+@router.post("/orders/{order_id}/mark-delivered", summary="人工标记已送达 (履约订单)")
+def mark_order_delivered(order_id: int, user: dict = EDIT_DEP):
+    from server.database import get_db_connection
+    from server.services.order_service import OrderService
+
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT source_row_id FROM fm_orders WHERE id = ?",
+                           (int(order_id),)).fetchone()
+        if not row:
+            # 容错: 若传进来的是妙手订单 id, 反查对应履约订单
+            row = conn.execute("SELECT source_row_id FROM fm_orders WHERE source_row_id = ?",
+                               (int(order_id),)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="履约订单不存在")
+    src_id = int(row["source_row_id"] or 0)
+    if not src_id:
+        raise HTTPException(status_code=400, detail="该订单未关联妙手数据，无法标记送达")
+    try:
+        data = OrderService.mark_delivered(src_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"code": 0, "msg": "已标记为送达", "data": data}
+
+
 @router.post("/orders/sync", summary="从妙手同步订单/包裹并自动匹配 (可按订单号)")
 def sync_orders(payload: SyncSchema, user: dict = EDIT_DEP):
     data = FulfillmentService.sync_from_miaoshou(

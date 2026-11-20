@@ -41,6 +41,7 @@ STATUS_OPTIONS = [
 ]
 DEFAULT_STATUSES = [s["value"] for s in STATUS_OPTIONS]
 CLOSED_STATUS = "cancelled"   # 已关闭 (退款/关闭) —— 列表与统计默认排除
+MARK_DELIVERED_STATUS = "标记送达"   # 人工标记已送达 (物流未回传时的兜底)
 
 
 def _now_local() -> str:
@@ -153,18 +154,58 @@ class OrderService:
 
     @staticmethod
     def _save_track_snapshot(order_id: int, summary: Dict[str, Any]) -> str:
+        """回写轨迹快照
+
+        规则:
+        - 轨迹有变化 → 状态与轨迹全部按真实物流覆盖 (人工标记也会被纠正)
+        - 轨迹无变化且订单被人工标记过送达 → 保留人工状态, 只刷新刷新时间
+        """
         now = _now_local()
+        new_status = summary.get("track_status_name", "") or ""
+        new_desc = summary.get("last_track_desc", "") or ""
+        new_time = summary.get("last_track_time", "") or ""
         conn = get_db_connection()
         try:
-            conn.execute(
-                "UPDATE miaoshou_orders SET track_status_name = ?, track_desc = ?, track_time = ?, "
-                "track_refreshed_at = ? WHERE id = ?",
-                (summary.get("track_status_name", ""), summary.get("last_track_desc", ""),
-                 summary.get("last_track_time", ""), now, int(order_id)))
+            row = conn.execute(
+                "SELECT track_desc, track_time, track_status_manual FROM miaoshou_orders WHERE id = ?",
+                (int(order_id),)).fetchone()
+            same = bool(row) and (row["track_desc"] or "") == new_desc \
+                and (row["track_time"] or "") == new_time
+            if same and int(row["track_status_manual"] or 0) == 1:
+                conn.execute("UPDATE miaoshou_orders SET track_refreshed_at = ? WHERE id = ?",
+                             (now, int(order_id)))
+            else:
+                conn.execute(
+                    "UPDATE miaoshou_orders SET track_status_name = ?, track_desc = ?, "
+                    "track_time = ?, track_refreshed_at = ? WHERE id = ?",
+                    (new_status, new_desc, new_time, now, int(order_id)))
             conn.commit()
         finally:
             conn.close()
         return now
+
+    @staticmethod
+    def mark_delivered(order_id: int) -> Dict[str, Any]:
+        """人工标记已送达 (临时状态): 物流未回传时先标记, 后续轨迹同步仍会按真实物流覆盖状态与轨迹"""
+        conn = get_db_connection()
+        try:
+            row = conn.execute(
+                "SELECT id, order_sn FROM miaoshou_orders WHERE id = ?", (int(order_id),)).fetchone()
+            if not row:
+                raise ValueError("订单不存在")
+            conn.execute(
+                "UPDATE miaoshou_orders SET track_status_name = ?, track_status_manual = 1 "
+                "WHERE id = ?", (MARK_DELIVERED_STATUS, int(order_id)))
+            if row["order_sn"]:
+                # 履约包裹快照同步更新, 履约列表读包裹状态时也一致
+                conn.execute(
+                    "UPDATE fm_packages SET track_status_name = ? WHERE order_sn = ?",
+                    (MARK_DELIVERED_STATUS, row["order_sn"]))
+            conn.commit()
+        finally:
+            conn.close()
+        return {"id": int(order_id), "track_status_name": MARK_DELIVERED_STATUS,
+                "track_status_manual": 1}
 
     @staticmethod
     def _track_candidates(order_sn: str, tail_no: str) -> List[str]:
@@ -431,6 +472,22 @@ class OrderService:
             summary = WaybillService._track_summary(track)
             channel_no = (summary.get("channel_hawbcode") or "").strip()
             refreshed_at = OrderService._save_track_snapshot(order_id, summary)
+            # 返回库中最终值: 人工标记且轨迹无变化时, 状态会保留为「标记送达」
+            conn = get_db_connection()
+            try:
+                cur = conn.execute(
+                    "SELECT track_status_name, track_desc, track_time FROM miaoshou_orders WHERE id = ?",
+                    (int(order_id),)).fetchone()
+            finally:
+                conn.close()
+            if cur:
+                summary = dict(summary)
+                summary["track_status_name"] = (cur["track_status_name"]
+                                                or summary.get("track_status_name", ""))
+                summary["last_track_desc"] = (cur["track_desc"]
+                                              or summary.get("last_track_desc", ""))
+                summary["last_track_time"] = (cur["track_time"]
+                                              or summary.get("last_track_time", ""))
         else:
             summary = {
                 "track_status_name": row["track_status_name"] or "",

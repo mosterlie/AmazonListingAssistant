@@ -556,19 +556,80 @@ async function loadOrderFilters() {
 /* ───────── 运单轨迹 (与运单管理同源: 初道 gettrack) ───────── */
 const trackState = { orderId: 0, data: null };
 
-/* 轨迹状态徽标: 按关键词着色 (签收=绿 / 异常退回=红 / 运输派送=蓝 / 揽收=靛) */
-function trackChip(name) {
+/* 轨迹状态徽标: 按关键词着色 (签收=绿 / 异常退回=红 / 运输派送=蓝 / 揽收=靛)
+   opts.orderId 存在且未送达时, 点击可人工标记送达 */
+function trackChip(name, opts) {
   const s = String(name || "").trim();
   if (!s) return `<span style="color:#cbd5e1;">—</span>`;
   let bg = "#f1f5f9", color = "#475569";
-  if (/签收|妥投|已送达|投递成功|delivered/i.test(s)) { bg = "#dcfce7"; color = "#15803d"; }
+  const done = /签收|妥投|已送达|投递成功|delivered|标记送达/i.test(s);
+  if (done) { bg = "#dcfce7"; color = "#15803d"; }
   else if (/退回|退件|退运|异常|失败|丢失|扣留|销毁|return|failed|exception|expired/i.test(s)) {
     bg = "#fef2f2"; color = "#dc2626";
   } else if (/派送|派件|运输|转运|已发出|出库|清关|离港|到港|到达|transit|out for delivery|departed|arrived/i.test(s)) {
     bg = "#eff6ff"; color = "#1d4ed8";
   } else if (/揽收|收寄|已收件|pick ?up|collected/i.test(s)) { bg = "#eef2ff"; color = "#4338ca"; }
-  return `<span style="display:inline-block; padding:2px 9px; border-radius:9999px; font-size:0.72rem;
-    font-weight:700; white-space:nowrap; background:${bg}; color:${color};">${escapeHtml(s)}</span>`;
+  const style = `display:inline-block; padding:2px 9px; border-radius:9999px; font-size:0.72rem;
+    font-weight:700; white-space:nowrap; background:${bg}; color:${color};`;
+  const o = opts || {};
+  if (!done && o.orderId) {
+    const sn = String(o.orderSn || "").replace(/['"\\]/g, "");
+    return `<span style="${style} cursor:pointer;" title="点击标记为已送达"
+      onclick="confirmMarkDelivered(${Number(o.orderId)}, '${sn}')">${escapeHtml(s)}</span>`;
+  }
+  return `<span style="${style}">${escapeHtml(s)}</span>`;
+}
+
+/* 人工标记送达确认框 (与其他弹框同款样式) */
+function confirmMarkDelivered(orderId, orderSn) {
+  if (!orderId) return;
+  const overlay = document.createElement("div");
+  overlay.className = "custom-modal";
+  overlay.style.zIndex = "10060";
+  overlay.innerHTML = `
+    <div class="custom-modal-backdrop"></div>
+    <div class="custom-modal-dialog" style="max-width:430px;">
+      <div class="custom-modal-header" style="padding:10px 16px !important;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.15rem;">📦</span>
+          <h3 style="margin:0; font-size:0.92rem; color:#0f172a; font-weight:700;">标记为已送达</h3>
+        </div>
+      </div>
+      <div class="custom-modal-body" style="padding:14px 16px !important; font-size:0.84rem;
+        color:#334155; line-height:1.7;">
+        订单 <b>${escapeHtml(orderSn || "—")}</b> 的物流信息尚未更新，实际已经送到了吗？<br>
+        <span style="color:#64748b; font-size:0.78rem;">确认后运单状态将手工标记为「标记送达」，后续轨迹同步不会覆盖该状态。</span>
+      </div>
+      <div class="custom-modal-footer" style="padding:8px 16px !important;">
+        <button class="btn btn-outline" type="button" data-cancel
+          style="padding:5px 14px; font-size:0.82rem;">取消</button>
+        <button class="btn btn-primary" type="button" data-ok
+          style="padding:5px 16px; font-size:0.84rem;">确认送达</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", e => {
+    if (e.target === overlay || e.target.closest("[data-cancel]")
+        || e.target.closest(".custom-modal-backdrop")) close();
+  });
+  overlay.querySelector("[data-ok]").addEventListener("click", async function () {
+    this.disabled = true;
+    this.textContent = "处理中…";
+    try {
+      await orderApi(FM_VARIANT
+        ? `/api/fulfillment/orders/${orderId}/mark-delivered`
+        : `/api/orders/${orderId}/mark-delivered`, { method: "POST" });
+      close();
+      showToast("已标记为送达", "success");
+      await loadOrders();
+    } catch (e) {
+      this.disabled = false;
+      this.textContent = "确认送达";
+      if (e.message !== "未登录") showToast("标记失败：" + e.message, "error");
+    }
+  });
+  return overlay;
 }
 
 /* ── 运单号跳转查询 (与运单管理页一致: 自动复制 + 打开对应网站) ── */
@@ -684,13 +745,32 @@ function purchaseDateArg(o) {
   return String(pick).replace(/[^\d-]/g, "");
 }
 
+/* 送达判定关键词 (配达完了 / 签收成功 / お届け完了 ...) */
+const DELIVERED_RE = /签收|配达|配達|受取|お届け完了|delivered|已送达|投递成功/i;
+/* 轨迹停滞提醒阈值 (天, 含当天: 满 5 天即提醒) */
+const TRACK_STALE_DAYS = 5;
+
+/* 最新轨迹距今天数 (无法解析返回 null) */
+function trackStaleDays(time) {
+  const t = trackParseTime(time);
+  if (isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / 86400000);
+}
+
 function trackSummaryCell(o) {
   const desc = decodeEntities(String(o.track_desc || "").trim());
   const time = String(o.track_time || "").trim();
   if (!desc && !time) return `<span style="color:#cbd5e1;">—</span>`;
   const oid = trackOrderId(o);
   const pdate = purchaseDateArg(o);
-  return `<div style="cursor:pointer; max-width:260px;"${oid ? ` onclick="openOrderTrack(${oid}, '${pdate}')"` : ""}>
+  // 满 5 天没有轨迹更新: 醒目标识; 已送达的订单不再提醒
+  const staleDays = time ? trackStaleDays(time) : null;
+  const stale = !DELIVERED_RE.test(desc) && staleDays !== null
+    && staleDays >= TRACK_STALE_DAYS;
+  const tip = stale ? `已 ${staleDays} 天无轨迹更新` : "";
+  return `<div class="track-summary${stale ? " stale" : ""}"${oid ? ` onclick="openOrderTrack(${oid}, '${pdate}')"` : ""}
+      ${tip ? `title="${escapeHtml(tip)}"` : ""}>
+    ${stale ? `<span class="stale-badge" title="${escapeHtml(tip)}">停${staleDays}天</span>` : ""}
     <div style="font-size:0.76rem; color:#334155; line-height:1.4; white-space:nowrap; overflow:hidden;
       text-overflow:ellipsis;">${escapeHtml(desc || "—")}</div>
     ${time ? `<div style="font-size:0.68rem; color:#94a3b8; margin-top:2px;">🕐 ${escapeHtml(time)}</div>` : ""}
@@ -720,8 +800,7 @@ function trackSteps(details, purchaseDate) {
   pushNode(latest, "最新轨迹");
 
   // 未送达时追加「当前」节点并高亮, 表示仍在途 (没有任何轨迹时不加, 避免看起来像有轨迹)
-  const delivered = /签收|配达|配達|受取|お届け完了|delivered|已送达|投递成功/i
-    .test(descOf(latest) || "");
+  const delivered = DELIVERED_RE.test(descOf(latest) || "");
   if (latest && !delivered) {
     const now = new Date();
     const pad2 = n => String(n).padStart(2, "0");
@@ -820,7 +899,9 @@ function patchTrackRow(orderId, d) {
     || document.querySelector(`#orderTableBody tr[data-src="${orderId}"]`);
   if (!tr) return;
   const st = tr.querySelector(".js-track-status");
-  if (st) st.innerHTML = trackChip(d.track_status_name);
+  if (st) st.innerHTML = trackChip(d.track_status_name, {
+    orderId: Number(tr.dataset.oid || 0), orderSn: "",
+  });
   const desc = tr.querySelector(".js-track-desc");
   if (desc) desc.innerHTML = trackSummaryCell({
     id: FM_VARIANT ? 0 : orderId,
@@ -870,12 +951,16 @@ async function openOrderTrack(orderId, purchaseDate) {
 
     const details = d.details || [];
     const stepBar = trackStepBar(details, purchaseDate);
+    const transit = transitSummary(details, purchaseDate);
+    const transitBar = transit
+      ? `<div class="wb-transit ${transit.delivered ? "done" : "doing"}">${escapeHtml(transit.text)}</div>`
+      : "";
     if (!details.length) {
-      bodyEl.innerHTML = `${stepBar}<div style="text-align:center; padding:34px; color:#94a3b8;">
+      bodyEl.innerHTML = `${transitBar}${stepBar}<div style="text-align:center; padding:34px; color:#94a3b8;">
         该运单暂无轨迹记录${d.last_track_desc ? `<div style="margin-top:8px; color:#64748b; font-size:0.82rem;">${escapeHtml(decodeEntities(d.last_track_desc))}</div>` : ""}</div>`;
       return;
     }
-    bodyEl.innerHTML = stepBar + `<div class="wb-timeline">` + details.map((t, i) => `
+    bodyEl.innerHTML = transitBar + stepBar + `<div class="wb-timeline">` + details.map((t, i) => `
       <div class="wb-timeline-item">
         <div class="wb-timeline-time">🕐 ${escapeHtml(t.track_occur_date || "")}${t.track_location ? " · " + escapeHtml(t.track_location) : ""}
           ${i === 0 ? `<span style="display:inline-block; margin-left:6px; padding:0 6px; border-radius:9999px;
@@ -894,6 +979,25 @@ function closeOrderTrack() {
   if (modal) modal.style.display = "none";
   trackState.orderId = 0;
   trackState.data = null;
+}
+
+/* 运送时长: 首条轨迹(无则用采购时间) → 签收时间(已送达) 或 当前时间 */
+function transitSummary(details, purchaseDate) {
+  const list = details || [];
+  const descOf = t => decodeEntities((t && t.track_description) || "").trim();
+  const latest = list[0] || null;
+  const earliest = list.length ? list[list.length - 1] : null;
+  const startStr = (earliest && earliest.track_occur_date) || purchaseDate || "";
+  const start = trackParseTime(startStr);
+  if (isNaN(start)) return null;
+  const delivered = DELIVERED_RE.test(descOf(latest));
+  const end = delivered ? trackParseTime((latest && latest.track_occur_date) || "") : Date.now();
+  if (isNaN(end) || end <= start) return null;
+  const diff = end - start;
+  const days = Math.floor(diff / 86400000);
+  const hours = Math.floor((diff % 86400000) / 3600000);
+  const span = days > 0 ? `${days} 天 ${hours} 小时` : `${hours} 小时`;
+  return { delivered, text: delivered ? `共运送 ${span}` : `已运送 ${span}` };
 }
 
 function copyOrderTrack() {
@@ -1137,7 +1241,7 @@ function renderOrderRows(tbody, rows) {
             ${o.tracking_company ? `<div style="font-size:0.68rem; color:#94a3b8; margin-top:2px;">${escapeHtml(o.tracking_company)}</div>` : ""}`
           : `<span style="color:#cbd5e1;">—</span>`}
       </td>
-      <td class="js-track-status" style="text-align:center; white-space:nowrap;">${trackChip(o.track_status_name)}</td>
+      <td class="js-track-status" style="text-align:center; white-space:nowrap;">${trackChip(o.track_status_name, { orderId: Number(o.id), orderSn: o.order_sn })}</td>
       <td class="js-track-desc track-desc-cell">${trackSummaryCell(o)}</td>
       <td class="js-track-at track-time-cell" style="font-size:0.72rem; color:#64748b; text-align:center;">
         ${escapeHtml((o.track_refreshed_at || "").slice(0, 16) || "—")}
