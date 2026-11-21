@@ -479,6 +479,10 @@ class FulfillmentService:
     def save_order_supplement(order_id: int, purchase_date: str = "",
                               domestic_package_count: int = 0,
                               domestic_tracking_no: str = "") -> Dict[str, Any]:
+        tracking = _clean(domestic_tracking_no, 200)
+        # 占位文本不能当真实单号, 否则复制出去的「待补录」会被当成已填内容
+        if tracking in ("待补录", "待补充", "待定", "待填", "暂无", "无"):
+            raise HTTPException(status_code=400, detail="国内单号请填写真实单号，「待补录」等占位文本不能保存")
         conn = get_db_connection()
         try:
             cur = conn.execute("""
@@ -486,7 +490,7 @@ class FulfillmentService:
                     domestic_tracking_no = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """, (_clean(purchase_date, 40), int(domestic_package_count or 0),
-                  _clean(domestic_tracking_no, 200), order_id))
+                  tracking, order_id))
             conn.commit()
             if not cur.rowcount:
                 raise HTTPException(status_code=404, detail="履约订单不存在")

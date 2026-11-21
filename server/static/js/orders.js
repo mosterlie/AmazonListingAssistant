@@ -1723,12 +1723,12 @@ function clipUnitPriceHtml(o) {
     : String(d.unit);
 }
 
-/* 国内包裹数量文案: 1（8件商品）; 没有件数时只显示包裹数 (纯文本版) */
+/* 国内包裹数量文案: 1（8件商品）; 只 1 件商品时不加括号 (纯文本版) */
 function clipPackageCountText(o) {
   const cnt = Number(o.domestic_package_count || 0) || 0;
   if (!cnt) return "";
   const qty = clipItemQty(o);
-  return qty > 0 ? `${cnt}（${qty}件商品）` : String(cnt);
+  return qty > 1 ? `${cnt}（${qty}件商品）` : String(cnt);
 }
 
 /* 同上, 件数部分标红 (仅 HTML 剪贴板/在线表格生效) */
@@ -1736,7 +1736,7 @@ function clipPackageCountHtml(o) {
   const cnt = Number(o.domestic_package_count || 0) || 0;
   if (!cnt) return "";
   const qty = clipItemQty(o);
-  return qty > 0
+  return qty > 1
     ? `${cnt}<span style="color:#ff0000;">（${qty}件商品）</span>`
     : String(cnt);
 }
@@ -1744,16 +1744,33 @@ function clipPackageCountHtml(o) {
 /* 复制列的顺序: 与目标在线表格的列顺序一致 (无值自动留空) */
 /* type: image=下载图片后内嵌单元格; multiline=单元格内换行; html=富文本单元格 */
 const CLIP_COLUMNS = [
-  { label: "采购日期", value: o => fmtPurchaseDateYmd(o.purchase_date) },
+  {
+    label: "采购日期",
+    value: o => fmtPurchaseDateYmd(o.purchase_date) || "待补录",
+    html: o => {
+      const v = fmtPurchaseDateYmd(o.purchase_date);
+      return v ? escapeHtml(v) : `<span style="color:#ff0000;"><font color="#ff0000">待补录</font></span>`;
+    },
+    tdStyle: o => (fmtPurchaseDateYmd(o.purchase_date) ? "" : "color:#ff0000;"),
+  },
   { label: "仓库发货日期", value: () => "" },
   { label: "产品图片", type: "image", value: o => clipImageUrl(o) },
   { label: "产品名称及备注", type: "multiline", value: o => clipProductName(o) },
   {
     label: "国内包裹数量",
-    value: o => clipPackageCountText(o),   // 纯文本: 1（8件商品）
-    html: o => clipPackageCountHtml(o),    // 富文本: 件数红色
+    value: o => clipPackageCountText(o) || "待补录",   // 纯文本: 1（8件商品）
+    html: o => clipPackageCountHtml(o)                  // 富文本: 件数红色
+      || `<span style="color:#ff0000;"><font color="#ff0000">待补录</font></span>`,
+    tdStyle: o => (clipPackageCountHtml(o) ? "" : "color:#ff0000;"),
   },
-  { label: "国内单号", value: o => o.domestic_tracking_no },
+  {
+    label: "国内单号",
+    value: o => o.domestic_tracking_no || "待补录",
+    html: o => (o.domestic_tracking_no
+      ? escapeHtml(o.domestic_tracking_no)
+      : `<span style="color:#ff0000;"><font color="#ff0000">待补录</font></span>`),
+    tdStyle: o => (o.domestic_tracking_no ? "" : "color:#ff0000;"),
+  },
   { label: "国际单号", value: o => o.tracking_no },
   { label: "订单号", value: o => o.order_sn },
   { label: "收件人名字", value: o => {
@@ -1830,7 +1847,14 @@ function clipCellHtml(col, raw, order) {
   // 富文本列 (如「国内包裹数量」件数标红): 直接输出列自带的 html
   if (col.html && order) {
     const rich = col.html(order);
-    if (rich) return `<td ${CLIP_TD_CENTER}>${rich}</td>`;
+    if (rich) {
+      // 部分在线文档会把「整格只有一个 span」的样式扁平化, 允许列在 td 上补样式兜底
+      const extra = typeof col.tdStyle === "function"
+        ? String(col.tdStyle(order) || "").trim() : "";
+      return extra
+        ? `<td align="center" style="text-align:center; vertical-align:middle; ${extra}">${rich}</td>`
+        : `<td ${CLIP_TD_CENTER}>${rich}</td>`;
+    }
   }
   return `<td ${CLIP_TD_CENTER}>${escapeHtml(raw.replace(/\s*\n\s*/g, " ").trim())}</td>`;
 }
