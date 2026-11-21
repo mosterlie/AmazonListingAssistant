@@ -1471,14 +1471,41 @@ function clipShopName(o) {
   return hit ? CLIP_SHOP_ALIAS[hit] : name;
 }
 
+/* 商品件数: items 里 quantity 之和 (一个包裹里装了几件商品) */
+function clipItemQty(o) {
+  return (o.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+}
+
+/* 国内包裹数量文案: 1（8件商品）; 没有件数时只显示包裹数 (纯文本版) */
+function clipPackageCountText(o) {
+  const cnt = Number(o.domestic_package_count || 0) || 0;
+  if (!cnt) return "";
+  const qty = clipItemQty(o);
+  return qty > 0 ? `${cnt}（${qty}件商品）` : String(cnt);
+}
+
+/* 同上, 件数部分标红 (仅 HTML 剪贴板/在线表格生效) */
+function clipPackageCountHtml(o) {
+  const cnt = Number(o.domestic_package_count || 0) || 0;
+  if (!cnt) return "";
+  const qty = clipItemQty(o);
+  return qty > 0
+    ? `${cnt}<span style="color:#ff0000;">（${qty}件商品）</span>`
+    : String(cnt);
+}
+
 /* 复制列的顺序: 与目标在线表格的列顺序一致 (无值自动留空) */
-/* type: image=下载图片后内嵌单元格; multiline=单元格内换行 */
+/* type: image=下载图片后内嵌单元格; multiline=单元格内换行; html=富文本单元格 */
 const CLIP_COLUMNS = [
   { label: "采购日期", value: o => fmtPurchaseDateYmd(o.purchase_date) },
   { label: "仓库发货日期", value: () => "" },
   { label: "产品图片", type: "image", value: o => clipImageUrl(o) },
   { label: "产品名称及备注", type: "multiline", value: o => clipProductName(o) },
-  { label: "国内包裹数量", value: o => (Number(o.domestic_package_count || 0) || "") + "" },
+  {
+    label: "国内包裹数量",
+    value: o => clipPackageCountText(o),   // 纯文本: 1（8件商品）
+    html: o => clipPackageCountHtml(o),    // 富文本: 件数红色
+  },
   { label: "国内单号", value: o => o.domestic_tracking_no },
   { label: "国际单号", value: o => o.tracking_no },
   { label: "订单号", value: o => o.order_sn },
@@ -1542,7 +1569,7 @@ async function writeRichClipboard(html, text) {
    多行文本用 <br> 换行; 所有单元格统一水平/垂直居中 (在线文档粘贴后即居中) */
 const CLIP_TD_CENTER = `align="center" style="text-align:center; vertical-align:middle;"`;
 
-function clipCellHtml(col, raw) {
+function clipCellHtml(col, raw, order) {
   if (col.type === "image") {
     return raw ? `<td ${CLIP_TD_CENTER}><img src="${escapeHtml(raw)}"
         width="80" height="80" style="width:80px;height:80px;"></td>`
@@ -1552,13 +1579,18 @@ function clipCellHtml(col, raw) {
     return `<td align="center" style="text-align:center; vertical-align:middle; white-space:pre-wrap;">${
       escapeHtml(raw).replace(/\r?\n/g, "<br>")}</td>`;
   }
+  // 富文本列 (如「国内包裹数量」件数标红): 直接输出列自带的 html
+  if (col.html && order) {
+    const rich = col.html(order);
+    if (rich) return `<td ${CLIP_TD_CENTER}>${rich}</td>`;
+  }
   return `<td ${CLIP_TD_CENTER}>${escapeHtml(raw.replace(/\s*\n\s*/g, " ").trim())}</td>`;
 }
 
 /* 单行 HTML 表格 */
-function buildClipRowHtml(values) {
+function buildClipRowHtml(values, order) {
   return `<table><tbody><tr>${CLIP_COLUMNS.map((col, i) =>
-    clipCellHtml(col, values[i] || "")).join("")}</tr></tbody></table>`;
+    clipCellHtml(col, values[i] || "", order)).join("")}</tr></tbody></table>`;
 }
 
 /* 剪贴板纯文本: 单元格内换行替换成空格 (TSV 里换行会被识别成新行) */
@@ -1644,8 +1676,9 @@ async function writeOrdersRows(orders, silent = false) {
     try { v = c.value(o); } catch (e) { v = ""; }
     return String(v == null ? "" : v);
   }));
-  const bodyRows = rows.map(values =>
-    `<tr>${CLIP_COLUMNS.map((col, i) => clipCellHtml(col, values[i] || "")).join("")}</tr>`).join("");
+  const bodyRows = orders.map((o, idx) =>
+    `<tr>${CLIP_COLUMNS.map((col, i) =>
+      clipCellHtml(col, rows[idx][i] || "", o)).join("")}</tr>`).join("");
   const html = `<table><tbody>${bodyRows}</tbody></table>`;
   const text = rows.map(r => r.map(clipCellText).join("\t")).join("\n");
 
@@ -1783,7 +1816,7 @@ async function doCopyOrderRow(o) {
       return String(v == null ? "" : v);
     });
     // 图片下载完成前先用纯文本兜底, 保证复制不阻塞
-    const html = buildClipRowHtml(values);
+    const html = buildClipRowHtml(values, o);
     const text = values.map(clipCellText).join("\t");
     const ok = await writeRichClipboard(html, text);
     if (!ok) { showToast("复制失败，请检查浏览器剪贴板权限", "error"); return false; }
