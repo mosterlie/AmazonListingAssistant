@@ -689,12 +689,12 @@ function trackJumpCell(o) {
   const no = String(o.tracking_no || "").trim();
   if (!no) return `<span style="color:#cbd5e1;">—</span>`;
   const sagawa = isSagawaTracking(o);
-  return `<span class="copy-chip" data-v="${escapeHtml(no)}"
+  return `<div class="cell-flex"><span class="copy-chip" data-v="${escapeHtml(no)}"
       onclick="copyTrackingNo(this.dataset.v)">${escapeHtml(no)}</span>
-    <button class="btn btn-outline btn-sm" type="button" data-no="${escapeHtml(no)}"
+    <button class="mini-tag" type="button" data-no="${escapeHtml(no)}"
       data-site="${sagawa ? "sagawa" : "track17"}"
-      style="padding:1px 6px; font-size:0.68rem; line-height:1.5; margin-left:4px; color:#2563eb; border-color:#bfdbfe;"
-      onclick="jumpTrackingSite(this)">↗</button>`;
+      title="打开物流查询网站 (自动复制单号)"
+      onclick="jumpTrackingSite(this)">↗</button></div>`;
 }
 
 function jumpTrackingSite(btn) {
@@ -746,9 +746,9 @@ function purchaseDateArg(o) {
 }
 
 /* 送达判定关键词 (配达完了 / 签收成功 / お届け完了 ...) */
-const DELIVERED_RE = /签收|配达|配達|受取|お届け完了|delivered|已送达|投递成功/i;
+const DELIVERED_RE = /签收|配达|配達|受取|お届け完了|delivered|已送达|投递成功|标记送达/i;
 /* 轨迹停滞提醒阈值 (天, 含当天: 满 5 天即提醒) */
-const TRACK_STALE_DAYS = 5;
+const TRACK_STALE_DAYS = 3;
 
 /* 最新轨迹距今天数 (无法解析返回 null) */
 function trackStaleDays(time) {
@@ -763,9 +763,10 @@ function trackSummaryCell(o) {
   if (!desc && !time) return `<span style="color:#cbd5e1;">—</span>`;
   const oid = trackOrderId(o);
   const pdate = purchaseDateArg(o);
-  // 满 5 天没有轨迹更新: 醒目标识; 已送达的订单不再提醒
+  // 超过阈值没有轨迹更新: 醒目标识; 已送达 / 已标记送达的订单不再提醒
+  const statusDone = DELIVERED_RE.test(String(o.track_status_name || ""));
   const staleDays = time ? trackStaleDays(time) : null;
-  const stale = !DELIVERED_RE.test(desc) && staleDays !== null
+  const stale = !statusDone && !DELIVERED_RE.test(desc) && staleDays !== null
     && staleDays >= TRACK_STALE_DAYS;
   const tip = stale ? `已 ${staleDays} 天无轨迹更新` : "";
   return `<div class="track-summary${stale ? " stale" : ""}"${oid ? ` onclick="openOrderTrack(${oid}, '${pdate}')"` : ""}
@@ -1125,17 +1126,225 @@ function orderImgFallback(img) {
   img.replaceWith(ph.firstElementChild);
 }
 
-/* 商品标识: 列表显示 ≤5 字简版, 点击复制「完整标识」, 悬停 tooltip 显示完整版;
-   未识别显示灰色待识别 (下次同步自动重试) */
-function productCell(short, full) {
-  const s = (short || "").trim() || (full || "").trim();
-  const f = (full || "").trim() || s;
-  if (!s) return `<span style="color:#cbd5e1; font-size:0.72rem;">待识别</span>`;
-  // 普通文字展示, 仅保留悬停完整标识与点击复制
-  return `<span title="${escapeHtml(f)}（点击复制完整标识）" data-v="${escapeHtml(f)}"
-    style="cursor:pointer; font-size:0.78rem; color:#334155;"
-    onclick="copyTextValue(this.dataset.v, '商品标识')"
-    >${escapeHtml(s)}</span>`;
+/* 商品标识: 取在线产品库的中文标识, 最多显示 4 个字; 右侧 🇺🇸 图标复制英文标识
+   - 中文标识优先 online_label_zh (adsAutoAna 在线产品), 兜底妙手 AI 标识
+   - 英文标识 online_label_en; 缺失时图标置灰并提示 */
+function productCell(o) {
+  const d = (o && typeof o === "object") ? o : {};
+  const zhFull = String(d.online_label_zh || d.product_label || "").trim();
+  const zhText = String(d.online_label_zh || d.product_label_short || d.product_label || "").trim();
+  const en = String(d.online_label_en || "").trim();
+  if (!zhText) {
+    return `<span style="color:#cbd5e1; font-size:0.72rem;">待识别</span>`;
+  }
+  // 不截断字符串: 交给 CSS 省略, DOM 里保留完整标识 (复制/悬停都是全文)
+  const tip = [zhFull || zhText, en ? `英文：${en}` : ""].filter(Boolean).join(" · ");
+  const usBtn = en
+    ? `<button type="button" class="us-flag mini-tag" data-en="${escapeHtml(en)}"
+        title="复制英文标识：${escapeHtml(en)}"
+        onclick="event.stopPropagation(); copyTextValue(this.dataset.en, '英文标识')">US</button>`
+    : `<button type="button" class="us-flag off mini-tag" title="暂无英文标识"
+        onclick="event.stopPropagation(); showToast('该产品暂无英文标识', 'error')">US</button>`;
+  return `<div class="cell-flex"><span class="prod-label" title="${escapeHtml(tip)}（点击复制完整标识）"
+      data-v="${escapeHtml(zhFull || zhText)}"
+      onclick="copyTextValue(this.dataset.v, '商品标识')">${escapeHtml(zhText)}</span>${usBtn}</div>`;
+}
+
+/* 在线产品: 按订单 SKU 查看当前子体 / 父体 / 兄弟 SKU (跨库读 adsAutoAna 的 online_products) */
+async function openOnlineProduct(sku) {
+  const s = String(sku || "").trim();
+  if (!s) return;
+  const overlay = document.createElement("div");
+  overlay.className = "custom-modal";
+  overlay.style.zIndex = "10060";
+  overlay.innerHTML = `
+    <div class="custom-modal-backdrop"></div>
+    <div class="custom-modal-dialog" style="max-width:1040px;">
+      <div class="custom-modal-header" style="padding:8px 14px !important;">
+        <div style="min-width:0;">
+          <h3 style="margin:0; font-size:0.92rem; color:#0f172a; font-weight:700;">🔗 在线产品关系</h3>
+          <div data-sub style="font-size:0.72rem; color:#94a3b8; margin-top:1px; overflow:hidden;
+            text-overflow:ellipsis; white-space:nowrap;">SKU：${escapeHtml(s)}</div>
+        </div>
+        <button class="custom-modal-close" type="button" data-close>✕</button>
+      </div>
+      <div class="custom-modal-body" data-body
+        style="padding:0 14px 14px !important; max-height:70vh; overflow:auto;">
+        <div style="text-align:center; padding:30px; color:#94a3b8; font-size:0.82rem;">⏳ 查询中…</div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", e => {
+    if (e.target === overlay || e.target.closest("[data-close]")
+        || e.target.closest(".custom-modal-backdrop")) close();
+  });
+
+  const body = overlay.querySelector("[data-body]");
+  const card = (p, tag = "", highlight = false) => {
+    if (!p) return "";
+    const img = p.image
+      ? `<img src="${escapeHtml(p.image)}" alt="" style="width:56px;height:56px;object-fit:cover;
+          border-radius:6px;border:1px solid #e2e8f0;background:#f8fafc;flex-shrink:0;">`
+      : `<span style="width:56px;height:56px;border-radius:6px;border:1px dashed #e2e8f0;flex-shrink:0;"></span>`;
+    const meta = [p.attr, p.price, p.status, p.fnsku].filter(Boolean).map(escapeHtml).join(" · ");
+    return `<div style="display:flex; gap:10px; align-items:flex-start; padding:8px 10px;
+        border:1px solid ${highlight ? "#93c5fd" : "#e8eef6"}; border-radius:8px;
+        background:${highlight ? "#f5f9ff" : "#fcfdff"}; margin-bottom:8px;">
+        ${img}
+        <div style="flex:1; min-width:0;">
+          <div style="font-size:0.8rem; color:#0f172a; font-weight:700;">
+            ${escapeHtml(p.sku || "—")}${tag ? `<span style="margin-left:6px; padding:0 6px;
+              border-radius:9999px; background:#dbeafe; color:#1d4ed8; font-size:0.64rem;
+              font-weight:700;">${tag}</span>` : ""}
+          </div>
+          <div style="font-size:0.72rem; color:#64748b; margin-top:2px;">
+            ASIN：${escapeHtml(p.asin || "—")}${p.parent_asin ? ` · 父 ASIN：${escapeHtml(p.parent_asin)}` : ""}
+          </div>
+          <div style="font-size:0.74rem; color:#334155; margin-top:3px; line-height:1.45;
+            overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
+            ${escapeHtml(p.title || "—")}
+          </div>
+          ${meta ? `<div style="font-size:0.7rem; color:#94a3b8; margin-top:3px;">${meta}</div>` : ""}
+        </div>
+      </div>`;
+  };
+
+  try {
+    const res = await orderApi(`/api/fulfillment/online-product?sku=${encodeURIComponent(s)}`);
+    const d = res.data || {};
+    if (!d.found) {
+      body.innerHTML = `<div style="text-align:center; padding:26px; color:#94a3b8; font-size:0.82rem;">
+        在线产品库中未找到该 SKU${d.error ? `（${escapeHtml(d.error)}）` : ""}</div>`;
+      return;
+    }
+    // 价格格式化: 按币种选符号, 千分位, 无小数
+    const money = (v, cur) => {
+      const n = Number(v);
+      if (v === "" || v == null || isNaN(n)) return "";
+      const sym = { JPY: "¥", CNY: "¥", USD: "$", EUR: "€", GBP: "£" }[String(cur || "").toUpperCase()] || "";
+      return `${sym}${n.toLocaleString("zh-CN", { maximumFractionDigits: 0 })}`;
+    };
+    // 标题栏在 SKU 后补充商品标识(中文) + 英文标识
+    const subEl = overlay.querySelector("[data-sub]");
+    if (subEl && (d.label_zh || d.label_en)) {
+      const zh = d.label_zh || "";
+      const en = d.label_en || "";
+      subEl.innerHTML = `SKU：${escapeHtml(s)}`
+        + (zh ? `　·　<span class="olp-sub-zh" data-copy="${escapeHtml(zh)}"
+            title="点击复制商品标识"
+            onclick="copyTextValue(this.dataset.copy, '商品标识')">${escapeHtml(zh)}</span>` : "")
+        + (en ? `　<span class="olp-sub-en" data-copy="${escapeHtml(en)}"
+            title="点击复制英文标识"
+            onclick="copyTextValue(this.dataset.copy, '英文标识')">${escapeHtml(en)}</span>` : "");
+    }
+
+    const sibs = d.siblings || [];
+    // 全部子 SKU (含当前) 按 SKU 排序, 当前项高亮
+    const children = [d.self, ...sibs].filter(Boolean)
+      .sort((a, b) => String(a.sku || "").localeCompare(String(b.sku || ""), "en"));
+
+    // 父体统计: 所有子 SKU 的最低价 / 中位数
+    const priceNums = children
+      .map(x => Number(x.price))
+      .filter(n => !isNaN(n) && n > 0)
+      .sort((a, b) => a - b);
+    let statMin = "", statMed = "", statMinVal = "", statMedVal = "";
+    if (priceNums.length) {
+      const cur = (children.find(x => x.price) || {}).currency || "JPY";
+      const mid = priceNums.length % 2
+        ? priceNums[(priceNums.length - 1) / 2]
+        : (priceNums[priceNums.length / 2 - 1] + priceNums[priceNums.length / 2]) / 2;
+      statMin = money(priceNums[0], cur);
+      statMed = money(mid, cur);
+      statMinVal = String(Math.round(priceNums[0]));
+      statMedVal = String(Math.round(mid));
+    }
+    const amazonUrl = asin => `https://www.amazon.co.jp/dp/${encodeURIComponent(asin)}`;
+    const jumpIcon = (asin, label) => asin
+      ? `<a class="olp-jump" href="${amazonUrl(asin)}" target="_blank" rel="noopener"
+          title="在亚马逊打开${label}：${escapeHtml(asin)}"
+          onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" width="12" height="12"
+            fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"
+            stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a>`
+      : "";
+    const copySpan = (text, label) => {
+      const v = String(text || "");
+      return `<span class="olp-copy" data-copy="${escapeHtml(v)}"
+        title="点击复制${label}"
+        onclick="copyTextValue(this.dataset.copy, '${label}')">${escapeHtml(v || "—")}</span>`;
+    };
+    const childRow = p => {
+      const asin = String(p.asin || "");
+      const img = p.image
+        ? `<img src="${escapeHtml(p.image)}" alt="" class="olp-img"
+            data-big="${escapeHtml(p.image_big || p.image)}"
+            title="点击放大" onclick="openOrderImg(this.dataset.big, this.src)">`
+        : `<span class="olp-img ph"></span>`;
+      const priceTxt = money(p.price, p.currency);
+      const landedTxt = money(p.landed_price, p.currency);
+      const priceHtml = priceTxt
+        ? `<span class="olp-price" data-copy="${Math.round(Number(p.price) || 0)}"
+            title="点击复制价格${landedTxt && landedTxt !== priceTxt ? `（到手价 ${landedTxt}）` : ""}"
+            onclick="copyTextValue(this.dataset.copy, '价格')">${escapeHtml(priceTxt)}</span>`
+        : "";
+      return `<div class="olp-child${p.is_self ? " is-self" : ""}"${p.is_self ? ' data-self="1"' : ""}>
+          ${img}
+          <div class="olp-meta">
+            <div class="olp-sku"><span class="olp-sku-txt">${copySpan(p.sku, "子 SKU")}</span>${p.is_self ? `<b class="olp-cur">当前</b>` : ""}</div>
+            <div class="olp-asin">${copySpan(asin, "ASIN")}${jumpIcon(asin, "子体")}${priceHtml}</div>
+            <div class="olp-attr">${copySpan(p.attr_raw || p.attr, "属性")}</div>
+            <div class="olp-zh">${copySpan(p.attr_zh, "属性中文")}</div>
+          </div>
+        </div>`;
+    };
+    body.innerHTML = `
+      <div class="olp-head">
+        <div class="olp-head-row">
+          <span class="olp-head-title">父体</span>
+          <span class="olp-head-sub">子 SKU ${children.length} 个</span>
+        </div>
+        ${d.parent ? `<div class="olp-parent">
+          ${d.parent.image
+        ? `<img src="${escapeHtml(d.parent.image)}" alt="" class="olp-img olp-parent-img"
+            data-big="${escapeHtml(d.parent.image_big || d.parent.image)}" title="点击放大"
+            onclick="openOrderImg(this.dataset.big, this.src)">`
+        : `<span class="olp-parent-ph"></span>`}
+          <div class="olp-parent-meta">
+            <div class="olp-parent-sku">${copySpan(d.parent.sku, "父 SKU")}
+              <span class="olp-parent-asin">${copySpan(d.parent.asin, "父 ASIN")}</span>
+              ${jumpIcon(d.parent.asin, "父体")}</div>
+            <div class="olp-parent-title">${copySpan(d.parent.title, "标题")}</div>
+          </div>
+          ${(statMin || statMed) ? `<div class="olp-parent-stat">
+            ${statMin ? `<div class="row"><span>最低</span><b class="olp-price"
+              data-copy="${escapeHtml(statMinVal)}" title="点击复制最低价"
+              onclick="copyTextValue(this.dataset.copy, '最低价')">${escapeHtml(statMin)}</b></div>` : ""}
+            ${statMed ? `<div class="row"><span>中位</span><b class="olp-price"
+              data-copy="${escapeHtml(statMedVal)}" title="点击复制中位价"
+              onclick="copyTextValue(this.dataset.copy, '中位价')">${escapeHtml(statMed)}</b></div>` : ""}
+          </div>` : ""}
+        </div>` : `<div class="olp-empty">未找到父体行</div>`}
+      </div>
+      <div class="olp-grid">${children.map(childRow).join("")}</div>`;
+
+    // 自动滚动到当前子 SKU (避开 sticky 父体, 居中显示其上下文)
+    const selfEl = body.querySelector('[data-self="1"]');
+    if (selfEl) {
+      requestAnimationFrame(() => {
+        const head = body.querySelector(".olp-head");
+        const headH = head ? head.offsetHeight : 0;
+        const br = body.getBoundingClientRect();
+        const er = selfEl.getBoundingClientRect();
+        body.scrollTop += (er.top - br.top) - headH
+          - Math.max(0, (br.height - headH - er.height) / 2);
+      });
+    }
+  } catch (e) {
+    body.innerHTML = `<div style="text-align:center; padding:26px; color:#dc2626; font-size:0.82rem;">
+      查询失败：${escapeHtml(e.message || "")}</div>`;
+  }
 }
 
 function openOrderImg(src, fallback) {
@@ -1156,6 +1365,8 @@ function openOrderImg(src, fallback) {
     showToast("图片加载失败，可尝试刷新重试", "error");
   };
   img.src = src;
+  // 置顶显示: 在线产品/补录等弹窗层级更高时, 大图仍要压在最上层
+  modal.style.zIndex = "10090";
   modal.style.display = "flex";
 }
 
@@ -1216,19 +1427,24 @@ function renderOrderRows(tbody, rows) {
           ${orderState.selected.has(o.id) ? "checked" : ""}
           style="width:14px; height:14px; cursor:pointer;">
       </td>
-      <td style="white-space:nowrap;">
+      <td style="max-width:0; overflow:hidden;">
         ${o.order_sn ? `<span class="copy-chip" data-v="${escapeHtml(o.order_sn)}"
-            style="font-weight:700; color:#0f172a; font-size:0.84rem;"
+            style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+                   font-weight:700; color:#0f172a; font-size:0.84rem;"
+            title="${escapeHtml(o.order_sn)}（点击复制）"
             onclick="copyTextValue(this.dataset.v, '订单号')">${escapeHtml(o.order_sn)}</span>`
           : `<span style="color:#cbd5e1;">—</span>`}
       </td>
       <td style="text-align:center;">${orderImgCell(o)}</td>
-      <td style="text-align:center;">${productCell(o.product_label_short, o.product_label)}</td>
-      <td style="font-size:0.76rem; color:#334155; max-width:108px; white-space:nowrap; text-align:center;">
-        ${o.sku ? `<span class="copy-chip" title="${escapeHtml(o.sku)}" data-v="${escapeHtml(o.sku)}"
-            style="display:inline-block; max-width:86px; overflow:hidden; text-overflow:ellipsis;
-                   white-space:nowrap; vertical-align:bottom; cursor:pointer;"
-            onclick="copyTextValue(this.dataset.v, 'SKU')">${escapeHtml(o.sku)}</span>`
+      <td style="text-align:center;">${productCell(o)}</td>
+      <td style="font-size:0.76rem; color:#334155; max-width:132px; white-space:nowrap; text-align:center;">
+        ${o.sku ? `<div class="cell-flex"><span class="copy-chip" title="${escapeHtml(o.sku)}"
+            data-v="${escapeHtml(o.sku)}"
+            style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+                   cursor:pointer;"
+            onclick="copyTextValue(this.dataset.v, 'SKU')">${escapeHtml(o.sku)}</span>
+          <button type="button" class="sku-rel-btn mini-tag" data-opsku="${escapeHtml(o.sku)}"
+            title="查看父体 / 兄弟 SKU" onclick="openOnlineProduct(this.dataset.opsku)">🔗</button></div>`
           : `<span style="color:#cbd5e1;">—</span>`}
       </td>
       <td title="${escapeHtml(cnyTip(o.order_amount))}"
@@ -1338,7 +1554,12 @@ async function openOrderDetail(id) {
          <span style="font-size:0.8rem; color:#0f172a; text-align:right;">${value || "—"}</span>
        </div>`;
 
-    const itemCards = items.map(it => `
+    const itemCards = items.map(it => {
+      const qty = Number(it.quantity) || 0;
+      const lineTotal = Number(it.originalPrice) || 0;
+      // originalPrice 是这一行的总价, 除以件数得到单价
+      const unit = qty > 0 ? Math.round(lineTotal / qty) : lineTotal;
+      return `
       <div style="display:flex; gap:10px; padding:10px; border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px;">
         <img src="${escapeHtml(it.picUrl || it.originalPicUrl || "")}" alt=""
           style="width:56px; height:56px; object-fit:cover; border-radius:6px; background:#f1f5f9; flex-shrink:0;"
@@ -1350,11 +1571,14 @@ async function openOrderDetail(id) {
             ${it.skuSubName ? " · " + escapeHtml(it.skuSubName) : ""}
           </div>
         </div>
-        <div style="text-align:right; flex-shrink:0;">
-          <div style="font-size:0.8rem; font-weight:700; color:#0f172a;">${fmtMoney(it.originalPrice, o.currency)}</div>
-          <div style="font-size:0.72rem; color:#64748b;">× ${it.quantity || 0}</div>
+        <div style="text-align:right; flex-shrink:0; min-width:72px;">
+          <div style="font-size:0.68rem; color:#94a3b8;">单价</div>
+          <div style="font-size:0.84rem; font-weight:700; color:#0f172a;">${fmtMoney(unit, o.currency)}</div>
+          <div style="font-size:0.7rem; color:#64748b; margin-top:2px;">× ${qty} 件</div>
+          <div style="font-size:0.72rem; color:#475569; margin-top:1px;">共 ${fmtMoney(lineTotal, o.currency)}</div>
         </div>
-      </div>`).join("");
+      </div>`;
+    }).join("");
 
     // 运单号: 当前值 + 上一次值(删除线), 支持在详情内直接修改
     const prevNo = String(o.prev_tracking_no || "").trim();
@@ -1396,7 +1620,7 @@ async function openOrderDetail(id) {
           ${infoRow("平台 / 站点", escapeHtml((o.platform_name || o.platform || "") + (o.site ? " · " + o.site : "")))}
           ${infoRow("店铺", escapeHtml(clipShopName(o)))}
           ${infoRow("商品标识", escapeHtml(o.product_label))}
-          ${infoRow("简版标识", productCell(o.product_label_short, o.product_label))}
+          ${infoRow("简版标识", productCell(o))}
           ${infoRow("平台状态", escapeHtml(o.platform_status))}
           ${infoRow("下单时间", escapeHtml(o.gmt_order))}
           ${infoRow("支付时间", escapeHtml(o.gmt_pay))}
@@ -1476,6 +1700,29 @@ function clipItemQty(o) {
   return (o.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0);
 }
 
+/* 亚马逊售卖单价: 子 SKU 售价 × 件数 → 7000（11件共77000） */
+function clipUnitPrice(o) {
+  const it = (o.items || [])[0] || {};
+  const unit = Math.round(Number(o.online_price || it.originalPrice || 0) || 0);
+  const qty = clipItemQty(o);
+  if (!unit) return null;
+  return { unit, qty, total: unit * qty };
+}
+
+function clipUnitPriceText(o) {
+  const d = clipUnitPrice(o);
+  if (!d) return "";
+  return d.qty > 1 ? `${d.unit}（${d.qty}件共${d.total}）` : String(d.unit);
+}
+
+function clipUnitPriceHtml(o) {
+  const d = clipUnitPrice(o);
+  if (!d) return "";
+  return d.qty > 1
+    ? `${d.unit}<span style="color:#ff0000;">（${d.qty}件共${d.total}）</span>`
+    : String(d.unit);
+}
+
 /* 国内包裹数量文案: 1（8件商品）; 没有件数时只显示包裹数 (纯文本版) */
 function clipPackageCountText(o) {
   const cnt = Number(o.domestic_package_count || 0) || 0;
@@ -1513,10 +1760,11 @@ const CLIP_COLUMNS = [
       const c = (o.raw && o.raw.consigneeInfo) || {};
       return c.name || c.receiverName || c.consigneeName || "";
     } },
-  { label: "亚马逊售卖单价", value: o => {
-      const it = (o.items || [])[0] || {};
-      return it.originalPrice == null ? "" : it.originalPrice;
-    } },
+  {
+    label: "亚马逊售卖单价",
+    value: o => clipUnitPriceText(o),   // 7000（11件共77000）
+    html: o => clipUnitPriceHtml(o),    // 件数与合计部分标红
+  },
   { label: "换单号", value: () => "" },
   { label: "采购订单号", value: () => "" },
   { label: "店铺", value: o => clipShopName(o) },
@@ -2099,8 +2347,98 @@ async function startOrderSync() {
   }
 }
 
+/* ───────── 列宽可拖动 ───────── */
+const COL_WIDTH_KEY = "orderTableColWidths_v1";
+
+function initColumnResize() {
+  const table = document.getElementById("orderTable");
+  if (!table || table.dataset.resizeReady) return;
+  const ths = [...table.querySelectorAll("thead th")];
+  if (!ths.length) return;
+  table.dataset.resizeReady = "1";
+
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(COL_WIDTH_KEY) || "{}") || {}; } catch (e) { saved = {}; }
+
+  // 用当前实测宽度生成 colgroup, 之后表格改为 fixed 布局, 列宽完全可控
+  const colgroup = document.createElement("colgroup");
+  ths.forEach((th, i) => {
+    const col = document.createElement("col");
+    const w = Number(saved[i]) || Math.round(th.getBoundingClientRect().width) || 100;
+    col.style.width = `${w}px`;
+    colgroup.appendChild(col);
+    // 操作列是 sticky(固定右侧), 不能改成 relative, 否则固定失效
+    if (getComputedStyle(th).position === "static") th.style.position = "relative";
+  });
+  table.insertBefore(colgroup, table.firstChild);
+  table.style.tableLayout = "fixed";
+
+  const cols = [...colgroup.children];
+  ths.forEach((th, i) => {
+    const grip = document.createElement("span");
+    grip.className = "col-grip";
+    grip.title = "拖动调整列宽（双击复位）";
+    th.appendChild(grip);
+
+    let startX = 0;
+    let startW = 0;
+    const onMove = ev => {
+      const w = Math.max(40, Math.round(startW + (ev.clientX - startX)));
+      cols[i].style.width = `${w}px`;
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      grip.classList.remove("dragging");
+      const widths = {};
+      cols.forEach((c, idx) => { widths[idx] = Math.round(c.getBoundingClientRect().width); });
+      try { localStorage.setItem(COL_WIDTH_KEY, JSON.stringify(widths)); } catch (e) { /* 忽略 */ }
+    };
+    grip.addEventListener("mousedown", ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      startX = ev.clientX;
+      startW = cols[i].getBoundingClientRect().width;
+      document.body.style.cursor = "col-resize";
+      grip.classList.add("dragging");
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+    // 双击手柄: 自动拉宽到完整展示本列所有内容 (表头 + 每一行)
+    grip.addEventListener("dblclick", ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const keepCols = cols.map(c => c.style.width);
+      const keepWidth = table.style.width;
+      const keepMin = table.style.minWidth;
+
+      // 临时解除固定布局/宽度限制与裁剪, 让该列按内容自然撑开, 精确量宽
+      table.classList.add("measuring");
+      table.style.tableLayout = "auto";
+      table.style.width = "auto";
+      table.style.minWidth = "0";
+      cols.forEach(c => { c.style.width = ""; });
+      const need = Math.ceil(cols[i].getBoundingClientRect().width);
+
+      // 还原
+      table.classList.remove("measuring");
+      table.style.tableLayout = "fixed";
+      table.style.width = keepWidth || "100%";
+      table.style.minWidth = keepMin;
+      cols.forEach((c, j) => { c.style.width = keepCols[j]; });
+
+      cols[i].style.width = `${Math.max(48, need + 4)}px`;
+      const widths = {};
+      cols.forEach((c, idx) => { widths[idx] = Math.round(c.getBoundingClientRect().width); });
+      try { localStorage.setItem(COL_WIDTH_KEY, JSON.stringify(widths)); } catch (e) { /* 忽略 */ }
+    });
+  });
+}
+
 /* ───────────── 初始化 ───────────── */
 (async function initOrdersPage() {
+  initColumnResize();
   // 行选择 (事件委托: 表格重渲染后仍生效)
   document.getElementById("orderTableBody").addEventListener("change", e => {
     const cb = e.target.closest(".order-row-check");

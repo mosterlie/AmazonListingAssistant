@@ -826,7 +826,10 @@
          · 包裹 ${ps.package_count || 0} / 采购单 ${ps.purchase_order_count || 0}
          / 发票 ${ps.invoice_count || 0} / 清关报税 ${ps.tax_cert_count || 0}`;
 
-      const itemCards = items.map(it => `
+      const itemCards = items.map(it => {
+        const qty = Number(it.quantity) || 0;
+        const lineTotal = Number(it.originalPrice) || 0;
+        return `
         <div style="display:flex; gap:10px; padding:8px 10px; border:1px solid #e2e8f0;
           border-radius:8px; margin-bottom:6px; background:#fff;">
           <img src="${esc(it.picUrl || it.originalPicUrl || "")}" alt=""
@@ -840,11 +843,12 @@
               SKU: ${esc(it.platformOuterSkuId || it.platformItemId || it.sku || "—")}
             </div>
           </div>
-          <div style="text-align:right; flex-shrink:0;">
-            <div style="font-size:0.8rem; font-weight:700; color:#0f172a;">${esc(fmtMoney(it.originalPrice || it.unitPrice || 0, o.currency))}</div>
-            <div style="font-size:0.72rem; color:#64748b;">× ${esc(it.quantity || 0)}</div>
+          <div style="text-align:right; flex-shrink:0; min-width:64px;">
+            <div style="font-size:0.7rem; color:#64748b;">× ${esc(qty)} 件</div>
+            <div style="font-size:0.78rem; font-weight:700; color:#0f172a; margin-top:2px;">共 ${esc(fmtMoney(lineTotal, o.currency))}</div>
           </div>
-        </div>`).join("");
+        </div>`;
+      }).join("");
 
       bodyEl.innerHTML = `
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 24px;">
@@ -863,6 +867,9 @@
             <div style="font-weight:700; font-size:0.85rem; color:#334155; margin-bottom:6px;">💰 金额 / 物流 / 补录</div>
             ${kv("订单金额", esc(fmtMoney(o.order_amount, o.currency)))}
             ${kv("支付金额", esc(fmtMoney(o.pay_amount, o.currency)))}
+            ${Number(o.online_price) > 0
+        ? kv("单品定价", `<span style="color:#ea580c; font-weight:700;">${
+          esc(fmtMoney(o.online_price, o.currency))}</span>`) : ""}
             ${kv("运单号", esc(first.tracking_no))}
             ${kv("物流公司", esc(first.tracking_company))}
             ${kv("包裹状态", esc(first.package_status_text || first.package_status))}

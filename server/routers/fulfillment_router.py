@@ -17,6 +17,7 @@ from server.services.fulfillment_doc_service import (
     FulfillmentDocService,
 )
 from server.services.fulfillment_service import FulfillmentService
+from server.services.online_product_service import OnlineProductService
 from server.dependencies import get_current_user
 from server.services.rbac_service import require_perm
 
@@ -118,6 +119,12 @@ def get_meta(user: dict = READ_DEP):
         "order_statuses": filters["statuses"],
         "shops": filters["shops"],
     }}
+
+
+@router.get("/online-product", summary="在线产品: 按 SKU 查父体与兄弟 SKU")
+def online_product(sku: str = Query(..., min_length=1, max_length=200, description="子体 SKU"),
+                   user: dict = READ_DEP):
+    return {"code": 0, "msg": "success", "data": OnlineProductService.lookup(sku)}
 
 
 @router.post("/orders/{order_id}/mark-delivered", summary="人工标记已送达 (履约订单)")

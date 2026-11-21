@@ -1769,3 +1769,148 @@ input[type="text"],
   box-shadow:0 1px 3px rgba(239,68,68,.35); white-space:nowrap;
   pointer-events:none;
 }
+
+/* 商品标识: 中文文字 + US 英文标识按钮 */
+.prod-label { cursor:pointer; font-size:0.78rem; color:#334155; white-space:nowrap; }
+.us-flag { border:1px solid #bfdbfe; background:linear-gradient(180deg,#eff6ff,#dbeafe);
+  color:#1d4ed8; cursor:pointer; font-size:0.6rem; font-weight:700; letter-spacing:0.03em;
+  padding:0 4px; border-radius:5px; line-height:1.6; margin-left:4px; vertical-align:middle;
+  transition:background .12s, color .12s, border-color .12s, box-shadow .12s; }
+.us-flag:hover { background:linear-gradient(180deg,#2563eb,#1d4ed8); color:#fff;
+  border-color:#1d4ed8; box-shadow:0 2px 6px rgba(37,99,235,.3); }
+.us-flag:active { transform:translateY(1px); }
+.us-flag.off { background:#f1f5f9; border-color:#e2e8f0; color:#cbd5e1; cursor:not-allowed;
+  box-shadow:none; }
+
+/* 表头列宽拖动手柄 (最后一列「操作」保持 sticky, 不能改成 relative) */
+#orderTable thead th:not(:last-child) { position: relative; }
+#orderTable .col-grip { position:absolute; top:0; right:-4px; width:8px; height:100%;
+  cursor:col-resize; z-index:3; }
+#orderTable .col-grip::after { content:""; position:absolute; top:22%; left:3px; width:2px;
+  height:56%; background:#94a3b8; border-radius:1px; opacity:0; transition:opacity .12s; }
+#orderTable thead th:hover .col-grip::after,
+#orderTable .col-grip.dragging::after { opacity:.75; }
+
+/* 在线产品关系: 父体吸顶 + 子 SKU 多列网格 */
+/* 吸顶父体: 内边距全用 padding 撑开(不用 margin), 白色背景连续覆盖, 滚动时无缝隙 */
+.olp-head { position:sticky; top:0; z-index:3; background:#fff;
+  padding:10px 0 12px; border-bottom:1px solid #eef2f7; }
+.olp-head-row { display:flex; align-items:baseline; gap:8px; margin-bottom:5px; }
+.olp-head-title { font-size:0.95rem; font-weight:700; color:#1d4ed8; }
+.olp-head-sub { font-size:0.84rem; color:#94a3b8; }
+.olp-empty { font-size:0.9rem; color:#94a3b8; margin-bottom:6px; }
+.olp-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(290px, 1fr)); gap:8px; }
+.olp-child { display:flex; gap:9px; align-items:flex-start; padding:8px 10px;
+  border:1px solid #eef2f7; border-radius:8px; background:#fff; min-width:0; position:relative; }
+/* 当前子 SKU: 蓝边+蓝底+左侧色条+光晕, 明显区分 */
+.olp-child.is-self { border:2px solid #2563eb; background:#dbeafe;
+  box-shadow:0 0 0 3px rgba(37,99,235,.16); }
+.olp-child.is-self::before { content:""; position:absolute; left:0; top:0; bottom:0; width:5px;
+  background:#2563eb; border-radius:8px 0 0 8px; }
+.olp-meta { min-width:0; flex:1; line-height:1.4; }
+/* SKU 行: 文字可截断, 「当前」徽标固定显示不被裁掉 */
+.olp-sku { display:flex; align-items:center; gap:5px; font-size:0.95rem; font-weight:700;
+  color:#0f172a; min-width:0; }
+.olp-sku-txt { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.olp-child.is-self .olp-sku { color:#1d4ed8; }
+.olp-cur { flex:none; padding:1px 7px; border-radius:4px; background:#dc2626; color:#fff;
+  font-size:0.72rem; font-weight:700; white-space:nowrap;
+  box-shadow:0 1px 2px rgba(220,38,38,.35); }
+.olp-asin { font-size:0.84rem; color:#94a3b8; margin-top:2px; }
+.olp-attr { font-size:0.86rem; color:#475569; margin-top:1px; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }
+.olp-zh { font-size:0.86rem; color:#1d4ed8; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }
+
+/* 在线产品关系: 吸顶父体 (紧凑一行) */
+.olp-parent { display:flex; gap:12px; align-items:center; padding:10px 14px;
+  border:1px solid #dbe3ee; border-radius:10px; background:#f8fafc; }
+.olp-parent img, .olp-parent .olp-parent-ph { width:62px; height:62px; border-radius:8px;
+  object-fit:cover; border:1px solid #e2e8f0; background:#fff; flex-shrink:0; display:block; }
+.olp-parent-meta { min-width:0; flex:1; line-height:1.45; }
+/* 父体 SKU 行: flex 布局, 只有 SKU 可截断, ASIN 与跳转图标始终可见 */
+.olp-parent-sku { display:flex; align-items:center; gap:6px; font-size:1.12rem;
+  font-weight:700; color:#0f172a; min-width:0; }
+.olp-parent-sku > .olp-copy:first-child { min-width:0; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.olp-parent-asin { flex:none; margin-left:0; font-weight:400; font-size:0.92rem; color:#94a3b8; }
+.olp-parent-title { font-size:0.95rem; color:#64748b; margin-top:2px; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }
+
+/* 在线产品关系: 复制文本 / 亚马逊跳转 / 缩略图放大 */
+.olp-copy { cursor:pointer; text-decoration:none; }
+.olp-copy:hover { color:#1d4ed8; }
+/* 亚马逊跳转: 蓝底小方块 + 外链箭头 (更醒目) */
+.olp-jump { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;
+  margin-left:5px; border-radius:4px; color:#2563eb; background:#eff6ff;
+  border:1px solid #bfdbfe; vertical-align:middle; text-decoration:none;
+  transition:background .12s, color .12s, border-color .12s; }
+.olp-jump:hover { color:#fff; background:#2563eb; border-color:#2563eb; }
+.olp-jump svg { display:block; }
+.olp-img { width:50px; height:50px; border-radius:7px; object-fit:cover;
+  border:1px solid #e2e8f0; background:#f8fafc; flex-shrink:0; display:block; cursor:zoom-in; }
+.olp-img.ph { border-style:dashed; cursor:default; }
+.olp-parent-img { width:62px; height:62px; }
+
+/* SKU 列右侧: 在线产品关系按钮 */
+.sku-rel-btn { border:1px solid #bfdbfe; background:#eff6ff; color:#2563eb; cursor:pointer;
+  border-radius:4px; padding:0 3px; font-size:0.66rem; line-height:1.6; margin-left:3px;
+  vertical-align:middle; transition:background .12s, color .12s, border-color .12s; }
+.sku-rel-btn:hover { background:#2563eb; color:#fff; border-color:#2563eb; }
+
+/* 列宽拖动后: 单元格内容按列宽裁剪, 不再溢出压到相邻列 */
+#orderTable tbody td:not(:last-child) { overflow: hidden; }
+#orderTable tbody td:not(:last-child) > div { max-width: 100%; }
+.track-summary { max-width: 100%; }
+
+/* 双击表头手柄测量列宽时: 临时解除裁剪与宽度限制, 让内容把列撑到自然宽度
+   (订单号等单元格带内联 max-width:0 / span 的 ellipsis, 需要一并解除) */
+#orderTable.measuring tbody td,
+#orderTable.measuring tbody td *,
+#orderTable.measuring thead th { overflow: visible !important; text-overflow: clip !important;
+  max-width: none !important; }
+#orderTable.measuring .track-summary > div,
+#orderTable.measuring tbody td span { white-space: nowrap !important; }
+
+/* 列表内联小图标: 紧贴文字 + 细边框 (商品标识 US / SKU 关系 / 运单号跳转) */
+.mini-tag { display:inline-flex; align-items:center; justify-content:center;
+  height:16px; min-width:18px; padding:0 4px; margin:0 0 0 2px;
+  border:1px solid #bfdbfe; border-radius:4px; background:#eff6ff; color:#2563eb;
+  font-size:0.6rem; font-weight:700; line-height:1; letter-spacing:0.02em;
+  cursor:pointer; vertical-align:middle; white-space:nowrap;
+  transition:background .12s, color .12s, border-color .12s; }
+.mini-tag:hover { background:#2563eb; color:#fff; border-color:#1d4ed8; }
+.mini-tag:active { transform:translateY(1px); }
+.us-flag.off.mini-tag { background:#f8fafc; border-color:#e2e8f0; color:#cbd5e1;
+  cursor:not-allowed; }
+.us-flag.off.mini-tag:hover { background:#f8fafc; color:#cbd5e1; border-color:#e2e8f0; }
+
+/* 列内两端对齐: 文字靠左可省略, 图标吸附右侧, 拖动列宽时跟随边框移动 */
+.cell-flex { display:flex; align-items:center; justify-content:space-between; gap:3px;
+  width:100%; min-width:0; }
+.cell-flex > :first-child { min-width:0; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; }
+.cell-flex > .mini-tag { flex:none; margin-left:0; }
+
+/* 在线产品子卡: ASIN 行右侧显示价格 */
+.olp-asin { display:flex; align-items:center; gap:4px; min-width:0; }
+.olp-price { margin-left:auto; flex:none; font-size:0.8rem; font-weight:700;
+  color:#b45309; white-space:nowrap; }
+
+/* 父体卡右侧: 子 SKU 价格统计 (最低 / 中位) */
+.olp-parent-stat { flex:none; display:flex; flex-direction:column; gap:3px; align-items:flex-end;
+  padding-left:12px; margin-left:4px; border-left:1px dashed #dbe3ee; }
+.olp-parent-stat .row { font-size:0.76rem; color:#94a3b8; white-space:nowrap; line-height:1.3; }
+.olp-parent-stat b { margin-left:5px; font-size:0.88rem; color:#b45309; }
+
+/* 价格可点击复制 */
+.olp-price { cursor:pointer; }
+.olp-price:hover { text-decoration:underline; }
+
+/* 在线产品弹窗标题栏: 商品标识 / 英文标识 */
+.olp-sub-zh { color:#334155; font-weight:700; cursor:pointer; }
+.olp-sub-en { color:#1d4ed8; cursor:pointer; }
+.olp-sub-zh:hover, .olp-sub-en:hover { text-decoration:underline; }
+
+/* 商品标识: 宽度约 4 个汉字, 超出用 CSS 省略号 (DOM 内保留完整文本) */
+.cell-flex > .prod-label { max-width: 4.4em; }

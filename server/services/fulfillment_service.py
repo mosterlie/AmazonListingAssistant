@@ -445,6 +445,18 @@ class FulfillmentService:
             # 原始报文: 复制整行取收货人/备注, 保证不依赖订单模块
             o["raw"] = _safe_json(o.get("raw_json"), {})
 
+        # 商品标识 (adsAutoAna 在线产品库): 中文标识 + 英文标识
+        try:
+            from server.services.online_product_service import OnlineProductService
+            lmap = OnlineProductService.labels_for_skus([o.get("sku") for o in orders])
+        except Exception:
+            lmap = {}
+        for o in orders:
+            lb = lmap.get(str(o.get("sku") or "").strip(), {})
+            o["online_label_zh"] = lb.get("zh", "")
+            o["online_label_en"] = lb.get("en", "")
+            o["online_price"] = lb.get("price", "")
+
         pages = (int(total) + int(page_size) - 1) // int(page_size) if total else 0
         return {"items": orders, "total": total, "page": page,
                 "page_size": page_size, "pages": pages}
@@ -801,6 +813,19 @@ class FulfillmentService:
             order["product_label"] = lab.get("label") or raw_title
             order["product_label_short"] = lab.get("short") or (
                 (raw_title[:20] + "…") if len(raw_title) > 20 else raw_title)
+
+            # 该 SKU 的定价 (在线产品 standardPrice), 详情里与成交单价对照
+            order["online_price"] = ""
+            order["online_price_en"] = ""
+            try:
+                from server.services.online_product_service import OnlineProductService
+                lb = OnlineProductService.labels_for_skus([first_item.get("platformOuterSkuId")
+                                                           or first_item.get("platformItemId") or ""])
+                hit = lb.get(str(first_item.get("platformOuterSkuId")
+                                 or first_item.get("platformItemId") or "").strip(), {})
+                order["online_price"] = hit.get("price", "")
+            except Exception:
+                pass
 
             pkg_rows = conn.execute("""
                 SELECT p.* FROM fm_order_packages op JOIN fm_packages p ON p.id = op.package_id
