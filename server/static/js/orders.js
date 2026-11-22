@@ -2398,6 +2398,25 @@ async function startOrderSync() {
 /* ───────── 列宽可拖动 ───────── */
 const COL_WIDTH_KEY = "orderTableColWidths_v1";
 
+/* 列默认宽度 (px, 顺序与表头一致; 0 = 按表头/CSS 自动)
+   首次访问用这里初始化, 用户拖动后以 localStorage 为准 */
+const DEFAULT_COL_WIDTHS = [
+  34,   // 复选框
+  140,  // amazon 订单号
+  64,   // 商品图
+  118,  // 商品标识
+  132,  // SKU
+  110,  // 订单金额
+  132,  // 下单时间
+  104,  // 订单状态
+  138,  // 运单号
+  92,   // 运单状态
+  260,  // 最新轨迹
+  132,  // 更新时间
+  58, 58, 58, 58, 58, 58, 58,   // 采购单截图 / 转账凭证 / 采购发票 / 发货单 / 签收单 / 货代发票 / 清关报税
+  84,   // 操作
+];
+
 function initColumnResize() {
   const table = document.getElementById("orderTable");
   if (!table || table.dataset.resizeReady) return;
@@ -2412,7 +2431,8 @@ function initColumnResize() {
   const colgroup = document.createElement("colgroup");
   ths.forEach((th, i) => {
     const col = document.createElement("col");
-    const w = Number(saved[i]) || Math.round(th.getBoundingClientRect().width) || 100;
+    const w = Number(saved[i]) || DEFAULT_COL_WIDTHS[i]
+      || Math.round(th.getBoundingClientRect().width) || 100;
     col.style.width = `${w}px`;
     colgroup.appendChild(col);
     // 操作列是 sticky(固定右侧), 不能改成 relative, 否则固定失效
