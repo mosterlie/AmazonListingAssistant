@@ -63,8 +63,8 @@ function fmtMoney(amount, currency) {
   return `${cur}${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
-/* 人民币估算: 金额 ÷ 22 (悬停提示用) */
-const CNY_RATE = 22;
+/* 人民币估算: 金额 ÷ 23 (悬停提示用) */
+const CNY_RATE = 23;
 function cnyTip(amount) {
   const cny = Number(amount || 0) / CNY_RATE;
   return `约 ¥${cny.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}（按 ${CNY_RATE} 汇率折算）`;
@@ -1151,24 +1151,22 @@ function orderImgFallback(img) {
    - 英文标识 online_label_en; 缺失时图标置灰并提示 */
 function productCell(o) {
   const d = (o && typeof o === "object") ? o : {};
-  // 一律用完整标识: 优先在线产品中文标识, 其次 AI 完整标识, 最后才用短标识
-  const zhFull = String(d.online_label_zh || d.product_label || d.product_label_short || "").trim();
-  const zhText = zhFull;
+  // 完整标识: 中文在上, 英文在下 (各自点击复制, 列宽不够时由 CSS 省略)
+  const zh = String(d.online_label_zh || d.product_label || d.product_label_short || "").trim();
   const en = String(d.online_label_en || "").trim();
-  if (!zhText) {
+  if (!zh && !en) {
     return `<span style="color:#cbd5e1; font-size:0.72rem;">待识别</span>`;
   }
-  // 不截断字符串: 交给 CSS 省略, DOM 里保留完整标识 (复制/悬停都是全文)
-  const tip = [zhFull || zhText, en ? `英文：${en}` : ""].filter(Boolean).join(" · ");
-  const usBtn = en
-    ? `<button type="button" class="us-flag mini-tag" data-en="${escapeHtml(en)}"
-        title="复制英文标识：${escapeHtml(en)}"
-        onclick="event.stopPropagation(); copyTextValue(this.dataset.en, '英文标识')">US</button>`
-    : `<button type="button" class="us-flag off mini-tag" title="暂无英文标识"
-        onclick="event.stopPropagation(); showToast('该产品暂无英文标识', 'error')">US</button>`;
-  return `<div class="cell-flex"><span class="prod-label" title="${escapeHtml(tip)}（点击复制完整标识）"
-      data-v="${escapeHtml(zhFull || zhText)}"
-      onclick="copyTextValue(this.dataset.v, '商品标识')">${escapeHtml(zhText)}</span>${usBtn}</div>`;
+  const zhHtml = zh
+    ? `<div class="prod-cn" title="${escapeHtml(zh)}（点击复制中文标识）" data-v="${escapeHtml(zh)}"
+        onclick="copyTextValue(this.dataset.v, '商品标识')">${escapeHtml(zh)}</div>`
+    : `<div class="prod-cn" style="color:#cbd5e1;">待识别</div>`;
+  const enHtml = en
+    ? `<div class="prod-en" data-v="${escapeHtml(en)}"
+        onclick="copyTextValue(this.dataset.v, '英文标识')">${escapeHtml(en)}</div>`
+    : `<div class="prod-en"
+        onclick="showToast('该产品暂无英文标识', 'error')">—</div>`;
+  return `<div class="prod-cell">${zhHtml}${enHtml}</div>`;
 }
 
 /* 在线产品: 按订单 SKU 查看当前子体 / 父体 / 兄弟 SKU (跨库读 adsAutoAna 的 online_products) */
@@ -2487,8 +2485,61 @@ function initColumnResize() {
 }
 
 /* ───────────── 初始化 ───────────── */
+/* 英文标识逐词翻译浮层: 悬停 .prod-en 时展示每个单词的中文 */
+const GLOSSARY_CACHE = {};
+
+function hideEnGlossary() {
+  const el = document.getElementById("enGlossaryTip");
+  if (el) el.remove();
+}
+
+async function showEnGlossary(cell) {
+  const text = String(cell.dataset.v || cell.textContent || "").trim();
+  if (!text) return;
+  let rows = GLOSSARY_CACHE[text];
+  if (!rows) {
+    try {
+      const body = await orderApi(
+        `/api/fulfillment/word-glossary?text=${encodeURIComponent(text)}`);
+      rows = body.data || [];
+      GLOSSARY_CACHE[text] = rows;
+    } catch (e) {
+      return;
+    }
+  }
+  hideEnGlossary();
+  if (!rows.length || !cell.isConnected || !cell.matches(":hover")) return;
+  const tip = document.createElement("div");
+  tip.id = "enGlossaryTip";
+  tip.style.cssText = "position:fixed; z-index:10095; pointer-events:none; background:#0f172a;"
+    + "color:#fff; border-radius:6px; padding:6px 9px; font-size:0.68rem; line-height:1.6;"
+    + "box-shadow:0 6px 18px rgba(15,23,42,.3); max-width:280px;";
+  tip.innerHTML = rows.map(r =>
+    `<div><b style="color:#93c5fd;">${escapeHtml(r.word)}</b>`
+    + ` <span style="opacity:.85;">${escapeHtml(r.zh || "—")}</span></div>`).join("");
+  document.body.appendChild(tip);
+  const rect = cell.getBoundingClientRect();
+  const h = tip.offsetHeight;
+  const w = tip.offsetWidth;
+  tip.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - w - 8))}px`;
+  tip.style.top = (rect.bottom + 6 + h > window.innerHeight - 8)
+    ? `${Math.max(8, rect.top - h - 6)}px` : `${rect.bottom + 6}px`;
+}
+
 (async function initOrdersPage() {
   initColumnResize();
+  // 商品标识英文行: 悬停显示逐词翻译
+  const gbody = document.getElementById("orderTableBody");
+  if (gbody) {
+    gbody.addEventListener("mouseover", e => {
+      const cell = e.target.closest(".prod-en");
+      if (cell && !cell.contains(e.relatedTarget)) showEnGlossary(cell);
+    });
+    gbody.addEventListener("mouseout", e => {
+      if (e.target.closest(".prod-en")) hideEnGlossary();
+    });
+    window.addEventListener("scroll", hideEnGlossary, true);
+  }
   // 行选择 (事件委托: 表格重渲染后仍生效)
   document.getElementById("orderTableBody").addEventListener("change", e => {
     const cb = e.target.closest(".order-row-check");

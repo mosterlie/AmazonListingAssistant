@@ -121,6 +121,12 @@ def get_meta(user: dict = READ_DEP):
     }}
 
 
+@router.get("/word-glossary", summary="英文标识逐词翻译 (悬停提示用)")
+def word_glossary(text: str = Query("", max_length=400), user: dict = READ_DEP):
+    from server.services.word_glossary_service import WordGlossaryService
+    return {"code": 0, "msg": "success", "data": WordGlossaryService.translate(text)}
+
+
 @router.get("/online-product", summary="在线产品: 按 SKU 查父体与兄弟 SKU")
 def online_product(sku: str = Query(..., min_length=1, max_length=200, description="子体 SKU"),
                    user: dict = READ_DEP):

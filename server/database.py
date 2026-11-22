@@ -789,6 +789,15 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_order_gmt ON miaoshou_orders(gmt_order);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_order_status ON miaoshou_orders(package_status);")
 
+    # 13.1 英文标识逐词翻译词表 (商品标识悬停提示用, 可人工扩充)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS word_glossary (
+        word TEXT PRIMARY KEY,
+        zh TEXT DEFAULT '',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
     # 13. 店小秘订单剩余发货时间采集 (临期预警: 黄=剩余<warn_hours / 红=剩余<danger_hours / 超时=剩余<=0)
     #     快照幂等: 每轮 UPSERT (按 order_no); 消失/已发货订单保留最近快照 (last_seen_at 判定)
     cursor.execute("""

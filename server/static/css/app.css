@@ -1914,3 +1914,12 @@ input[type="text"],
 
 /* 商品标识: 始终使用完整标识, 只有列宽不够时才由 CSS 省略 (不硬截断原文) */
 .cell-flex > .prod-label { max-width: 100%; }
+
+/* 商品标识: 中文在上, 英文在下 (各自可点击复制) */
+.prod-cell { display:flex; flex-direction:column; min-width:0; line-height:1.3; }
+.prod-cn { font-size:0.76rem; color:#334155; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; cursor:pointer; }
+.prod-cn:hover { color:#1d4ed8; }
+.prod-en { display:block; min-width:0; font-size:0.62rem; text-align:center;
+  color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; }
+.prod-en:hover { color:#1d4ed8; }
