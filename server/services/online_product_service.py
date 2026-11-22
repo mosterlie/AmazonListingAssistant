@@ -12,9 +12,11 @@ import os
 import sqlite3
 from typing import Any, Dict, List, Optional
 
+from server.config import BASE_DIR
 from server.database import get_setting
 
-DEFAULT_ADS_DB = "/Users/gx/Desktop/mypro/adsAutoAna/data/ads.db"
+# 默认取仓库内 adsauto/data/ads.db (与主仓库同机部署); 系统设置 ads_autoana_db 可覆盖
+DEFAULT_ADS_DB = os.path.join(BASE_DIR, "adsauto", "data", "ads.db")
 
 
 class OnlineProductService:

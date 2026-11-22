@@ -220,6 +220,39 @@ def _load_cookie(force: bool = False):
     return "", ""
 
 
+def _cookie_accounts() -> List[Dict[str, str]]:
+    """店小秘多账号 cookie 列表 (默认账号排最前)
+
+    数据由赛狐广告平台「同步登录态」写入:
+      dxm_http_accounts = [{"key","label","cookie","ua","updated_at"}]  (cookie 为请求头字符串)
+      dxm_http_default  = "<key>"
+    兼容旧版单值键 dxm_http_cookie / dxm_http_ua。
+    """
+    accounts: List[Dict[str, str]] = []
+    raw = get_setting("dxm_http_accounts")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = None
+    if isinstance(raw, list):
+        for a in raw:
+            if isinstance(a, dict) and str(a.get("cookie") or "").strip():
+                accounts.append({"key": str(a.get("key") or ""),
+                                 "label": str(a.get("label") or ""),
+                                 "cookie": str(a.get("cookie") or "").strip(),
+                                 "ua": str(a.get("ua") or "")})
+    if accounts:
+        default = str(get_setting("dxm_http_default") or "")
+        accounts.sort(key=lambda x: 0 if x["key"] == default else 1)
+        return accounts
+    legacy = str(get_setting("dxm_http_cookie") or "").strip()
+    if legacy:
+        return [{"key": "default", "label": "默认", "cookie": legacy,
+                 "ua": str(get_setting("dxm_http_ua") or "")}]
+    return []
+
+
 def _get_ocr():
     """ddddocr 本地 OCR 单例 (首次调用加载 onnx 模型, 约2秒)"""
     global _OCR
@@ -535,53 +568,75 @@ class DxmOrderService:
 
     @staticmethod
     def lookup_tracking(order_no: str) -> Dict[str, Any]:
-        """亚马逊订单号 → 店小秘运单号 (直连接口查询, 不打开店小秘页面/不启动浏览器)"""
+        """亚马逊订单号 → 店小秘运单号 (多账号: 按默认顺序逐个账号尝试)"""
         no = (order_no or "").strip()
         if not no:
             raise ValueError("请提供订单号")
-        cookie, ua = _load_cookie()
-        if not cookie:
+        accounts = _cookie_accounts()
+        if not accounts:
+            cookie, ua = _load_cookie()
+            if cookie:
+                accounts = [{"key": "default", "label": "默认", "cookie": cookie, "ua": ua}]
+        if not accounts:
             return {"order_no": no, "found": False, "tracking_no": "", "package_id": "",
                     "order_state": "", "shop": "", "source": "",
                     "message": "未取到店小秘登录 cookie：请先在店小秘登录一次，或手动配置 cookie"}
-        try:
-            return DxmOrderService._http_query(no, cookie, ua)
-        except Exception as first:
-            ck2, ua2 = _load_cookie(force=True)        # cookie 可能过期, 刷新一次重试
-            if not ck2 or ck2 == cookie:               # 没换到新 cookie 就不重复请求
-                return {"order_no": no, "found": False, "tracking_no": "", "package_id": "",
-                        "order_state": "", "shop": "", "source": "", "message": f"查询失败: {first}"}
+        last: Dict[str, Any] = {}
+        for acc in accounts:
             try:
-                return DxmOrderService._http_query(no, ck2, ua2)
+                res = DxmOrderService._http_query(no, acc["cookie"], acc.get("ua") or "")
             except Exception as e:
-                return {"order_no": no, "found": False, "tracking_no": "", "package_id": "",
-                        "order_state": "", "shop": "", "source": "", "message": f"查询失败: {e}"}
+                last = {"found": False, "message": f"查询失败: {e}"}
+                continue
+            if res.get("found"):
+                res["account"] = acc.get("label") or acc.get("key") or ""
+                res["account_key"] = acc.get("key", "")
+                return res
+            last = res
+        # 全部未命中: cookie 可能已过期, 强制刷新一次后按默认账号再试
+        ck, ua = _load_cookie(force=True)
+        if ck:
+            try:
+                res = DxmOrderService._http_query(no, ck, ua)
+                if res.get("found"):
+                    return res
+                last = res
+            except Exception as e:
+                last = last or {"found": False, "message": f"查询失败: {e}"}
+        return last or {"order_no": no, "found": False, "tracking_no": "", "package_id": "",
+                        "order_state": "", "shop": "", "source": "",
+                        "message": "未取到店小秘登录 cookie"}
 
     @staticmethod
     def lookup_tracking_batch(order_nos: List[str]) -> Dict[str, Dict[str, Any]]:
-        """批量按订单号查运单号 (直连接口, 共用一份 cookie, 失败自动刷新重试一次)"""
+        """批量按订单号查运单号 (多账号: 默认账号优先, 未命中自动换下一个账号)"""
         nos = [str(n or "").strip() for n in (order_nos or []) if str(n or "").strip()]
         if not nos:
             return {}
-        cookie, ua = _load_cookie()
-        if not cookie:
+        accounts = _cookie_accounts()
+        if not accounts:
+            cookie, ua = _load_cookie()
+            if cookie:
+                accounts = [{"key": "default", "label": "默认", "cookie": cookie, "ua": ua}]
+        if not accounts:
             return {"__error__": "未取到店小秘登录 cookie"}
 
-        def run(ck: str, u: str, targets: List[str]) -> Dict[str, Dict[str, Any]]:
-            res: Dict[str, Dict[str, Any]] = {}
-            for no in targets:
+        out: Dict[str, Dict[str, Any]] = {}
+        for acc in accounts:
+            todo = [n for n in nos if not (out.get(n) or {}).get("found")]
+            if not todo:
+                break
+            for no in todo:
                 try:
-                    res[no] = DxmOrderService._http_query(no, ck, u)
+                    res = DxmOrderService._http_query(no, acc["cookie"], acc.get("ua") or "")
                 except Exception as e:
-                    res[no] = {"found": False, "tracking_no": "", "message": f"查询失败: {e}"}
-            return res
-
-        out = run(cookie, ua, nos)
-        failed = [n for n, v in out.items() if str(v.get("message", "")).startswith("查询失败")]
-        if failed:
-            ck2, ua2 = _load_cookie(force=True)
-            if ck2 and ck2 != cookie:
-                out.update(run(ck2, ua2, failed))
+                    res = {"found": False, "tracking_no": "", "message": f"查询失败: {e}"}
+                if res.get("found"):
+                    res["account"] = acc.get("label") or acc.get("key") or ""
+                    res["account_key"] = acc.get("key", "")
+                    out[no] = res
+                elif no not in out:
+                    out[no] = res
         return out
 
     @staticmethod
