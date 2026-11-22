@@ -36,6 +36,29 @@ const REMINDER_PRESENTATION = {
         `<b style="color:${st === "sent" ? "#16a34a" : "#dc2626"};">${atEsc(st)}</b>`;
     }
   },
+  ship_due: {
+    badges(t) {
+      const st = t.status || {};
+      const badges = [{ text: t.enabled ? "🟢 已开启" : "⚪ 已关闭", tone: t.enabled ? "run" : "idle" }];
+      if (st.matched_now) badges.push({ text: `⏰ 待超时 ${st.matched_now} 单`, tone: "danger" });
+      return badges;
+    },
+    logHtml(t) {
+      const st = t.status || {};
+      const r = st.last_result;
+      if (!r && !st.last_run) return "";
+      let html = `<b>上次检查</b> ${atEsc(fmtLogTime(st.last_run || (r && r.at)))}`;
+      if (r) {
+        html += ` · 匹配 <b>${r.matched || 0}</b> 单 · 本次提醒 <b>${r.alerted || 0}</b> 单`;
+        if (r.email_status) {
+          const ok = String(r.email_status).startsWith("sent");
+          html += ` · <b style="color:${ok ? "#16a34a" : "#b45309"};">` +
+            `${atEsc(String(r.email_status).slice(0, 90))}</b>`;
+        }
+      }
+      return html;
+    }
+  },
   jp_holiday: {
     badges(t) {
       const st = t.status || {};
@@ -58,7 +81,10 @@ const remindersPage = createTaskCards({
   wrapId: "remindersWrap",
   apiPath: "/api/reminders",
   presentation: REMINDER_PRESENTATION,
-  showRun: false
+  showRun: false,
+  // 仅「发货即将超时提醒」提供立即检查按钮 (POST /api/reminders/ship_due/run)
+  canRun: t => t.key === "ship_due",
+  runLabel: t => (t.key === "ship_due" ? "🔎 立即检查" : "▶️ 立即执行采集")
 });
 
 document.addEventListener("DOMContentLoaded", () => {

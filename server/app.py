@@ -68,6 +68,10 @@ async def lifespan(app: FastAPI):
     from server.services.jp_holiday_scheduler import start_jp_holiday_scheduler
 
     jp_holiday_task = start_jp_holiday_scheduler()
+    # 即将发货提醒: 每小时检查待发货订单剩余时间, 小于阈值发邮件 (services/ship_due_scheduler.py)
+    from server.services.ship_due_scheduler import start_ship_due_scheduler
+
+    ship_due_task = start_ship_due_scheduler()
     display_host = "127.0.0.1" if SERVER_HOST in ("0.0.0.0", "") else SERVER_HOST
     print(f"🚀 服务已就绪！访问地址: http://{display_host}:{SERVER_PORT}")
     yield
@@ -75,6 +79,7 @@ async def lifespan(app: FastAPI):
     dxm_scheduler_task.cancel()
     digest_scheduler_task.cancel()
     jp_holiday_task.cancel()
+    ship_due_task.cancel()
 
 # 1. 实例化 FastAPI 应用
 app = FastAPI(

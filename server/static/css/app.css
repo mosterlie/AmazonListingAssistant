@@ -1912,5 +1912,5 @@ input[type="text"],
 .olp-sub-en { color:#1d4ed8; cursor:pointer; }
 .olp-sub-zh:hover, .olp-sub-en:hover { text-decoration:underline; }
 
-/* 商品标识: 宽度约 4 个汉字, 超出用 CSS 省略号 (DOM 内保留完整文本) */
-.cell-flex > .prod-label { max-width: 4.4em; }
+/* 商品标识: 始终使用完整标识, 只有列宽不够时才由 CSS 省略 (不硬截断原文) */
+.cell-flex > .prod-label { max-width: 100%; }

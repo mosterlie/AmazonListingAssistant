@@ -173,6 +173,17 @@ def sync_orders(payload: SyncSchema, user: dict = EDIT_DEP):
             msg += f"；运单号回填 {backfill['filled']} 单"
         if backfill.get("error"):
             msg += f"；运单号回填未完成: {backfill['error']}"
+    # 待发货订单: 刷新店小秘发货剩余时间
+    try:
+        pending_sns = FulfillmentService.pending_order_sns(limit=20)
+        if pending_sns:
+            from server.services.dxm_order_service import DxmOrderService as _Dxm
+            dl = _Dxm.refresh_deadlines(pending_sns)
+            data["deadline_refresh"] = dl
+            if dl.get("updated"):
+                msg += f"；发货时限更新 {dl['updated']} 单"
+    except Exception as e:
+        data["deadline_refresh"] = {"error": f"{type(e).__name__}: {e}"}
     return {"code": 0, "msg": msg, "data": data}
 
 
@@ -182,6 +193,18 @@ def backfill_tracking(limit: int = Query(20, ge=1, le=200, description="最多�
     from server.services.dxm_order_service import DxmOrderService as _Dxm
     data = _Dxm.backfill_missing_tracking(limit=limit)
     msg = f"回填 {data['filled']} 单（检查 {data['checked']} 单）"
+    if data.get("error"):
+        msg += f"；失败: {data['error']}"
+    return {"code": 0, "msg": msg, "data": data}
+
+
+@router.post("/orders/refresh-deadlines", summary="刷新待发货订单的店小秘发货剩余时间")
+def refresh_deadlines(limit: int = Query(50, ge=1, le=200, description="最多刷新多少单"),
+                      user: dict = EDIT_DEP):
+    from server.services.dxm_order_service import DxmOrderService as _Dxm
+    nos = FulfillmentService.pending_order_sns(limit=limit)
+    data = _Dxm.refresh_deadlines(nos)
+    msg = f"更新 {data.get('updated', 0)} 单（检查 {data.get('checked', 0)} 单）"
     if data.get("error"):
         msg += f"；失败: {data['error']}"
     return {"code": 0, "msg": msg, "data": data}

@@ -580,6 +580,26 @@ function trackChip(name, opts) {
   return `<span style="${style}">${escapeHtml(s)}</span>`;
 }
 
+/* 待发货: 店小秘剩余发货时间, 紧凑小红字 (精确到分钟, 超时前置「超」) */
+function shipDeadlineInline(o) {
+  const dl = String(o.ship_deadline_at || "").trim();
+  if (!dl) return "";
+  const end = new Date(dl.replace(/-/g, "/")).getTime();
+  if (isNaN(end)) return "";
+  const diff = end - Date.now();
+  const leftMin = Math.max(0, Math.floor(Math.abs(diff) / 60000));
+  const dLeft = Math.floor(leftMin / 1440);
+  const hLeft = Math.floor((leftMin % 1440) / 60);
+  const mLeft = leftMin % 60;
+  // 紧凑展示: 1d10h23m / 10h23m / 42m
+  const txt = dLeft > 0 ? `${dLeft}d${hLeft}h${mLeft}m`
+    : hLeft > 0 ? `${hLeft}h${mLeft}m` : `${mLeft}m`;
+  const over = diff <= 0;
+  return `<div style="font-size:0.62rem; font-weight:700; line-height:1.2;
+    color:${over ? "#dc2626" : "#ea580c"};"
+    title="发货截止 ${escapeHtml(dl)}${over ? "（已超时）" : ""}">${over ? "超" : ""}${txt}</div>`;
+}
+
 /* 人工标记送达确认框 (与其他弹框同款样式) */
 function confirmMarkDelivered(orderId, orderSn) {
   if (!orderId) return;
@@ -1131,8 +1151,9 @@ function orderImgFallback(img) {
    - 英文标识 online_label_en; 缺失时图标置灰并提示 */
 function productCell(o) {
   const d = (o && typeof o === "object") ? o : {};
-  const zhFull = String(d.online_label_zh || d.product_label || "").trim();
-  const zhText = String(d.online_label_zh || d.product_label_short || d.product_label || "").trim();
+  // 一律用完整标识: 优先在线产品中文标识, 其次 AI 完整标识, 最后才用短标识
+  const zhFull = String(d.online_label_zh || d.product_label || d.product_label_short || "").trim();
+  const zhText = zhFull;
   const en = String(d.online_label_en || "").trim();
   if (!zhText) {
     return `<span style="color:#cbd5e1; font-size:0.72rem;">待识别</span>`;
@@ -1450,7 +1471,12 @@ function renderOrderRows(tbody, rows) {
       <td title="${escapeHtml(cnyTip(o.order_amount))}"
         style="text-align:right; font-size:0.76rem; color:#334155; white-space:nowrap;">${fmtMoney(o.order_amount, o.currency)}</td>
       <td style="font-size:0.78rem; color:#475569; white-space:nowrap;">${escapeHtml((o.gmt_order || "").slice(0, 16) || "—")}</td>
-      <td style="text-align:center; white-space:nowrap;">${statusChip(o.package_status, o.package_status_text)}${mergeChip(o)}</td>
+      <td style="text-align:center; white-space:nowrap;">
+        <div style="display:flex; flex-direction:column; align-items:center; gap:1px;">
+          <div>${statusChip(o.package_status, o.package_status_text)}${mergeChip(o)}</div>
+          ${shipDeadlineInline(o)}
+        </div>
+      </td>
       <td style="font-size:0.78rem; white-space:nowrap;">
         ${o.tracking_no ? `${trackJumpCell(o)}
             ${prevTrackingLine(o)}

@@ -411,6 +411,83 @@ class DxmOrderService:
         }
 
     @staticmethod
+    @staticmethod
+    def _http_item(order_no: str, cookie: str, ua: str) -> Optional[Dict[str, Any]]:
+        """直连 list.json 按订单号取原始行 (含 orderTimeoutTime 等发货时限字段)"""
+        import requests
+
+        no = (order_no or "").strip()
+        if not no:
+            return None
+        tpl = _LIST_POST_TPL.format(page=1, timeout=0)
+        tpl = tpl.replace("isSearch=0", "isSearch=1")
+        tpl = tpl.replace("&orderId=&", f"&orderId={quote(no)}&")
+        r = requests.post(DXM_LIST_URL, data=tpl,
+                          headers=DxmOrderService._http_headers(cookie, ua), timeout=12)
+        if r.status_code != 200:
+            raise RuntimeError(f"HTTP {r.status_code}")
+        body = r.json()
+        if body.get("code") != 0:
+            raise RuntimeError(f"接口 code={body.get('code')} msg={body.get('msg')}")
+        lst = ((body.get("data") or {}).get("page") or {}).get("list") or []
+        return lst[0] if lst else None
+
+    @staticmethod
+    def refresh_deadlines(order_nos: List[str]) -> Dict[str, Any]:
+        """拉取待发货订单的发货剩余时间 (orderTimeoutTime), 登记到 dxm_order_deadlines
+
+        返回 {"checked": n, "updated": n, "error": ""}; 只更新截止时间, 不改已有预警级别。
+        """
+        nos = [str(n or "").strip() for n in (order_nos or []) if str(n or "").strip()]
+        stats: Dict[str, Any] = {"checked": 0, "updated": 0, "error": ""}
+        if not nos:
+            return stats
+        cookie, ua = _load_cookie()
+        if not cookie:
+            stats["error"] = "未取到店小秘登录 cookie"
+            stats["checked"] = len(nos)
+            return stats
+        now_ts = time.time()
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn = get_db_connection()
+        try:
+            for no in nos:
+                stats["checked"] += 1
+                try:
+                    item = DxmOrderService._http_item(no, cookie, ua)
+                except Exception:
+                    continue
+                if not item or item.get("isVoided") or item.get("isRemoved"):
+                    continue
+                try:
+                    timeout_ts = int(item.get("orderTimeoutTime") or 0)
+                except (TypeError, ValueError):
+                    timeout_ts = 0
+                if not timeout_ts:
+                    continue
+                deadline_at = datetime.fromtimestamp(timeout_ts).strftime("%Y-%m-%d %H:%M:%S")
+                remaining = int((timeout_ts - now_ts) // 60)
+                status = (item.get("orderStatePlatform") or item.get("orderState") or "").strip()
+                conn.execute(
+                    """INSERT INTO dxm_order_deadlines
+                       (order_no, shop_name, site, order_status, deadline_at,
+                        remaining_minutes, alert_level, first_seen_at, last_seen_at, updated_at)
+                       VALUES (?,?,?,?,?,?,0,?,?,?)
+                       ON CONFLICT(order_no) DO UPDATE SET
+                         shop_name = excluded.shop_name, order_status = excluded.order_status,
+                         deadline_at = excluded.deadline_at,
+                         remaining_minutes = excluded.remaining_minutes,
+                         last_seen_at = ?, updated_at = ?""",
+                    (no, item.get("shopPlatform") or item.get("shopName") or "",
+                     item.get("buyerCountry") or "", status, deadline_at, remaining,
+                     now_str, now_str, now_str, now_str, now_str))
+                stats["updated"] += 1
+            conn.commit()
+        finally:
+            conn.close()
+        return stats
+
+    @staticmethod
     def _http_query(order_no: str, cookie: str, ua: str) -> Dict[str, Any]:
         """直连 /api/package/list.json 按订单号查运单号 (必要时 detail.json 兜底)"""
         import requests

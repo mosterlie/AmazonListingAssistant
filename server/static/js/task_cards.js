@@ -58,7 +58,10 @@ function badgeHtml(b) {
 
 // ═══════════════════ 任务卡片工厂 ═══════════════════
 function createTaskCards(opts) {
-  const { wrapId, apiPath, presentation = {}, showRun = false } = opts;
+  const {
+    wrapId, apiPath, presentation = {}, showRun = false,
+    canRun = null, runLabel = "▶️ 立即执行采集",
+  } = opts;
   const state = { tasks: [] };
   const presentOf = (key) => presentation[key] || {};
   const taskName = (key) => state.tasks.find(x => x.key === key)?.name || key;
@@ -144,7 +147,9 @@ function createTaskCards(opts) {
         <div class="last-log-box" id="log-${t.key}" style="display:none;"></div>
         <div style="display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap;">
           <button class="btn btn-primary" type="button" data-action="save" data-key="${t.key}">💾 保存配置</button>
-          ${showRun ? `<button class="btn btn-outline" type="button" data-action="run" data-key="${t.key}">▶️ 立即执行采集</button>` : ""}
+          ${(typeof canRun === "function" ? canRun(t) : showRun)
+        ? `<button class="btn btn-outline" type="button" data-action="run" data-key="${t.key}">${
+          typeof runLabel === "function" ? runLabel(t) : runLabel}</button>` : ""}
           ${t.email_note ? `<small style="color:var(--text-muted); font-size:0.78rem;">📧 ${atEsc(t.email_note)}</small>` : ""}
         </div>
       </div>

@@ -320,6 +320,7 @@ class FulfillmentService:
         pkg_map: Dict[int, List[Dict[str, Any]]] = {}
         tail_map: Dict[str, List[str]] = {}
         track_map: Dict[int, Dict[str, Any]] = {}
+        dl_map: Dict[str, str] = {}
         if ids:
             conn = get_db_connection()
             try:
@@ -345,6 +346,18 @@ class FulfillmentService:
                         FROM miaoshou_orders WHERE id IN ({mk})
                     """, src_ids):
                         track_map[int(r["id"])] = dict(r)
+                # 待发货订单的发货截止时间 (店小秘 orderTimeoutTime, 由采集/刷新写入)
+                _sns = [str(o.get("order_sn") or "").strip() for o in orders if o.get("order_sn")]
+                if _sns:
+                    mk2 = ",".join("?" * len(_sns))
+                    try:
+                        for r in conn.execute(
+                                f"SELECT order_no, deadline_at FROM dxm_order_deadlines "
+                                f"WHERE order_no IN ({mk2})", _sns):
+                            if r["deadline_at"]:
+                                dl_map[r["order_no"]] = r["deadline_at"]
+                    except Exception:
+                        pass
                 # 合单: 同运单号的其他履约订单
                 tails = sorted({(p.get("tracking_no") or "").strip()
                                 for arr in pkg_map.values() for p in arr
@@ -400,6 +413,10 @@ class FulfillmentService:
             if o.get("purchase_date"):
                 _dates.append(o["purchase_date"])
             o["purchase_dates"] = sorted({str(d) for d in _dates if d})
+            # 待发货: 店小秘的发货截止时间 (前端按该时间实时算剩余)
+            o["ship_deadline_at"] = (
+                dl_map.get(str(o.get("order_sn") or "").strip(), "")
+                if o.get("order_status") == "wait_seller_send" else "")
             pkgs = pkg_map.get(int(o["id"]), [])
             o["packages"] = pkgs
             first = pkgs[0] if pkgs else {}
@@ -795,6 +812,19 @@ class FulfillmentService:
                 for oid in po_to_orders.get(r["owner_id"], []):
                     result.setdefault(oid, set()).add(r["invoice_id"])
         return result
+
+    @staticmethod
+    def pending_order_sns(limit: int = 50) -> List[str]:
+        """待发货订单号 (用于刷新店小秘发货剩余时间)"""
+        conn = get_db_connection()
+        try:
+            rows = conn.execute(
+                "SELECT order_sn FROM fm_orders WHERE order_status = 'wait_seller_send' "
+                "AND IFNULL(order_sn, '') <> '' ORDER BY gmt_order DESC LIMIT ?",
+                (max(1, min(int(limit or 50), 200)),)).fetchall()
+            return [r["order_sn"] for r in rows]
+        finally:
+            conn.close()
 
     @staticmethod
     def get_order_workspace(order_id: int) -> Dict[str, Any]:

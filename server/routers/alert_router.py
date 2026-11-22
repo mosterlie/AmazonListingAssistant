@@ -94,6 +94,24 @@ async def get_reminders(user: Dict[str, Any] = Depends(get_current_user)):
     return {"code": 0, "msg": "success", "data": alert_service.AlertService.get_reminders()}
 
 
+@router.post("/reminders/ship_due/run", summary="立即检查即将超时发货订单并发提醒 (管理员)")
+async def run_ship_due(force: bool = Query(True, description="true=忽略开关与去重"),
+                       user: Dict[str, Any] = Depends(require_admin_user)):
+    import asyncio
+    from server.services.ship_due_service import ShipDueService
+    res = await asyncio.to_thread(ShipDueService.run_once, force)
+    if res.get("skipped"):
+        msg = res.get("msg") or "已跳过"
+    else:
+        msg = f"检查完成：匹配 {res.get('matched', 0)} 单，提醒 {res.get('alerted', 0)} 单"
+        status = str(res.get("email_status") or "")
+        if status.startswith("failed"):
+            msg += f"（{status}）"
+        elif not res.get("alerted"):
+            msg += "（暂无需要提醒的订单）"
+    return {"code": 0, "msg": msg, "data": res}
+
+
 @router.post("/reminders/{key}/config")
 async def save_reminder_config(key: str, payload: Dict[str, Any] = Body(default={}),
                                admin: Dict[str, Any] = Depends(require_admin_user)):

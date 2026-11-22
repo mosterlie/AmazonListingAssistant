@@ -131,6 +131,23 @@ REMINDER_FORMS = {
             ]},
         ],
     },
+    "ship_due": {
+        "sections": [
+            {"title": "⏰ 提醒规则", "cols": 2, "fields": [
+                {"key": "email_enabled", "type": "switch", "label": "发货即将超时邮件提醒", "def": False,
+                 "role": "enable", "title": "开启后每小时检查一次待发货订单",
+                 "hint": "每小时检查待发货订单: 剩余发货时间 ≤ 阈值即发邮件 (已超时的也会提醒); "
+                         "同一订单同一截止时间只提醒一次, 截止时间变化才会再次提醒"},
+                {"key": "hours", "type": "number", "label": "提前提醒小时数 (≤ 该值即提醒)",
+                 "def": 2, "min": 0.5, "max": 168, "step": 0.5},
+            ]},
+            {"title": "📧 收件人与主题", "cols": 2, "fields": [
+                {"key": "mail_to", "type": "text", "label": "提醒收件人 (多个用英文逗号分隔)",
+                 "placeholder": "you@qq.com, boss@qq.com", "actions": ["test_email"], "role": "mail_to"},
+                {"key": "subject_prefix", "type": "text", "label": "主题前缀", "def": "[即将超时发货提醒]"},
+            ]},
+        ],
+    },
 }
 
 # 提醒任务可编辑键白名单
@@ -246,6 +263,9 @@ class AlertService:
         from server.services.jp_holiday_service import JpHolidayService
         jp_cfg = JpHolidayService.get_config()
         jp_status = JpHolidayService.get_status()
+        from server.services.ship_due_service import ShipDueService
+        ship_cfg = ShipDueService.get_config()
+        ship_status = ShipDueService.get_status()
         return [
             {
                 "key": "daily_digest",
@@ -292,6 +312,27 @@ class AlertService:
                            "upcoming_count": len(JpHolidayService.upcoming(days=90) or [])},
                 "email_note": "邮件随「每日定时提醒」的 08:15 汇总邮件发送, 收件人同该卡片配置",
             },
+            {
+                "key": "ship_due",
+                "name": "发货即将超时提醒",
+                "icon": "⏰",
+                "desc": "每小时检查待发货订单的剩余发货时间, 剩余 ≤ 阈值 (默认 2 小时) 时发送邮件提醒; "
+                        "点「立即检查」可随时触发一次, 支持多个收件人, 同一订单同一截止时间只提醒一次",
+                "enabled": bool(ship_cfg.get("email_enabled")),
+                "form": REMINDER_FORMS["ship_due"],
+                "config": {
+                    "email_enabled": bool(ship_cfg.get("email_enabled")),
+                    "hours": ship_cfg.get("hours", 2),
+                    "mail_to": str(ship_cfg.get("mail_to") or ""),
+                    "subject_prefix": ship_cfg.get("subject_prefix") or "[即将超时发货提醒]",
+                },
+                "status": {
+                    "matched_now": ship_status.get("matched_now", 0),
+                    "last_run": ship_status.get("last_run"),
+                    "last_result": ship_status.get("last_result"),
+                },
+                "email_note": "发送通道 (SMTP 账号) 复用系统管理 → 邮件配置; 收件人可配置多个",
+            },
         ]
 
     @staticmethod
@@ -308,6 +349,9 @@ class AlertService:
         elif key == "jp_holiday":
             from server.services.jp_holiday_service import JpHolidayService
             JpHolidayService.save_config(filtered)
+        elif key == "ship_due":
+            from server.services.ship_due_service import ShipDueService
+            ShipDueService.save_config(filtered)
         else:
             DxmOrderService.save_config(filtered)
         for r in AlertService.get_reminders():
@@ -340,6 +384,9 @@ class AlertService:
             if patch.get("advance_days"):
                 override["advance_days"] = patch["advance_days"]
             return JpHolidayService.send_test_email(override or None)
+        if key == "ship_due":
+            from server.services.ship_due_service import ShipDueService
+            return ShipDueService.send_test_email(patch)
         raise ValueError(f"未知提醒任务: {key}")
 
     # ───────────────── 告警中心 ─────────────────
