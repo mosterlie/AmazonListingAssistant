@@ -694,6 +694,79 @@ function copyTrackingNo(no) {
   copyTextValue(no, "运单号");
 }
 
+/* ── 国内快递识别: 单号前缀/公司名 → 快递100 轨迹查询链接 ── */
+const CN_CARRIERS = [
+  { code: "yuantong", name: "圆通速递", test: n => /^YT\d{10,}$/i.test(n),
+    url: n => "https://www.yto.net.cn/ytoExpress/waybill/waybillDetail"
+      + `?mailNo=${encodeURIComponent(n)}` },
+  { code: "jtexpress", name: "极兔速递", test: n => /^JT\d{10,}$/i.test(n),
+    url: n => `https://www.jtexpress.cn/service.html?indexIpt=${encodeURIComponent(n)}` },
+  { code: "shunfeng", name: "顺丰速运", test: n => /^SF\d{10,}$/i.test(n),
+    url: n => "https://www.sf-express.com/chn/sc/waybill/waybill-detail/"
+      + encodeURIComponent(n) },
+  // 以下为「能识别出公司即可」, 统一跳官网首页 (官网不支持 URL 带单号, 单号已复制到剪贴板)
+  { code: "debangwuliu", name: "德邦快递", test: n => /^(DPK|DOP)/i.test(n),
+    url: () => "https://www.deppon.com/" },
+  { code: "jd", name: "京东物流", test: n => /^(JD|JDV|JDX)\d+/i.test(n),
+    url: () => "https://www.jdl.com/" },
+  { code: "youzhengguonei", name: "中国邮政", test: n => /^[A-Z]{2}\d{9}CN$/i.test(n),
+    url: () => "https://www.ems.com.cn/" },
+  { code: "baishiwuliu", name: "百世快递", test: n => /^(HTKY|BSHT)/i.test(n),
+    url: () => "https://www.800bestex.com/" },
+  { code: "youshuwuliu", name: "优速快递", test: n => /^UC\d+/i.test(n),
+    url: () => "https://www.uc56.com/" },
+  { code: "tiantian", name: "天天快递", test: n => /^TT\d+/i.test(n),
+    url: () => "https://www.ttkdex.com/" },
+  { code: "kuayue", name: "跨越速运", test: n => /^KYE/i.test(n),
+    url: () => "https://www.ky-express.com/" },
+  { code: "anne", name: "安能物流", test: n => /^ANE/i.test(n),
+    url: () => "https://www.ane56.com/" },
+  { code: "zhaijisong", name: "宅急送", test: n => /^ZJS/i.test(n),
+    url: () => "https://www.zjs.com.cn/" },
+  // 申通: 773 开头的 15 位数字, 必须排在纯数字规则之前
+  { code: "shentong", name: "申通快递", test: n => /^77[3-9]\d{12}$/.test(n),
+    url: n => `https://www.sto.cn/pc/service-page/iframe_2_21_${encodeURIComponent(n)}` },
+  { code: "yunda", name: "韵达速递", test: n => /^(31|43|45|46|50)\d{11,}$/.test(n),
+    url: n => "https://web.yundaex.com/infoInquiry?nav_id=262&cid=0"
+      + `&homeWaybill=${encodeURIComponent(n)}` },
+  { code: "zhongtong", name: "中通快递", test: n => /^(7[3-9]|68)\d{9,12}$/.test(n),
+    url: n => `https://www.zto.com/check/detail?waybills=${encodeURIComponent(n)}` },
+  // 兜底: 纯数字但前缀无法区分(中通/申通/韵达重叠) → 17TRACK 自动识别承运商
+  { code: "", name: "自动识别", test: n => /^\d{10,16}$/.test(n),
+    url: n => `https://t.17track.net/zh-cn#nums=${encodeURIComponent(n)}` },
+];
+
+/* 返回 {code, name, url}: 按单号前缀识别快递公司, 直接拼出该官网的查询详情页
+   (点击即跳转, 无需再粘贴单号) */
+function resolveCnCarrier(no, company) {
+  const s = String(no || "").trim();
+  const cp = String(company || "").trim();
+  const byName = cp
+    ? CN_CARRIERS.find(c => cp.includes(c.name) || cp.includes(c.name.slice(0, 2)))
+    : null;
+  const hit = byName || CN_CARRIERS.find(c => c.test(s));
+  if (!hit) {
+    return {
+      code: "", name: "快递查询",
+      url: `https://www.zto.com/check/detail?waybills=${encodeURIComponent(s)}`,
+    };
+  }
+  return { code: hit.code, name: hit.name, url: hit.url(s) };
+}
+
+/* 国内单号 + 查询按钮 (按钮上直接显示快递公司简称, 不使用悬停提示) */
+function cnTrackingCell(no, company) {
+  const s = String(no || "").trim();
+  if (!s) return "";
+  const c = resolveCnCarrier(s, company);
+  const short = c.name.replace(/^中国/, "").replace(/(速递|快递|速运|物流)$/, "") || c.name;
+  return `<span class="copy-chip" data-v="${escapeHtml(s)}"
+      style="cursor:pointer;" onclick="copyTextValue(this.dataset.v, '国内单号')"
+      >${escapeHtml(s)}</span><a class="mini-tag" href="${escapeHtml(c.url)}"
+      target="_blank" rel="noopener"
+      onclick="copyTextValue('${escapeHtml(s)}', '国内单号')">${escapeHtml(short)} ↗</a>`;
+}
+
 /* 上一次运单号 (人工修改前的值): 灰色删除线显示在当前单号下方 */
 function prevTrackingLine(o) {
   const prev = String(o.prev_tracking_no || "").trim();
@@ -713,7 +786,7 @@ function trackJumpCell(o) {
       onclick="copyTrackingNo(this.dataset.v)">${escapeHtml(no)}</span>
     <button class="mini-tag" type="button" data-no="${escapeHtml(no)}"
       data-site="${sagawa ? "sagawa" : "track17"}"
-      title="打开物流查询网站 (自动复制单号)"
+      title="${sagawa ? "佐川急便" : "17TRACK"} 查询轨迹（自动复制单号）"
       onclick="jumpTrackingSite(this)">↗</button></div>`;
 }
 
@@ -1662,7 +1735,8 @@ async function openOrderDetail(id) {
           ${infoRow("物流公司", escapeHtml(logistics.logisticsCompany || logistics.productName || "—"))}
           ${infoRow("采购日期", escapeHtml(o.purchase_date))}
           ${infoRow("国内包裹数", o.domestic_package_count ? String(o.domestic_package_count) : "")}
-          ${infoRow("国内单号", escapeHtml(o.domestic_tracking_no))}
+          ${infoRow("国内单号", o.domestic_tracking_no
+        ? cnTrackingCell(o.domestic_tracking_no) : "")}
           ${infoRow("买家留言", escapeHtml(orderInfo.buyerMessage))}
           ${infoRow("备注", escapeHtml(orderInfo.appNote || orderInfo.sellerNote))}
         </div>
@@ -2332,6 +2406,7 @@ async function startOrderSync() {
   if (!statuses.length) { showToast("请至少选择一个订单状态", "error"); return; }
   const days = Number(document.getElementById("syncDays").value || 0);
   const withTrack = !!(document.getElementById("syncWithTrack") || {}).checked;
+  const withDomestic = !!(document.getElementById("syncWithDomestic") || {}).checked;
   const btn = document.getElementById("syncStartBtn");
   const prog = document.getElementById("syncProgress");
   syncRunning = true;
@@ -2357,7 +2432,8 @@ async function startOrderSync() {
       try {
         const fbody = await orderApi("/api/fulfillment/orders/sync", {
           method: "POST",
-          body: JSON.stringify({ days, pull: false, order_sn: "" }),
+          body: JSON.stringify({ days, pull: false, order_sn: "",
+            backfill_domestic: withDomestic }),
         });
         fmMsg = (fbody && fbody.msg) || "履约数据已更新";
         prog.innerHTML = summary + `<div style="margin-top:4px;">✅ ${escapeHtml(fmMsg)}</div>`;

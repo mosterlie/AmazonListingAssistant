@@ -36,6 +36,8 @@ class SyncSchema(BaseModel):
     pull: bool = Field(False, description="是否先调用妙手在线同步刷新缓存")
     backfill_tracking: bool = Field(True, description="同步后是否用店小秘回填缺失的运单号")
     backfill_limit: int = Field(20, ge=1, le=200, description="单次最多回填多少单")
+    backfill_domestic: bool = Field(True, description="同步后是否从发货文档回补国内单号")
+    domestic_limit: int = Field(100, ge=1, le=500, description="单次最多回补多少单国内单号")
 
 
 class PurchaseOrderSchema(BaseModel):
@@ -190,6 +192,18 @@ def sync_orders(payload: SyncSchema, user: dict = EDIT_DEP):
                 msg += f"；发货时限更新 {dl['updated']} 单"
     except Exception as e:
         data["deadline_refresh"] = {"error": f"{type(e).__name__}: {e}"}
+    # 国内单号回补: 从发货文档(本地导出文件优先, 否则抓在线文档)补空缺
+    if payload.backfill_domestic:
+        try:
+            from server.services.ship_doc_service import ShipDocService
+            dom = ShipDocService.backfill_domestic(limit=payload.domestic_limit)
+            data["domestic_backfill"] = dom
+            if dom.get("updated"):
+                msg += f"；国内单号回补 {dom['updated']} 单"
+            elif dom.get("error"):
+                msg += f"；国内单号未回补: {dom['error']}"
+        except Exception as e:
+            data["domestic_backfill"] = {"error": f"{type(e).__name__}: {e}"}
     return {"code": 0, "msg": msg, "data": data}
 
 

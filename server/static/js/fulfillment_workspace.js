@@ -875,7 +875,10 @@
             ${kv("包裹状态", esc(first.package_status_text || first.package_status))}
             ${kv("采购日期", esc(o.purchase_date))}
             ${kv("国内包裹数", esc(o.domestic_package_count || ""))}
-            ${kv("国内单号", esc(o.domestic_tracking_no))}
+            ${kv("国内单号", o.domestic_tracking_no
+        ? (typeof cnTrackingCell === "function"
+          ? cnTrackingCell(o.domestic_tracking_no) : esc(o.domestic_tracking_no))
+        : "")}
           </div>
         </div>
         <div style="margin-top:16px;">
