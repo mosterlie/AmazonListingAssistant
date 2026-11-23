@@ -86,6 +86,60 @@ class ShipDocService:
             _CACHE["at"] = now
         return data
 
+    # ───────── 登记判定 ─────────
+    @staticmethod
+    def mark_registration() -> Dict[str, Any]:
+        """运单状态为「未上网 / 空 / -」的订单, 判断是否已在发货文档登记
+
+        结果写入 fm_orders.online_registered: 1=已登记 / 0=未登记 / -1=未判定
+        复用 fetch_map() 的 5 分钟缓存, 不会重复起浏览器。
+        """
+        stats: Dict[str, Any] = {"checked": 0, "registered": 0, "missing": 0,
+                                 "cleared": 0, "error": ""}
+        doc = ShipDocService.fetch_map()
+        if not doc:
+            stats["error"] = "未采集到发货文档数据"
+            return stats
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn = get_db_connection()
+        try:
+            # 取全部订单 + 包裹状态统计: 有任一包裹「未上网/空/-」即视为待判定
+            rows = conn.execute("""
+                SELECT o.id, o.order_sn, IFNULL(o.online_registered, -1) AS reg,
+                       (SELECT COUNT(1) FROM fm_order_packages op
+                          JOIN fm_packages p ON p.id = op.package_id
+                         WHERE op.order_id = o.id
+                           AND IFNULL(p.track_status_name, '') IN ('', '-', '未上网')
+                       ) AS pending_cnt,
+                       (SELECT COUNT(1) FROM fm_order_packages op
+                         WHERE op.order_id = o.id) AS pkg_cnt
+                  FROM fm_orders o
+                 WHERE IFNULL(o.order_sn, '') <> ''
+            """).fetchall()
+            for r in rows:
+                sn = str(r["order_sn"] or "").strip()
+                pending = int(r["pkg_cnt"] or 0) == 0 or int(r["pending_cnt"] or 0) > 0
+                if pending:
+                    # 运单还没上网: 以最新文档为准判定是否已登记
+                    stats["checked"] += 1
+                    ok = 1 if doc.get(sn) else 0
+                    stats["registered" if ok else "missing"] += 1
+                    conn.execute(
+                        "UPDATE fm_orders SET online_registered = ?, online_registered_at = ?, "
+                        # 已补登记 → 清掉人工忽略标记, 时刻以最新为准
+                        "online_unreg_ignored = CASE WHEN ? = 1 THEN 0 ELSE online_unreg_ignored END "
+                        "WHERE id = ?", (ok, now_str, ok, int(r["id"])))
+                elif int(r["reg"] or -1) == 0:
+                    # 运单已上网/已流转: 未登记标记不再适用, 清除
+                    conn.execute(
+                        "UPDATE fm_orders SET online_registered = -1, online_unreg_ignored = 0, "
+                        "online_registered_at = ? WHERE id = ?", (now_str, int(r["id"])))
+                    stats["cleared"] = int(stats.get("cleared") or 0) + 1
+            conn.commit()
+        finally:
+            conn.close()
+        return stats
+
     # ───────── 回补 ─────────
     @staticmethod
     def backfill_domestic(limit: int = 100, dry_run: bool = False) -> Dict[str, Any]:

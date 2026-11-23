@@ -23,9 +23,26 @@ class OnlineProductService:
 
     @staticmethod
     def db_path() -> str:
-        """在线产品库路径 (可在系统设置里用 ads_autoana_db 覆盖)"""
-        path = (get_setting("ads_autoana_db") or "").strip() or DEFAULT_ADS_DB
-        return os.path.expanduser(path)
+        """在线产品库路径
+
+        优先级: 系统设置 ads_autoana_db > 仓库内 adsauto/data/ads.db
+                > 同级项目 adsAutoAna/data/ads.db > 旧机器绝对路径
+        (逐个探测, 取第一个真实存在的文件, 避免换机器/换目录后查不到)
+        """
+        custom = (get_setting("ads_autoana_db") or "").strip()
+        if custom:
+            return os.path.expanduser(custom)
+        candidates = [
+            DEFAULT_ADS_DB,
+            os.path.join(BASE_DIR, "..", "adsAutoAna", "data", "ads.db"),
+            os.path.join(BASE_DIR, "..", "adsauto", "data", "ads.db"),
+            os.path.expanduser("~/Desktop/mypro/adsAutoAna/data/ads.db"),
+        ]
+        for p in candidates:
+            p = os.path.expanduser(p)
+            if os.path.exists(p):
+                return p
+        return DEFAULT_ADS_DB
 
     @staticmethod
     def _conn() -> Optional[sqlite3.Connection]:

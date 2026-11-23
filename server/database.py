@@ -953,6 +953,11 @@ def init_db():
         ("domestic_tracking_no TEXT DEFAULT ''", "domestic_tracking_no"),
         # 原始报文 (收货人/备注等), 复制整行时使用, 保证履约模块自持数据
         ("raw_json TEXT DEFAULT '{}'", "raw_json"),
+        # 在线发货文档登记情况: -1 未判定 / 1 已登记 / 0 未登记 (仅运单未上网的订单会判定)
+        ("online_registered INTEGER DEFAULT -1", "online_registered"),
+        ("online_registered_at TEXT DEFAULT ''", "online_registered_at"),
+        # 人工忽略「未在线登记」提醒: 1 表示已确认取消该订单的提醒
+        ("online_unreg_ignored INTEGER DEFAULT 0", "online_unreg_ignored"),
     ]:
         if _col_name not in _fm_order_cols:
             cursor.execute(f"ALTER TABLE fm_orders ADD COLUMN {_col_def};")

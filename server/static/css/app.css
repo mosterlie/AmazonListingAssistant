@@ -1923,3 +1923,8 @@ input[type="text"],
 .prod-en { display:block; min-width:0; font-size:0.62rem; text-align:center;
   color:#94a3b8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; }
 .prod-en:hover { color:#1d4ed8; }
+
+/* 运单状态下方: 未在线登记小字 (与订单状态的剩余时间小字同款, 点击可取消提醒) */
+.unreg-inline { margin-top:1px; font-size:0.62rem; font-weight:700; color:#dc2626;
+  line-height:1.2; white-space:nowrap; cursor:pointer; }
+.unreg-inline:hover { color:#b91c1c; text-decoration:underline; }

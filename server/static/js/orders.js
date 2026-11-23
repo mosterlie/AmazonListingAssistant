@@ -572,12 +572,67 @@ function trackChip(name, opts) {
   const style = `display:inline-block; padding:2px 9px; border-radius:9999px; font-size:0.72rem;
     font-weight:700; white-space:nowrap; background:${bg}; color:${color};`;
   const o = opts || {};
+  // 未上网且发货文档中未登记: 状态下方显示红色小字 (点击可取消提醒)
+  const unreg = !done && Number(o.onlineRegistered) === 0 && !Number(o.unregIgnored)
+    ? `<div class="unreg-inline" title="发货文档（在线登记表）中没有这个订单，点击取消该提醒"
+        onclick="event.stopPropagation(); confirmDismissUnreg(${Number(o.orderId || 0)})">未在线登记</div>`
+    : "";
   if (!done && o.orderId) {
     const sn = String(o.orderSn || "").replace(/['"\\]/g, "");
     return `<span style="${style} cursor:pointer;" title="点击标记为已送达"
-      onclick="confirmMarkDelivered(${Number(o.orderId)}, '${sn}')">${escapeHtml(s)}</span>`;
+      onclick="confirmMarkDelivered(${Number(o.orderId)}, '${sn}')">${escapeHtml(s)}</span>${unreg}`;
   }
-  return `<span style="${style}">${escapeHtml(s)}</span>`;
+  return `<span style="${style}">${escapeHtml(s)}</span>${unreg}`;
+}
+
+/* 取消「未在线登记」提醒: 确认后不再显示 (写入 fm_orders.online_unreg_ignored) */
+function confirmDismissUnreg(orderId) {
+  if (!orderId) return;
+  const overlay = document.createElement("div");
+  overlay.className = "custom-modal";
+  overlay.style.zIndex = "10060";
+  overlay.innerHTML = `
+    <div class="custom-modal-backdrop"></div>
+    <div class="custom-modal-dialog" style="max-width:420px;">
+      <div class="custom-modal-header" style="padding:10px 16px !important;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.1rem;">📋</span>
+          <h3 style="margin:0; font-size:0.92rem; color:#0f172a; font-weight:700;">取消未登记提醒</h3>
+        </div>
+      </div>
+      <div class="custom-modal-body" style="padding:14px 16px !important; font-size:0.84rem;
+        color:#334155; line-height:1.7;">
+        确认后，该订单的「未在线登记」提醒将不再显示。<br>
+        <span style="color:#64748b; font-size:0.78rem;">此操作只隐藏提醒，不影响订单本身；后续同步也不会再提示该单。</span>
+      </div>
+      <div class="custom-modal-footer" style="padding:8px 16px !important;">
+        <button class="btn btn-outline" type="button" data-cancel
+          style="padding:5px 14px; font-size:0.82rem;">取消</button>
+        <button class="btn btn-primary" type="button" data-ok
+          style="padding:5px 16px; font-size:0.84rem;">确认取消提醒</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", e => {
+    if (e.target === overlay || e.target.closest("[data-cancel]")
+        || e.target.closest(".custom-modal-backdrop")) close();
+  });
+  overlay.querySelector("[data-ok]").addEventListener("click", async function () {
+    this.disabled = true;
+    this.textContent = "处理中…";
+    try {
+      await orderApi(`/api/fulfillment/orders/${orderId}/dismiss-unreg`, { method: "POST" });
+      close();
+      showToast("已取消该提醒", "success");
+      await loadOrders();
+    } catch (e) {
+      this.disabled = false;
+      this.textContent = "确认取消提醒";
+      if (e.message !== "未登录") showToast("操作失败：" + e.message, "error");
+    }
+  });
+  return overlay;
 }
 
 /* 待发货: 店小秘剩余发货时间, 紧凑小红字 (精确到分钟, 超时前置「超」) */
@@ -1554,7 +1609,11 @@ function renderOrderRows(tbody, rows) {
             ${o.tracking_company ? `<div style="font-size:0.68rem; color:#94a3b8; margin-top:2px;">${escapeHtml(o.tracking_company)}</div>` : ""}`
           : `<span style="color:#cbd5e1;">—</span>`}
       </td>
-      <td class="js-track-status" style="text-align:center; white-space:nowrap;">${trackChip(o.track_status_name, { orderId: Number(o.id), orderSn: o.order_sn })}</td>
+      <td class="js-track-status" style="text-align:center; white-space:nowrap;">${trackChip(o.track_status_name, {
+        orderId: Number(o.id), orderSn: o.order_sn,
+        onlineRegistered: o.online_registered,
+        unregIgnored: o.online_unreg_ignored,
+      })}</td>
       <td class="js-track-desc track-desc-cell">${trackSummaryCell(o)}</td>
       <td class="js-track-at track-time-cell" style="font-size:0.72rem; color:#64748b; text-align:center;">
         ${escapeHtml((o.track_refreshed_at || "").slice(0, 16) || "—")}

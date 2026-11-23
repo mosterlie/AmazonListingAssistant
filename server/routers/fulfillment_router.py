@@ -202,6 +202,13 @@ def sync_orders(payload: SyncSchema, user: dict = EDIT_DEP):
                 msg += f"；国内单号回补 {dom['updated']} 单"
             elif dom.get("error"):
                 msg += f"；国内单号未回补: {dom['error']}"
+            # 运单未上网的订单: 判断是否已在发货文档登记
+            reg = ShipDocService.mark_registration()
+            data["registration_check"] = reg
+            if reg.get("missing"):
+                msg += f"；{reg['missing']} 单未在线登记"
+            elif reg.get("error"):
+                msg += f"；登记判定未完成: {reg['error']}"
         except Exception as e:
             data["domestic_backfill"] = {"error": f"{type(e).__name__}: {e}"}
     return {"code": 0, "msg": msg, "data": data}
@@ -216,6 +223,22 @@ def backfill_tracking(limit: int = Query(20, ge=1, le=200, description="最多�
     if data.get("error"):
         msg += f"；失败: {data['error']}"
     return {"code": 0, "msg": msg, "data": data}
+
+
+@router.post("/orders/{order_id}/dismiss-unreg", summary="忽略「未在线登记」提醒")
+def dismiss_unreg(order_id: int, user: dict = EDIT_DEP):
+    from server.database import get_db_connection
+    conn = get_db_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE fm_orders SET online_unreg_ignored = 1, updated_at = CURRENT_TIMESTAMP "
+            "WHERE id = ?", (int(order_id),))
+        conn.commit()
+        if not cur.rowcount:
+            raise HTTPException(status_code=404, detail="履约订单不存在")
+    finally:
+        conn.close()
+    return {"code": 0, "msg": "已取消该提醒", "data": {"id": int(order_id)}}
 
 
 @router.post("/orders/refresh-deadlines", summary="刷新待发货订单的店小秘发货剩余时间")
