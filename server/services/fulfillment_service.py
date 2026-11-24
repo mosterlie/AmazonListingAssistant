@@ -420,14 +420,20 @@ class FulfillmentService:
             pkgs = pkg_map.get(int(o["id"]), [])
             o["packages"] = pkgs
             first = pkgs[0] if pkgs else {}
-            # 轨迹取妙手最新刷新结果, 没有再用包裹快照兜底
+            # 轨迹取值: 妙手已按实时接口刷新过 → 完全以它为准 (查不到就是空, 与实时结果一致);
+            #          从未刷新过 → 用包裹快照兜底
             ms = track_map.get(src) or {}
             o["tracking_no"] = first.get("tracking_no", "") or (ms.get("tracking_no") or "")
             o["tracking_company"] = first.get("tracking_company", "")
-            o["track_status_name"] = (ms.get("track_status_name")
-                                      or first.get("track_status_name", ""))
-            o["track_desc"] = ms.get("track_desc") or first.get("track_desc", "")
-            o["track_time"] = ms.get("track_time") or first.get("track_time", "")
+            ms_refreshed = str(ms.get("track_refreshed_at") or "").strip()
+            if ms_refreshed:
+                o["track_status_name"] = ms.get("track_status_name") or ""
+                o["track_desc"] = ms.get("track_desc") or ""
+                o["track_time"] = ms.get("track_time") or ""
+            else:
+                o["track_status_name"] = first.get("track_status_name", "")
+                o["track_desc"] = first.get("track_desc", "")
+                o["track_time"] = first.get("track_time", "")
             o["package_status"] = first.get("package_status", "")
             o["package_status_text"] = first.get("package_status_text", "")
             o["app_package_no"] = first.get("app_package_no", "")

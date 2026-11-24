@@ -36,8 +36,10 @@ class SyncSchema(BaseModel):
     pull: bool = Field(False, description="是否先调用妙手在线同步刷新缓存")
     backfill_tracking: bool = Field(True, description="同步后是否用店小秘回填缺失的运单号")
     backfill_limit: int = Field(20, ge=1, le=200, description="单次最多回填多少单")
-    backfill_domestic: bool = Field(True, description="同步后是否从发货文档回补国内单号")
-    domestic_limit: int = Field(100, ge=1, le=500, description="单次最多回补多少单国内单号")
+    # 已废弃: 国内单号回补与在线登记判定改由 /orders/check-registration 处理
+    # (需在轨迹刷新之后调用, 否则用的是旧运单状态)
+    backfill_domestic: bool = Field(False, description="(已废弃) 请改用 check-registration")
+    domestic_limit: int = Field(100, ge=1, le=500, description="(已废弃)")
 
 
 class PurchaseOrderSchema(BaseModel):
@@ -192,26 +194,39 @@ def sync_orders(payload: SyncSchema, user: dict = EDIT_DEP):
                 msg += f"；发货时限更新 {dl['updated']} 单"
     except Exception as e:
         data["deadline_refresh"] = {"error": f"{type(e).__name__}: {e}"}
-    # 国内单号回补: 从发货文档(本地导出文件优先, 否则抓在线文档)补空缺
-    if payload.backfill_domestic:
-        try:
-            from server.services.ship_doc_service import ShipDocService
-            dom = ShipDocService.backfill_domestic(limit=payload.domestic_limit)
-            data["domestic_backfill"] = dom
-            if dom.get("updated"):
-                msg += f"；国内单号回补 {dom['updated']} 单"
-            elif dom.get("error"):
-                msg += f"；国内单号未回补: {dom['error']}"
-            # 运单未上网的订单: 判断是否已在发货文档登记
-            reg = ShipDocService.mark_registration()
-            data["registration_check"] = reg
-            if reg.get("missing"):
-                msg += f"；{reg['missing']} 单未在线登记"
-            elif reg.get("error"):
-                msg += f"；登记判定未完成: {reg['error']}"
-        except Exception as e:
-            data["domestic_backfill"] = {"error": f"{type(e).__name__}: {e}"}
+    # 说明: 国内单号回补 / 在线登记判定已改由 POST /orders/check-registration 单独处理,
+    #       必须在「更新运单轨迹」之后调用, 否则基于的是旧运单状态 (未上网判定会不准)。
     return {"code": 0, "msg": msg, "data": data}
+
+
+@router.post("/orders/check-registration",
+             summary="检查发货文档登记情况 (请在更新轨迹之后调用)")
+def check_registration(backfill: bool = Query(True, description="是否同时回补国内单号"),
+                       limit: int = Query(100, ge=1, le=500, description="最多回补多少单"),
+                       user: dict = EDIT_DEP):
+    """读取在线发货文档: ①回补空缺的国内单号 ②判定运单未上网的订单是否已登记
+
+    必须在运单轨迹刷新之后调用 —— 只有拿到最新运单状态, 才能确定哪些订单仍属「未上网/未收寄」。
+    """
+    from server.services.ship_doc_service import ShipDocService
+    data: Dict[str, Any] = {"domestic_backfill": {}, "registration": {}}
+    parts: List[str] = []
+    if backfill:
+        dom = ShipDocService.backfill_domestic(limit=limit)
+        data["domestic_backfill"] = dom
+        if dom.get("updated"):
+            parts.append(f"国内单号回补 {dom['updated']} 单")
+        elif dom.get("error"):
+            parts.append(f"国内单号未回补（{dom['error']}）")
+    reg = ShipDocService.mark_registration()
+    data["registration"] = reg
+    if reg.get("error"):
+        parts.append(f"登记判定未完成（{reg['error']}）")
+    elif reg.get("missing"):
+        parts.append(f"{reg['missing']} 单未在线登记")
+    else:
+        parts.append("已登记全部齐全")
+    return {"code": 0, "msg": "；".join(parts), "data": data}
 
 
 @router.post("/orders/backfill-tracking", summary="手动回填缺失运单号 (店小秘按订单号查询)")

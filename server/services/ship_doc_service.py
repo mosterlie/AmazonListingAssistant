@@ -103,9 +103,13 @@ class ShipDocService:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         conn = get_db_connection()
         try:
-            # 取全部订单 + 包裹状态统计: 有任一包裹「未上网/空/-」即视为待判定
+            # 取全部订单: 同时看妙手运单状态与已关联包裹的状态
+            #   列表展示优先用妙手状态, 判定也必须参考它, 否则会出现「显示运输中却仍标未登记」
             rows = conn.execute("""
                 SELECT o.id, o.order_sn, IFNULL(o.online_registered, -1) AS reg,
+                       (SELECT mo.track_status_name FROM miaoshou_orders mo
+                         WHERE mo.order_sn = o.order_sn
+                         ORDER BY mo.id DESC LIMIT 1) AS ms_status,
                        (SELECT COUNT(1) FROM fm_order_packages op
                           JOIN fm_packages p ON p.id = op.package_id
                          WHERE op.order_id = o.id
@@ -116,25 +120,38 @@ class ShipDocService:
                   FROM fm_orders o
                  WHERE IFNULL(o.order_sn, '') <> ''
             """).fetchall()
+            pending_states = ("", "-", "未上网", "未收寄", "待揽收")
             for r in rows:
                 sn = str(r["order_sn"] or "").strip()
-                pending = int(r["pkg_cnt"] or 0) == 0 or int(r["pending_cnt"] or 0) > 0
-                if pending:
-                    # 运单还没上网: 以最新文档为准判定是否已登记
-                    stats["checked"] += 1
-                    ok = 1 if doc.get(sn) else 0
-                    stats["registered" if ok else "missing"] += 1
-                    conn.execute(
-                        "UPDATE fm_orders SET online_registered = ?, online_registered_at = ?, "
-                        # 已补登记 → 清掉人工忽略标记, 时刻以最新为准
-                        "online_unreg_ignored = CASE WHEN ? = 1 THEN 0 ELSE online_unreg_ignored END "
-                        "WHERE id = ?", (ok, now_str, ok, int(r["id"])))
-                elif int(r["reg"] or -1) == 0:
-                    # 运单已上网/已流转: 未登记标记不再适用, 清除
-                    conn.execute(
-                        "UPDATE fm_orders SET online_registered = -1, online_unreg_ignored = 0, "
-                        "online_registered_at = ? WHERE id = ?", (now_str, int(r["id"])))
-                    stats["cleared"] = int(stats.get("cleared") or 0) + 1
+                # 注意: 不能用 `or -1`, 因为 online_registered=0 是有效值且 0 is falsy
+                reg = int(r["reg"]) if r["reg"] is not None else -1
+                ms_status = str(r["ms_status"] or "").strip()
+                pkg_cnt = int(r["pkg_cnt"] or 0)
+                pending_cnt = int(r["pending_cnt"] or 0)
+
+                # 运单是否已上网: 妙手状态或任一包裹状态显示已流转 → 视为已上网
+                ms_online = bool(ms_status) and ms_status not in pending_states
+                pkg_online = pkg_cnt > 0 and pending_cnt == 0
+                online_started = ms_online or pkg_online
+
+                if online_started:
+                    # 已上网/运输中: 「未在线登记」不再适用, 直接取消标记
+                    if reg == 0:
+                        conn.execute(
+                            "UPDATE fm_orders SET online_registered = -1, online_unreg_ignored = 0, "
+                            "online_registered_at = ? WHERE id = ?", (now_str, int(r["id"])))
+                        stats["cleared"] = int(stats.get("cleared") or 0) + 1
+                    continue
+
+                # 仍未上网: 以最新文档为准判定是否已登记
+                stats["checked"] += 1
+                ok = 1 if doc.get(sn) else 0
+                stats["registered" if ok else "missing"] += 1
+                conn.execute(
+                    "UPDATE fm_orders SET online_registered = ?, online_registered_at = ?, "
+                    # 已补登记 → 清掉人工忽略标记, 时刻以最新为准
+                    "online_unreg_ignored = CASE WHEN ? = 1 THEN 0 ELSE online_unreg_ignored END "
+                    "WHERE id = ?", (ok, now_str, ok, int(r["id"])))
             conn.commit()
         finally:
             conn.close()

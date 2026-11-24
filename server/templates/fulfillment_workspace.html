@@ -545,7 +545,7 @@
       </label>
       <label style="display:flex; align-items:center; gap:6px; margin-top:10px; font-size:0.82rem; color:#334155; cursor:pointer;">
         <input type="checkbox" id="syncWithDomestic" checked style="width:15px; height:15px;">
-        同时从发货文档补国内单号（在线采集，约 10~20 秒）
+        更新轨迹后检查发货文档（回补国内单号 + 在线登记判定，约 10~20 秒）
       </label>
       <div style="margin-top:12px; font-size:0.74rem; color:#94a3b8; line-height:1.6;">
         💡 妙手限频约 1 次/秒、单页 200 条；轨迹按批次查询（每批 20 单），全量更新可能耗时数分钟，请勿关闭页面。
@@ -592,6 +592,6 @@
   window.FM_CAN_EDIT = hasPerm('fulfillment:edit');
   window.FM_CAN_DELETE = hasPerm('fulfillment:delete');
 </script>
-<script src="/static/js/orders.js?v=20261123_orders160"></script>
+<script src="/static/js/orders.js?v=20261124_orders162"></script>
 <script src="/static/js/fulfillment_workspace.js?v=20261123_fm39"></script>
 {% endblock %}

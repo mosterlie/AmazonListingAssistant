@@ -572,17 +572,20 @@ function trackChip(name, opts) {
   const style = `display:inline-block; padding:2px 9px; border-radius:9999px; font-size:0.72rem;
     font-weight:700; white-space:nowrap; background:${bg}; color:${color};`;
   const o = opts || {};
-  // 未上网且发货文档中未登记: 状态下方显示红色小字 (点击可取消提醒)
-  const unreg = !done && Number(o.onlineRegistered) === 0 && !Number(o.unregIgnored)
-    ? `<div class="unreg-inline" title="发货文档（在线登记表）中没有这个订单，点击取消该提醒"
-        onclick="event.stopPropagation(); confirmDismissUnreg(${Number(o.orderId || 0)})">未在线登记</div>`
-    : "";
   if (!done && o.orderId) {
     const sn = String(o.orderSn || "").replace(/['"\\]/g, "");
     return `<span style="${style} cursor:pointer;" title="点击标记为已送达"
-      onclick="confirmMarkDelivered(${Number(o.orderId)}, '${sn}')">${escapeHtml(s)}</span>${unreg}`;
+      onclick="confirmMarkDelivered(${Number(o.orderId)}, '${sn}')">${escapeHtml(s)}</span>`;
   }
-  return `<span style="${style}">${escapeHtml(s)}</span>${unreg}`;
+  return `<span style="${style}">${escapeHtml(s)}</span>`;
+}
+
+/* 运单状态下方的「未在线登记」红色小字 (与状态胶囊分开渲染, 轨迹刷新时不会被覆盖) */
+function unregInline(o) {
+  const d = o || {};
+  if (Number(d.online_registered) !== 0 || Number(d.online_unreg_ignored)) return "";
+  return `<div class="unreg-inline" title="发货文档（在线登记表）中没有这个订单，点击取消该提醒"
+    onclick="event.stopPropagation(); confirmDismissUnreg(${Number(d.id || 0)})">未在线登记</div>`;
 }
 
 /* 取消「未在线登记」提醒: 确认后不再显示 (写入 fm_orders.online_unreg_ignored) */
@@ -1048,9 +1051,20 @@ function patchTrackRow(orderId, d) {
     || document.querySelector(`#orderTableBody tr[data-src="${orderId}"]`);
   if (!tr) return;
   const st = tr.querySelector(".js-track-status");
-  if (st) st.innerHTML = trackChip(d.track_status_name, {
-    orderId: Number(tr.dataset.oid || 0), orderSn: "",
-  });
+  // 只更新状态胶囊, 不动「未在线登记」红字 (原来整格覆盖会把红字刷掉, 刷新后又出现)
+  const chip = tr.querySelector(".js-track-chip");
+  if (chip) {
+    chip.innerHTML = trackChip(d.track_status_name, {
+      orderId: Number(tr.dataset.oid || 0), orderSn: "",
+    });
+  }
+  // 运单已上网/已流转: 「未在线登记」不再适用, 直接移除
+  const unreg = tr.querySelector(".unreg-inline");
+  if (unreg) {
+    const s = String(d.track_status_name || "").trim();
+    const stillPending = !s || s === "-" || s === "未上网" || s === "未收寄" || s === "待揽收";
+    if (!stillPending) unreg.remove();
+  }
   const desc = tr.querySelector(".js-track-desc");
   if (desc) desc.innerHTML = trackSummaryCell({
     id: FM_VARIANT ? 0 : orderId,
@@ -1609,11 +1623,11 @@ function renderOrderRows(tbody, rows) {
             ${o.tracking_company ? `<div style="font-size:0.68rem; color:#94a3b8; margin-top:2px;">${escapeHtml(o.tracking_company)}</div>` : ""}`
           : `<span style="color:#cbd5e1;">—</span>`}
       </td>
-      <td class="js-track-status" style="text-align:center; white-space:nowrap;">${trackChip(o.track_status_name, {
-        orderId: Number(o.id), orderSn: o.order_sn,
-        onlineRegistered: o.online_registered,
-        unregIgnored: o.online_unreg_ignored,
-      })}</td>
+      <td class="js-track-status" style="text-align:center; white-space:nowrap;">
+        <span class="js-track-chip">${trackChip(o.track_status_name, {
+          orderId: Number(o.id), orderSn: o.order_sn,
+        })}</span>${unregInline(o)}
+      </td>
       <td class="js-track-desc track-desc-cell">${trackSummaryCell(o)}</td>
       <td class="js-track-at track-time-cell" style="font-size:0.72rem; color:#64748b; text-align:center;">
         ${escapeHtml((o.track_refreshed_at || "").slice(0, 16) || "—")}
@@ -2491,8 +2505,9 @@ async function startOrderSync() {
       try {
         const fbody = await orderApi("/api/fulfillment/orders/sync", {
           method: "POST",
+          // 国内单号回补 / 登记判定移到轨迹更新之后 (见下方第 ④ 步)
           body: JSON.stringify({ days, pull: false, order_sn: "",
-            backfill_domestic: withDomestic }),
+            backfill_domestic: false }),
         });
         fmMsg = (fbody && fbody.msg) || "履约数据已更新";
         prog.innerHTML = summary + `<div style="margin-top:4px;">✅ ${escapeHtml(fmMsg)}</div>`;
@@ -2509,13 +2524,35 @@ async function startOrderSync() {
       btn.innerText = "⏳ 更新轨迹...";
       trackMsg = await refreshTracksInBatches(ids, prog);
     }
+
+    // ④ 轨迹更新后再检查在线登记: 此时运单状态已是最新, 「未上网」判定才准确
+    let regMsg = "";
+    if (withDomestic && FM_VARIANT) {
+      btn.innerText = "⏳ 检查在线登记...";
+      prog.innerHTML = summary
+        + (fmMsg ? `<div style="margin-top:4px;">${escapeHtml(fmMsg)}</div>` : "")
+        + (trackMsg ? `<div style="margin-top:4px;">${escapeHtml(trackMsg)}</div>` : "")
+        + `<div style="margin-top:4px;">⏳ 正在读发货文档：回补国内单号 + 判定在线登记…</div>`;
+      try {
+        const rbody = await orderApi(
+          "/api/fulfillment/orders/check-registration?backfill=true&limit=200",
+          { method: "POST" });
+        regMsg = (rbody && rbody.msg) || "在线登记检查完成";
+      } catch (e) {
+        if (e.message === "未登录") throw e;
+        regMsg = "在线登记检查失败: " + e.message;
+      }
+    }
+
     await loadOrderFilters();
     orderState.page = 1;
     await loadOrders();
     prog.innerHTML = summary
       + (fmMsg ? `<div style="margin-top:4px;">${escapeHtml(fmMsg)}</div>` : "")
-      + (trackMsg ? `<div style="margin-top:4px;">${escapeHtml(trackMsg)}</div>` : "");
-    showToast(trackMsg || fmMsg || body.msg, (d.failed && d.failed.length) ? "error" : "success");
+      + (trackMsg ? `<div style="margin-top:4px;">${escapeHtml(trackMsg)}</div>` : "")
+      + (regMsg ? `<div style="margin-top:4px;">${escapeHtml(regMsg)}</div>` : "");
+    showToast(regMsg || trackMsg || fmMsg || body.msg,
+      (d.failed && d.failed.length) ? "error" : "success");
     syncDone = true;                 // 转为完成态: 再点按钮只关闭弹窗
     btn.innerText = "完成";
   } catch (e) {

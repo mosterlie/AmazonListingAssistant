@@ -404,6 +404,7 @@ class OrderService:
         if track is None and last_err is not None:
             raise ValueError(f"轨迹查询失败: {last_err}")
         summary = WaybillService._track_summary(track)
+        # 以最新实时结果为准: 查不到就写成空 (配合列表不再回退旧快照)
         now = OrderService._save_track_snapshot(order_id, summary)
         return {
             "id": int(order_id), "tracking_no": number, "chudao_no": used,
@@ -465,7 +466,7 @@ class OrderService:
         number = (row["tracking_no"] or "").strip()
         if not number and not (row["order_sn"] or "").strip():
             raise ValueError("该订单没有运单号，无法查询轨迹")
-        track, used, _ = OrderService._track_for_order(
+        track, used, last_err = OrderService._track_for_order(
             row["order_sn"], number, int(row["tracking_no_manual"] or 0) == 1)
         channel_no = ""
         if track:
@@ -488,13 +489,13 @@ class OrderService:
                                               or summary.get("last_track_desc", ""))
                 summary["last_track_time"] = (cur["track_time"]
                                               or summary.get("last_track_time", ""))
+        elif last_err:
+            # 接口调用失败 (网络/单号解析失败): 不改库, 让前端明确提示失败原因
+            raise ValueError(f"轨迹查询失败: {last_err}")
         else:
-            summary = {
-                "track_status_name": row["track_status_name"] or "",
-                "last_track_desc": row["track_desc"] or "",
-                "last_track_time": row["track_time"] or "",
-            }
-            refreshed_at = row["track_refreshed_at"] or ""
+            # 实时接口确认查不到轨迹: 以最新为准, 快照写空 (列表与弹窗同步变空)
+            refreshed_at = OrderService._save_track_snapshot(order_id, {})
+            summary = {"track_status_name": "", "last_track_desc": "", "last_track_time": ""}
         # 跨境运单号: 优先用轨迹返回, 缺失时从运单库补齐 (无则不展示)
         if not channel_no:
             channel_no = OrderService._waybill_channel_no(number, row["order_sn"])
