@@ -897,7 +897,8 @@ function purchaseDateArg(o) {
 }
 
 /* 送达判定关键词 (配达完了 / 签收成功 / お届け完了 ...) */
-const DELIVERED_RE = /签收|配达|配達|受取|お届け完了|delivered|已送达|投递成功|标记送达/i;
+// 已签收/已妥投类状态: 命中则不再提示「停 N 天」
+const DELIVERED_RE = /签收|妥投|配达|配達|受取|お届け完了|delivered|已送达|投递成功|标记送达/i;
 /* 轨迹停滞提醒阈值 (天, 含当天: 满 5 天即提醒) */
 const TRACK_STALE_DAYS = 3;
 
@@ -1071,6 +1072,8 @@ function patchTrackRow(orderId, d) {
     src_id: FM_VARIANT ? orderId : 0,
     purchase_date: tr.dataset.purchase || "",
     track_desc: d.last_track_desc, track_time: d.last_track_time,
+    // 必须带上最新运单状态, 否则「标记送达/派送妥投」判定失效, 停 N 天标签会重新冒出来
+    track_status_name: d.track_status_name,
   });
   const at = tr.querySelector(".js-track-at");
   if (at) at.innerText = (d.track_refreshed_at || "").slice(0, 16) || "—";
