@@ -192,6 +192,70 @@ class ShipDueService:
         except Exception as e:
             return f"failed: {e.__class__.__name__}: {str(e)[:200]}"
 
+    # ───────── 发信前实时回查 ─────────
+    @staticmethod
+    def recheck_orders(rows: List[Dict[str, Any]], hours: float) -> tuple:
+        """发信前逐单回查店小秘, 过滤掉「已发货」或「剩余时间已放宽」的订单
+
+        容错原则: 取不到 cookie / 单条查询异常 / 数据异常 → **保留该单照常提醒**,
+                  宁可多提醒一次, 也不能因为查询故障漏掉真正的超时。
+        返回 (保留的订单列表, 统计信息)
+        """
+        stats: Dict[str, Any] = {"checked": 0, "shipped": 0, "extended": 0,
+                                 "refreshed": 0, "errors": 0}
+        if not rows:
+            return rows, stats
+        try:
+            from server.services.dxm_order_service import DxmOrderService, _load_cookie
+            cookie, ua = _load_cookie()
+        except Exception:
+            cookie, ua = "", ""
+        now = datetime.now()
+        limit_min = float(hours) * 60
+        kept: List[Dict[str, Any]] = []
+        for r in rows:
+            stats["checked"] += 1
+            if not cookie:
+                stats["errors"] += 1
+                kept.append(r)              # 拿不到登录态: 按缓存数据提醒
+                continue
+            try:
+                item = DxmOrderService._http_item(str(r.get("order_sn") or ""), cookie, ua)
+            except Exception:
+                stats["errors"] += 1
+                kept.append(r)              # 查询失败: 仍提醒
+                continue
+            if item is None:
+                stats["errors"] += 1
+                kept.append(r)              # 没查到这条: 不贸然丢弃
+                continue
+            if item.get("isVoided") or item.get("isRemoved"):
+                kept.append(r)
+                continue
+            # 已发货 → 不需要再提醒
+            state = str(item.get("orderStatePlatform") or item.get("orderState") or "").strip()
+            if state and "unshipped" not in state.lower():
+                stats["shipped"] += 1
+                continue
+            # 用店小秘最新截止时间重算剩余
+            try:
+                ts = int(item.get("orderTimeoutTime") or 0)
+            except (TypeError, ValueError):
+                ts = 0
+            if ts:
+                deadline = datetime.fromtimestamp(ts)
+                remain = int((deadline - now).total_seconds() // 60)
+                if remain > limit_min:
+                    stats["extended"] += 1   # 已改期, 不再临近
+                    continue
+                r = dict(r)
+                r["deadline_at"] = deadline.strftime("%Y-%m-%d %H:%M:%S")
+                r["remaining_minutes"] = remain
+                r["overdue"] = remain <= 0
+                stats["refreshed"] += 1
+            kept.append(r)
+        return kept, stats
+
     # ───────── 执行 ─────────
     @staticmethod
     def run_once(force: bool = False) -> Dict[str, Any]:
@@ -223,6 +287,12 @@ class ShipDueService:
                 "skipped_dup": len(rows) - len(fresh), "email_status": "",
                 "orders": [r["order_sn"] for r in rows],
             }
+            # 发信前实时回查店小秘: 已发货/已改期的不再打扰; 查询失败则照常提醒
+            if fresh:
+                fresh, recheck = ShipDueService.recheck_orders(fresh, hours)
+                result["recheck"] = recheck
+                result["skipped_shipped"] = int(recheck.get("shipped") or 0)
+                result["skipped_extended"] = int(recheck.get("extended") or 0)
             if fresh:
                 result["email_status"] = ShipDueService._send_email(cfg, fresh, hours)
                 if result["email_status"] == "sent":
@@ -234,7 +304,13 @@ class ShipDueService:
                     set_setting(K_ALERTED, json.dumps(alerted, ensure_ascii=False))
                     result["alerted"] = len(fresh)
             else:
-                result["email_status"] = "skip: 无新增提醒"
+                rc = result.get("recheck") or {}
+                if rc.get("shipped") or rc.get("extended"):
+                    result["email_status"] = (
+                        f"skip: 复核后无需提醒（已发货 {rc.get('shipped', 0)} 单"
+                        f"、已改期 {rc.get('extended', 0)} 单）")
+                else:
+                    result["email_status"] = "skip: 无新增提醒"
 
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             set_setting(K_LAST_RUN, now_str)
