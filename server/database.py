@@ -641,6 +641,24 @@ def init_db():
     );
     """)
 
+    # 12bb. 每日订单同步执行日志 (页面「同步记录」数据源)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS order_sync_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trigger_type TEXT DEFAULT 'manual',
+        days INTEGER DEFAULT 0,
+        status TEXT DEFAULT '',
+        started_at TEXT DEFAULT '',
+        finished_at TEXT DEFAULT '',
+        duration_s INTEGER DEFAULT 0,
+        summary_json TEXT DEFAULT '',
+        error TEXT DEFAULT ''
+    );
+    """)
+    cursor.execute("""
+    CREATE INDEX IF NOT EXISTS idx_order_sync_logs_started ON order_sync_logs(started_at);
+    """)
+
     # 12c. 初道物流运单库 (运单管理: 运单查询/轨迹跟踪页面数据源)
     #      tracking_number=初道运单号(shipper_hawbcode, 查轨迹用); 参考号/尾程/渠道单号独立存储
     #      tracking_number 唯一索引 (NULL 可重复, 空值用 NULL 不用 '')

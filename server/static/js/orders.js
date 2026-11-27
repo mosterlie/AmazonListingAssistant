@@ -557,10 +557,19 @@ async function loadOrderFilters() {
 const trackState = { orderId: 0, data: null };
 
 /* 轨迹状态徽标: 按关键词着色 (签收=绿 / 异常退回=红 / 运输派送=蓝 / 揽收=靛)
-   opts.orderId 存在且未送达时, 点击可人工标记送达 */
+   opts.orderId 存在且未送达时, 点击可人工标记送达
+   运单状态为空或 "-" (物流未回传) 同样可点, 这是人工标记送达的兜底场景 */
 function trackChip(name, opts) {
+  const o = opts || {};
   const s = String(name || "").trim();
-  if (!s) return `<span style="color:#cbd5e1;">—</span>`;
+  const noStatus = !s || s === "-";
+  if (noStatus) {
+    const label = `<span style="color:#cbd5e1;">${s ? escapeHtml(s) : "—"}</span>`;
+    if (!o.orderId) return label;
+    const sn = String(o.orderSn || "").replace(/['"\\]/g, "");
+    return `<span style="cursor:pointer;" title="点击标记为已送达"
+      onclick="confirmMarkDelivered(${Number(o.orderId)}, '${sn}')">${label}</span>`;
+  }
   let bg = "#f1f5f9", color = "#475569";
   const done = /签收|妥投|已送达|投递成功|delivered|标记送达/i.test(s);
   if (done) { bg = "#dcfce7"; color = "#15803d"; }
@@ -571,7 +580,6 @@ function trackChip(name, opts) {
   } else if (/揽收|收寄|已收件|pick ?up|collected/i.test(s)) { bg = "#eef2ff"; color = "#4338ca"; }
   const style = `display:inline-block; padding:2px 9px; border-radius:9999px; font-size:0.72rem;
     font-weight:700; white-space:nowrap; background:${bg}; color:${color};`;
-  const o = opts || {};
   if (!done && o.orderId) {
     const sn = String(o.orderSn || "").replace(/['"\\]/g, "");
     return `<span style="${style} cursor:pointer;" title="点击标记为已送达"
@@ -1105,12 +1113,20 @@ async function openOrderTrack(orderId, purchaseDate) {
     const d = res.data || {};
     trackState.data = d;
     const crossNo = String(d.channel_hawbcode || "").trim();
+    const sgInfo = d.sagawa || {};
     sub.innerHTML = [
       trackNoItem("运单号", d.tracking_no),
       trackNoItem("初岛号", d.chudao_no === d.tracking_no ? "" : d.chudao_no),
       trackNoItem("跨境运单号", crossNo),
       d.track_status_name ? trackChip(d.track_status_name) : "",   // 与列表「运单状态」列同为彩色胶囊
       d.tracking_company ? escapeHtml(d.tracking_company) : "",
+      sgInfo.found ? `<span style="display:inline-block; padding:2px 8px; border-radius:9999px;
+        background:#fef3c7; color:#92400e; font-size:0.72rem; font-weight:700;"
+        title="佐川官网实时轨迹">佐川 ${escapeHtml(sgInfo.status || "")}${
+          sgInfo.status_zh ? "（" + escapeHtml(sgInfo.status_zh) + "）" : ""}</span>`
+        : (sgInfo.status === "該当なし" ? `<span style="display:inline-block; padding:2px 8px;
+            border-radius:9999px; background:#f1f5f9; color:#64748b; font-size:0.72rem;"
+            title="佐川官网暂无该单号数据">佐川 該当なし</span>` : ""),
     ].filter(Boolean).join(" · ") || "—";
     document.getElementById("orderTrackJumpBtn").disabled = !(crossNo || d.tracking_no);
     patchTrackRow(orderId, d);
@@ -1131,7 +1147,9 @@ async function openOrderTrack(orderId, purchaseDate) {
         <div class="wb-timeline-time">🕐 ${escapeHtml(t.track_occur_date || "")}${t.track_location ? " · " + escapeHtml(t.track_location) : ""}
           ${i === 0 ? `<span style="display:inline-block; margin-left:6px; padding:0 6px; border-radius:9999px;
             background:#dbeafe; color:#1d4ed8; font-size:0.66rem; font-weight:700;">最新</span>` : ""}</div>
-        <div class="wb-timeline-desc">${escapeHtml(decodeEntities(t.track_description) || "—")}</div>
+        <div class="wb-timeline-desc">${t.track_source === "sagawa"
+          ? `<span style="display:inline-block; margin-right:5px; padding:0 5px; border-radius:4px;
+              background:#fef3c7; color:#92400e; font-size:0.66rem; font-weight:700;">佐川</span>` : ""}${escapeHtml(decodeEntities(t.track_description) || "—")}</div>
       </div>`).join("") + `</div>`;
   } catch (e) {
     if (e.message === "未登录") return;
@@ -2447,6 +2465,131 @@ function openSyncModal() {
 function closeSyncModal() {
   if (syncRunning) { showToast("正在批量更新，请稍候…", "error"); return; }  // 更新中不允许关闭
   document.getElementById("orderSyncModal").style.display = "none";
+}
+
+/* ───────── 每日自动同步结果 (工具栏「📋 每日同步」) ───────── */
+function closeDailySyncModal() {
+  const m = document.getElementById("orderDailySyncModal");
+  if (m) m.style.display = "none";
+}
+
+async function openDailySyncModal() {
+  const m = document.getElementById("orderDailySyncModal");
+  if (!m) return;
+  m.style.display = "flex";
+  await loadDailySyncStatus();
+}
+
+function dailySyncRow(label, value) {
+  return `<div style="display:flex; gap:8px; padding:6px 0; border-bottom:1px dashed #e2e8f0;">
+    <div style="width:92px; flex:none; color:#64748b;">${label}</div>
+    <div style="flex:1; color:#0f172a;">${value}</div></div>`;
+}
+
+/* 读取运行状态 + 执行记录, 渲染「同步记录」列表 */
+let dailySyncLogsCache = [];
+let dailySyncStatusCache = {};
+
+async function loadDailySyncStatus() {
+  const body = document.getElementById("dailySyncBody");
+  if (!body) return;
+  body.innerHTML = "加载中…";
+  try {
+    const [st, lg] = await Promise.all([
+      orderApi("/api/orders/daily-sync/status"),
+      orderApi("/api/orders/daily-sync/logs?limit=30"),
+    ]);
+    dailySyncLogsCache = (lg.data || []);
+    dailySyncStatusCache = st.data || {};
+    renderDailySyncList(dailySyncStatusCache);
+  } catch (e) {
+    if (e.message === "未登录") return;
+    body.innerHTML = `<div style="color:#dc2626;">读取失败: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+/* 顶部状态 + 记录表格 (点击某行进详情) */
+function renderDailySyncList(d) {
+  const body = document.getElementById("dailySyncBody");
+  if (!body) return;
+  d = d || {};
+  const cfg = d.config || {};
+  const running = d.running
+    ? `<span style="color:#dc2626; font-weight:700;">● 正在运行</span>
+       （${d.trigger === "scheduled" ? "定时" : "手动"}，开始于 ${escapeHtml(
+         String(d.started_at || "").replace("T", " ").slice(0, 19))}）`
+    : `<span style="color:#16a34a; font-weight:700;">● 空闲</span>`;
+  const rows = dailySyncLogsCache.map((l, i) => {
+    const s = l.steps || {};
+    const ms = s.miaoshou || {}, cd = s.chudao || {}, sg = s.sagawa || {};
+    const brief = `妙手 ${ms.fetched || 0} · 轨迹 ${cd.refreshed || 0} · 佐川签收 ${sg.delivered || 0}`;
+    const okTag = l.ok ? `<span style="color:#16a34a; font-weight:700;">成功</span>`
+                       : `<span style="color:#dc2626; font-weight:700;">失败</span>`;
+    return `<tr onclick="openDailySyncDetail(${i})" style="cursor:pointer;"
+        onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+      <td style="padding:6px 8px; white-space:nowrap;">${escapeHtml(l.started_at || "—")}</td>
+      <td style="padding:6px 8px; text-align:center;">${l.trigger_type === "scheduled" ? "定时" : "手动"}</td>
+      <td style="padding:6px 8px; text-align:center;">近 ${l.days || 0} 天</td>
+      <td style="padding:6px 8px; text-align:center;">${l.duration_s || 0}s</td>
+      <td style="padding:6px 8px; text-align:center;">${okTag}</td>
+      <td style="padding:6px 8px; color:#64748b; white-space:nowrap;">${brief}</td>
+      <td style="padding:6px 8px; text-align:center; color:#2563eb;">详情 ›</td>
+    </tr>`;
+  }).join("");
+  body.innerHTML =
+    dailySyncRow("运行状态", running) +
+    dailySyncRow("计划", `每日 ${escapeHtml(cfg.time || "02:00")} · 近 ${cfg.days || 30} 天` +
+      (cfg.enabled === false ? ` · <span style="color:#dc2626;">已停用</span>` : "")) +
+    `<div style="margin-top:10px; font-weight:700; color:#334155;">执行记录（点击行查看详情）</div>
+     <div style="max-height:300px; overflow:auto; margin-top:6px; border:1px solid #e2e8f0; border-radius:8px;">
+       <table style="width:100%; border-collapse:collapse; font-size:0.78rem;">
+         <thead><tr style="background:#f8fafc; color:#64748b;">
+           <th style="padding:6px 8px; text-align:left;">执行时间</th>
+           <th style="padding:6px 8px;">触发</th>
+           <th style="padding:6px 8px;">覆盖</th>
+           <th style="padding:6px 8px;">耗时</th>
+           <th style="padding:6px 8px;">结果</th>
+           <th style="padding:6px 8px; text-align:left;">概要</th>
+           <th></th>
+         </tr></thead>
+         <tbody>${rows || `<tr><td colspan="7" style="padding:18px; text-align:center;
+           color:#94a3b8;">暂无执行记录</td></tr>`}</tbody>
+       </table>
+     </div>`;
+}
+
+/* 单条记录详情 (返回列表用缓存, 不再请求接口) */
+function openDailySyncDetail(i) {
+  const body = document.getElementById("dailySyncBody");
+  const l = dailySyncLogsCache[i];
+  if (!body || !l) return;
+  const steps = l.steps || {};
+  const ms = steps.miaoshou || {}, cd = steps.chudao || {}, sg = steps.sagawa || {};
+  const fm = steps.fulfillment || {}, doc = steps.ship_doc || {};
+  body.innerHTML =
+    `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+       <div style="font-weight:700; color:#334155;">同步详情</div>
+       <button class="btn btn-outline btn-sm" type="button"
+         onclick="renderDailySyncList(dailySyncStatusCache)"
+         style="padding:3px 10px;">‹ 返回列表</button>
+     </div>` +
+    dailySyncRow("执行时间", `${escapeHtml(l.started_at || "")} ～ ${escapeHtml(l.finished_at || "")}`) +
+    dailySyncRow("方式与结果", `${l.trigger_type === "scheduled" ? "定时" : "手动"} · 近 ${l.days || 0} 天 · ` +
+      `${l.duration_s || 0} 秒 · ` +
+      (l.ok ? `<span style="color:#16a34a; font-weight:700;">成功</span>`
+            : `<span style="color:#dc2626; font-weight:700;">失败</span>`)) +
+    dailySyncRow("① 妙手同步", `拉取 ${ms.fetched || 0} 条，新增 ${ms.inserted || 0}，更新 ${ms.updated || 0}，涉及 ${ms.ids || 0} 单`) +
+    dailySyncRow("② 初岛轨迹", `成功 ${cd.refreshed || 0} 单，失败 ${cd.failed || 0} 单`) +
+    dailySyncRow("③ 佐川轨迹", sg.checked === undefined ? "未执行" :
+      `候选 ${sg.checked || 0} 单，命中 ${sg.queried || 0}，签收 ${sg.delivered || 0}，` +
+      `无数据 ${sg.missing || 0}，更新轨迹 ${sg.updated || 0}，失败 ${sg.failed || 0}`) +
+    dailySyncRow("④ 履约同步", fm.error
+      ? `<span style="color:#dc2626;">${escapeHtml(fm.error)}</span>`
+      : `${fm.orders || 0} 单 / ${fm.packages || 0} 包裹`) +
+    dailySyncRow("⑤ 发货文档", doc.error
+      ? `<span style="color:#dc2626;">${escapeHtml(doc.error)}</span>`
+      : `回补国内单号 ${doc.domestic_backfilled || 0} 单，未在线登记 ${doc.registered_missing || 0} 单`) +
+    (l.error ? dailySyncRow("失败原因", `<span style="color:#dc2626;">${escapeHtml(l.error)}</span>`) : "");
 }
 
 /* 批量更新轨迹: 按批次调用 /api/orders/tracks/refresh, 进度写回弹窗 */

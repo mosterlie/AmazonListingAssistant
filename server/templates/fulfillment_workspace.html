@@ -267,6 +267,10 @@
       <button class="btn btn-primary btn-sm" type="button" id="orderSyncBtn"
         aria-label="同步妙手订单并更新运单轨迹" onclick="openSyncModal()"
         style="padding:5px 14px;">同步</button>
+      <button class="btn btn-outline btn-sm" type="button" id="orderDailySyncBtn"
+        aria-label="查看每日同步执行记录" onclick="openDailySyncModal()"
+        title="每日 02:00 自动同步近 30 天的执行记录"
+        style="padding:5px 10px;">📋 同步记录</button>
       {% endif %}
     </div>
   </div>
@@ -558,6 +562,32 @@
     </div>
   </div>
 </div>
+
+<!-- 每日自动同步结果弹窗 (工具栏「📋 每日同步」) -->
+<div id="orderDailySyncModal" class="custom-modal" style="display:none; z-index:10050;">
+  <div class="custom-modal-backdrop" onclick="closeDailySyncModal()"></div>
+  <div class="custom-modal-dialog" style="max-width:620px;">
+    <div class="custom-modal-header">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:1.3rem;">📋</span>
+        <div>
+          <h3 style="margin:0; font-size:1.05rem; color:#0f172a; font-weight:700;">同步记录</h3>
+          <div style="font-size:0.76rem; color:var(--text-muted); margin-top:2px;">
+            每日凌晨 2 点自动执行：妙手同步 → 初岛轨迹 → 佐川轨迹 → 履约同步 → 发货文档
+          </div>
+        </div>
+      </div>
+      <button class="custom-modal-close" onclick="closeDailySyncModal()">✕</button>
+    </div>
+    <div class="custom-modal-body" style="padding:14px 20px;">
+      <div id="dailySyncBody" style="font-size:0.82rem; color:#334155; line-height:1.7;">加载中…</div>
+    </div>
+    <div class="custom-modal-footer">
+      <button type="button" class="btn btn-outline" onclick="loadDailySyncStatus()">刷新</button>
+      <button type="button" class="btn btn-primary" onclick="closeDailySyncModal()">关闭</button>
+    </div>
+  </div>
+</div>
 {% endif %}
 
 <!-- 履约素材查看弹窗 (列表图标点击, 只读) -->
@@ -592,6 +622,6 @@
   window.FM_CAN_EDIT = hasPerm('fulfillment:edit');
   window.FM_CAN_DELETE = hasPerm('fulfillment:delete');
 </script>
-<script src="/static/js/orders.js?v=20261125_orders163"></script>
+<script src="/static/js/orders.js?v=20261127_orders168"></script>
 <script src="/static/js/fulfillment_workspace.js?v=20261123_fm39"></script>
 {% endblock %}

@@ -20,6 +20,7 @@ TARGET_SHEET = "发货数据"      # 只读这个 sheet (模糊匹配, 排除「
 CACHE_TTL = 300               # 采集结果缓存 5 分钟
 
 _CACHE: Dict[str, Any] = {"at": 0.0, "map": {}}
+_LAST_ERROR = {"msg": ""}      # 最近一次读取失败的真实原因 (供页面/日志排查)
 
 ORDER_RE = re.compile(r"^\d{3}-\d{7}-\d{7}$")
 # 占位/无效值: 不能当成真实国内单号
@@ -31,11 +32,14 @@ class ShipDocService:
     # ───────── 采集 ─────────
     @staticmethod
     def _fetch_from_doc() -> Dict[str, List[str]]:
-        """headless 浏览器读取在线文档 → {订单号: [国内单号]} (失败返回空)"""
+        """headless 浏览器读取在线文档 → {订单号: [国内单号]} (失败返回空, 原因记入 _LAST_ERROR)"""
+        _LAST_ERROR["msg"] = ""
         try:
             with TencentDocExtractor() as extractor:
                 doc = extractor.extract_doc(DOC_URL)
-        except Exception:
+        except Exception as exc:
+            _LAST_ERROR["msg"] = f"读取在线文档失败 ({exc.__class__.__name__}): {exc}"
+            print(f"[ShipDocService] {_LAST_ERROR['msg']}", flush=True)
             return {}
         sheet = None
         for s in doc.get("sheets", []):
@@ -50,9 +54,17 @@ class ShipDocService:
                     sheet = s
                     break
         if sheet is None:
+            names = [str(s.get("sheet_name") or "") for s in doc.get("sheets", [])]
+            _LAST_ERROR["msg"] = f"在线文档中未找到「{TARGET_SHEET}」sheet (实际: {names})"
+            print(f"[ShipDocService] {_LAST_ERROR['msg']}", flush=True)
             return {}
         rows = sheet.get("rows") or []
         return ShipDocService.rows_to_map(rows[1:] if rows else [])
+
+    @staticmethod
+    def last_error() -> str:
+        """最近一次读取失败的原因 (成功为空串)"""
+        return _LAST_ERROR["msg"]
 
     # ───────── 解析 ─────────
     @staticmethod
@@ -98,7 +110,7 @@ class ShipDocService:
                                  "cleared": 0, "error": ""}
         doc = ShipDocService.fetch_map()
         if not doc:
-            stats["error"] = "未采集到发货文档数据"
+            stats["error"] = ShipDocService.last_error() or "未采集到发货文档数据"
             return stats
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         conn = get_db_connection()
@@ -169,7 +181,7 @@ class ShipDocService:
         doc = ShipDocService.fetch_map()
         stats["doc_rows"] = len(doc)
         if not doc:
-            stats["error"] = "未采集到发货文档数据 (文档未打开/结构变化/网络异常)"
+            stats["error"] = ShipDocService.last_error() or "未采集到发货文档数据 (文档未打开/结构变化/网络异常)"
             return stats
 
         conn = get_db_connection()

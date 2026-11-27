@@ -18,6 +18,11 @@ from server.database import get_db_connection
 from server.services.chudao_service import ChudaoService
 from server.services.miaoshou_service import MiaoshouService, MiaoshouApiError
 from server.services.order_doc_service import DOC_TYPES, OrderDocService
+from server.services.sagawa_service import (
+    looks_like_sagawa,
+    track as sagawa_track,
+    track_many as sagawa_track_many,
+)
 from server.services.waybill_service import WaybillService
 from server.services.workbuddy_service import identify_products
 
@@ -46,6 +51,45 @@ MARK_DELIVERED_STATUS = "标记送达"   # 人工标记已送达 (物流未回�
 
 def _now_local() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# 真实签收判定: 命中则不必再补佐川轨迹
+# 注意: 不含「标记送达」—— 人工标记的订单仍要去佐川拉真实轨迹覆盖显示
+_REAL_DELIVERED_RE = re.compile(r"签收|妥投|已送达|投递成功|delivered|配達完了", re.I)
+
+
+def _is_newer(candidate: Any, current: Any) -> bool:
+    """ISO 时间串比较: candidate 比 current 新 (current 为空视为更新)"""
+    c = str(candidate or "").strip()
+    if not c:
+        return False
+    cur = str(current or "").strip()
+    return (not cur) or c > cur
+
+
+def _merge_details(chudao: List[Dict[str, Any]],
+                   sagawa: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """初岛轨迹 + 佐川官网轨迹合并
+
+    - 统一按时间倒序 (前端时间线默认取第一条为最新)
+    - 同一时间(精确到分)+描述 视为同一条, 保留先出现的 (初岛优先)
+    - 每条带 track_source: chudao / sagawa, 供前端打来源标签
+    """
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for source, items in (("chudao", chudao), ("sagawa", sagawa)):
+        for raw in items or []:
+            item = dict(raw)
+            if not item.get("track_source"):     # 初岛未给来源时补上, 前端据此打标签
+                item["track_source"] = source
+            key = (str(item.get("track_occur_date") or "")[:16],
+                   re.sub(r"\s+", "", str(item.get("track_description") or "")))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(item)
+    out.sort(key=lambda x: str(x.get("track_occur_date") or ""), reverse=True)
+    return out
 
 
 class OrderService:
@@ -153,12 +197,47 @@ class OrderService:
     # ─────────────────── 运单轨迹 (与运单管理同源, 初道 gettrack) ───────────────────
 
     @staticmethod
+    def _save_latest_track_text(order_id: int, desc: str, track_time: str) -> str:
+        """只更新「最新轨迹」两列 (列表展示用), 不动运单状态与人工标记"""
+        now = _now_local()
+        conn = get_db_connection()
+        try:
+            conn.execute(
+                "UPDATE miaoshou_orders SET track_desc = ?, track_time = ?, "
+                "track_refreshed_at = ?, updated_at = ? WHERE id = ?",
+                (desc, track_time, now, now, int(order_id)))
+            conn.commit()
+        finally:
+            conn.close()
+        return now
+
+    @staticmethod
+    def _save_delivered_by_sagawa(order_id: int, desc: str, track_time: str) -> str:
+        """佐川确认「配達完了」: 状态置为派送妥投, 并写人工送达标记
+
+        写 manual=1 是为了让后续初岛同步不再把状态改回「运输中」;
+        同时 _save_track_snapshot 有「不允许时间回退」保护, 旧的初岛轨迹也覆盖不了它。
+        """
+        now = _now_local()
+        conn = get_db_connection()
+        try:
+            conn.execute(
+                "UPDATE miaoshou_orders SET track_status_name = '派送妥投', track_status_manual = 1, "
+                "track_desc = ?, track_time = ?, track_refreshed_at = ?, updated_at = ? WHERE id = ?",
+                (desc or "配達完了", track_time or "", now, now, int(order_id)))
+            conn.commit()
+        finally:
+            conn.close()
+        return now
+
+    @staticmethod
     def _save_track_snapshot(order_id: int, summary: Dict[str, Any]) -> str:
         """回写轨迹快照
 
         规则:
         - 轨迹有变化 → 状态与轨迹全部按真实物流覆盖 (人工标记也会被纠正)
         - 轨迹无变化且订单被人工标记过送达 → 保留人工状态, 只刷新刷新时间
+        - 来料时间比库里更旧 (如佐川已签收后初岛又回放旧轨迹) → 不回退, 只刷新时间
         """
         now = _now_local()
         new_status = summary.get("track_status_name", "") or ""
@@ -169,9 +248,11 @@ class OrderService:
             row = conn.execute(
                 "SELECT track_desc, track_time, track_status_manual FROM miaoshou_orders WHERE id = ?",
                 (int(order_id),)).fetchone()
+            stored_time = (row["track_time"] or "") if row else ""
+            regressed = bool(row) and bool(new_time) and _is_newer(stored_time, new_time)
             same = bool(row) and (row["track_desc"] or "") == new_desc \
                 and (row["track_time"] or "") == new_time
-            if same and int(row["track_status_manual"] or 0) == 1:
+            if regressed or (same and int(row["track_status_manual"] or 0) == 1):
                 conn.execute("UPDATE miaoshou_orders SET track_refreshed_at = ? WHERE id = ?",
                              (now, int(order_id)))
             else:
@@ -406,6 +487,18 @@ class OrderService:
         summary = WaybillService._track_summary(track)
         # 以最新实时结果为准: 查不到就写成空 (配合列表不再回退旧快照)
         now = OrderService._save_track_snapshot(order_id, summary)
+        # 返回库里最终值: 佐川已签收(派送妥投)时, 初岛旧轨迹不会把状态改回去
+        conn = get_db_connection()
+        try:
+            cur = conn.execute(
+                "SELECT track_status_name, track_desc, track_time FROM miaoshou_orders WHERE id = ?",
+                (int(order_id),)).fetchone()
+        finally:
+            conn.close()
+        if cur:
+            summary = {"track_status_name": cur["track_status_name"] or "",
+                       "last_track_desc": cur["track_desc"] or "",
+                       "last_track_time": cur["track_time"] or ""}
         return {
             "id": int(order_id), "tracking_no": number, "chudao_no": used,
             "track_status_name": summary.get("track_status_name", ""),
@@ -449,6 +542,111 @@ class OrderService:
             conn.close()
         return (row["channel_hawbcode"] or "").strip() if row else ""
 
+    # ─────────────────── 佐川官网轨迹 (补全/回写) ───────────────────
+
+    @staticmethod
+    def _apply_sagawa_merge(order_id: int, number: str, company: str, dest_country: str,
+                            summary: Dict[str, Any],
+                            details: List[Dict[str, Any]],
+                            sg: Optional[Dict[str, Any]] = None) -> tuple:
+        """把佐川官网轨迹并入订单并回写状态/最新轨迹
+
+        返回 (details, sagawa_info, saved_at); saved_at 非空表示有落库, 供调用方刷新时间。
+        - 单号像佐川就查 (已派送妥投/手标记送达也查, 否则详情页看不到佐川段)
+        - 佐川「配達完了」→ 运单状态置「派送妥投」
+        - 否则佐川最新一条比库里新 → 只更新最新轨迹列
+        """
+        info: Dict[str, Any] = {"found": False, "status": "", "status_zh": "",
+                                "message": "", "error": ""}
+        if not looks_like_sagawa(number, company, dest_country):
+            return details, info, ""
+        if sg is None:
+            try:
+                sg = sagawa_track(number)
+            except Exception as exc:      # 佐川查询失败不影响初岛轨迹展示
+                sg = {"found": False, "error": f"{exc.__class__.__name__}: {exc}"}
+        info = {"found": bool(sg.get("found")), "status": sg.get("status", ""),
+                "status_zh": sg.get("status_zh", ""),
+                "message": sg.get("message", "") or sg.get("error", ""),
+                "error": sg.get("error", "")}
+        if sg.get("details"):
+            details = _merge_details(details, sg["details"])
+        latest = details[0] if details else None
+        desc = str((latest or {}).get("track_description") or "").strip()
+        when = str((latest or {}).get("track_occur_date") or "")[:19]
+        if sg.get("status") == "配達完了":
+            summary["track_status_name"] = "派送妥投"
+            if desc:
+                summary["last_track_desc"] = desc
+                summary["last_track_time"] = when
+            saved = OrderService._save_delivered_by_sagawa(order_id, desc or "配達完了", when)
+            return details, info, saved
+        if desc and _is_newer(when, summary.get("last_track_time")):
+            summary["last_track_desc"] = desc
+            summary["last_track_time"] = when
+            saved = OrderService._save_latest_track_text(order_id, desc, when)
+            return details, info, saved
+        return details, info, ""
+
+    @staticmethod
+    def apply_sagawa_tracks(order_ids: List[int], limit: int = 200,
+                            on_progress=None) -> Dict[str, Any]:
+        """批量: 未签收的佐川订单拉官网轨迹并回写 (供每日定时任务用)
+
+        一个浏览器实例批量查 (sagawa_service.track_many), 每单只落库「最新轨迹/派送妥投」。
+        """
+        stats: Dict[str, Any] = {"checked": 0, "queried": 0, "delivered": 0,
+                                 "updated": 0, "missing": 0, "failed": 0, "skipped": 0}
+        ids = [int(i) for i in (order_ids or [])][:max(1, int(limit or 200))]
+        if not ids:
+            return stats
+        rows: List[Dict[str, Any]] = []
+        conn = get_db_connection()
+        try:
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                marks = ",".join("?" * len(chunk))
+                rows += [dict(r) for r in conn.execute(
+                    f"SELECT id, tracking_no, tracking_company, dest_country, track_status_name, "
+                    f"track_time FROM miaoshou_orders WHERE id IN ({marks})", chunk)]
+        finally:
+            conn.close()
+        candidates = []
+        for r in rows:
+            no = str(r["tracking_no"] or "").strip()
+            if (not no
+                    or _REAL_DELIVERED_RE.search(str(r["track_status_name"] or ""))
+                    or not looks_like_sagawa(no, r["tracking_company"] or "",
+                                             r["dest_country"] or "")):
+                stats["skipped"] += 1
+                continue
+            candidates.append(r)
+        stats["checked"] = len(candidates)
+        if not candidates:
+            return stats
+        results = sagawa_track_many([r["tracking_no"] for r in candidates],
+                                    on_progress=on_progress)
+        for r in candidates:
+            no = str(r["tracking_no"]).strip()
+            sg = results.get(no) or {}
+            if sg.get("error"):
+                stats["failed"] += 1
+                continue
+            if not sg.get("found"):
+                stats["missing"] += 1
+                continue
+            stats["queried"] += 1
+            latest = (sg.get("details") or [{}])[0]
+            desc = str(latest.get("track_description") or "").strip()
+            when = str(latest.get("track_occur_date") or "")[:19]
+            if sg.get("status") == "配達完了":
+                OrderService._save_delivered_by_sagawa(int(r["id"]), desc or "配達完了", when)
+                stats["delivered"] += 1
+            elif desc and _is_newer(when, r["track_time"]):
+                OrderService._save_latest_track_text(int(r["id"]), desc, when)
+                stats["updated"] += 1
+        return stats
+
     @staticmethod
     def get_track_detail(order_id: int) -> Dict[str, Any]:
         """轨迹详情: 实时查询并回写快照; 接口无数据时回退库中快照"""
@@ -456,7 +654,7 @@ class OrderService:
         try:
             row = conn.execute(
                 "SELECT id, order_sn, tracking_no, tracking_no_manual, tracking_company, "
-                "track_status_name, track_desc, "
+                "dest_country, track_status_manual, track_status_name, track_desc, "
                 "track_time, track_refreshed_at FROM miaoshou_orders WHERE id = ?",
                 (int(order_id),)).fetchone()
         finally:
@@ -499,6 +697,13 @@ class OrderService:
         # 跨境运单号: 优先用轨迹返回, 缺失时从运单库补齐 (无则不展示)
         if not channel_no:
             channel_no = OrderService._waybill_channel_no(number, row["order_sn"])
+        # ── 佐川补轨迹: 真实未送达的订单 (含人工「标记送达」) 都拉官网轨迹并与初岛拼接 ──
+        details = list((track or {}).get("details") or [])
+        details, sagawa_info, sagawa_saved_at = OrderService._apply_sagawa_merge(
+            order_id, number, row["tracking_company"] or "", row["dest_country"] or "",
+            summary, details)
+        if sagawa_saved_at:
+            refreshed_at = sagawa_saved_at
         return {
             "id": int(order_id),
             "tracking_no": number,
@@ -509,7 +714,8 @@ class OrderService:
             "last_track_desc": summary.get("last_track_desc", ""),
             "last_track_time": summary.get("last_track_time", ""),
             "track_refreshed_at": refreshed_at,
-            "details": (track or {}).get("details") or [],
+            "details": details,
+            "sagawa": sagawa_info,
         }
 
     # ─────────────────── 商品标识识别 (WorkBuddy 大模型) ───────────────────

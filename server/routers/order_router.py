@@ -805,3 +805,35 @@ def sync_orders(payload: OrderSyncSchema,
     if product.get("error"):
         msg += f", 商品识别异常: {product['error']}"
     return {"code": 0, "msg": msg, "data": data}
+
+
+@router.post("/daily-sync", summary="手动执行每日同步 (妙手同步+轨迹+佐川, 需「订单同步」权限)")
+def run_daily_sync(days: int = Query(0, ge=0, le=365, description="覆盖近 N 天, 0=用默认配置"),
+                   user: dict = Depends(require_perm("order:sync"))):
+    from server.services.order_daily_sync_service import OrderDailySyncService
+
+    if OrderDailySyncService.is_running():
+        return {"code": 1, "msg": "已有同步任务在运行", "data": OrderDailySyncService.get_status()}
+    data = OrderDailySyncService.run(trigger="manual", days=days or None)
+    if not data.get("ok"):
+        return {"code": 1, "msg": f"同步失败: {data.get('error') or '中断'}", "data": data}
+    steps = data.get("steps") or {}
+    msg = (f"同步完成(近{data.get('days')}天): 妙手 {steps.get('miaoshou', {}).get('fetched', 0)} 条, "
+           f"初岛轨迹 {steps.get('chudao', {}).get('refreshed', 0)} 单, "
+           f"佐川命中 {steps.get('sagawa', {}).get('queried', 0)} 单(签收 {steps.get('sagawa', {}).get('delivered', 0)})")
+    return {"code": 0, "msg": msg, "data": data}
+
+
+@router.get("/daily-sync/status", summary="每日同步状态 (运行中/上次结果/配置)")
+def daily_sync_status(user: dict = Depends(get_current_user)):
+    from server.services.order_daily_sync_service import OrderDailySyncService
+
+    return {"code": 0, "msg": "success", "data": OrderDailySyncService.get_status()}
+
+
+@router.get("/daily-sync/logs", summary="每日同步执行记录 (新→旧, 含各步骤明细)")
+def daily_sync_logs(limit: int = Query(30, ge=1, le=200),
+                    user: dict = Depends(get_current_user)):
+    from server.services.order_daily_sync_service import OrderDailySyncService
+
+    return {"code": 0, "msg": "success", "data": OrderDailySyncService.get_logs(limit)}

@@ -12,6 +12,7 @@
   - 未激活 sheet initialized=false 数据未加载 → 逐 sheet 以 ?tab=<sheetId> 重载后提取
 仅支持公开分享的 docs.qq.com/sheet/ 链接 (匿名可访问, 无需登录)。
 """
+import os
 import re
 import time
 from typing import Any, Dict, List, Optional
@@ -127,9 +128,29 @@ class TencentDocExtractor:
         self._page = None
 
     def __enter__(self) -> "TencentDocExtractor":
-        self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(headless=True)
-        self._page = self._browser.new_page()
+        # Playwright 驱动本身是 Node 进程, 会继承 os.environ 里的 NODE_OPTIONS。
+        # 部分宿主环境 (IDE / 沙箱终端) 会注入 --require 预加载脚本, 该路径一旦失效,
+        # 驱动会启动即崩溃 (Connection closed while reading from the driver), 所有文档读取全部失败。
+        # 启动驱动期间临时摘掉 NODE_OPTIONS, 结束后原样恢复, 避免污染宿主环境。
+        saved_node_options = os.environ.pop("NODE_OPTIONS", None)
+        try:
+            self._pw = sync_playwright().start()
+            self._browser = self._pw.chromium.launch(headless=True)
+            self._page = self._browser.new_page()
+        except Exception:
+            try:
+                if self._browser:
+                    self._browser.close()
+            except Exception:
+                pass
+            finally:
+                if self._pw:
+                    self._pw.stop()
+                self._browser = self._pw = None
+            raise
+        finally:
+            if saved_node_options is not None:
+                os.environ["NODE_OPTIONS"] = saved_node_options
         return self
 
     def __exit__(self, *exc) -> None:
