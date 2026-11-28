@@ -503,9 +503,10 @@ class FulfillmentService:
                               domestic_package_count: int = 0,
                               domestic_tracking_no: str = "") -> Dict[str, Any]:
         tracking = _clean(domestic_tracking_no, 200)
-        # 占位文本不能当真实单号, 否则复制出去的「待补录」会被当成已填内容
-        if tracking in ("待补录", "待补充", "待定", "待填", "暂无", "无"):
-            raise HTTPException(status_code=400, detail="国内单号请填写真实单号，「待补录」等占位文本不能保存")
+        # 「待补录」允许保存 (人工标记补录已完成但暂无单号, 后续文档回补会自动覆盖);
+        # 其它占位文本仍拒绝, 避免复制出去被当成真实单号
+        if tracking in ("待补充", "待定", "待填", "暂无", "无"):
+            raise HTTPException(status_code=400, detail="国内单号请填写真实单号或「待补录」")
         conn = get_db_connection()
         try:
             cur = conn.execute("""

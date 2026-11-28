@@ -386,7 +386,8 @@ class OrderService:
             raise ValueError("请填写国内单号")
         if len(tracking) > 200:
             raise ValueError("国内单号过长")
-        if not re.fullmatch(r"[A-Za-z0-9,\-_/;]+", tracking):
+        # 「待补录」允许保存: 人工标记补录完成但暂无单号, 文档回补时会自动覆盖
+        if tracking != "待补录" and not re.fullmatch(r"[A-Za-z0-9,\-_/;]+", tracking):
             raise ValueError("国内单号仅支持字母、数字及 , - _ / ;")
 
         conn = get_db_connection()

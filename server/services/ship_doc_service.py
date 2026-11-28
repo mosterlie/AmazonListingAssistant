@@ -188,7 +188,7 @@ class ShipDocService:
         try:
             rows = conn.execute(
                 "SELECT id, order_sn FROM fm_orders "
-                "WHERE IFNULL(domestic_tracking_no, '') = '' "
+                "WHERE (IFNULL(domestic_tracking_no, '') = '' OR domestic_tracking_no = '待补录') "
                 "AND IFNULL(order_sn, '') <> '' ORDER BY id DESC"
             ).fetchall()
             stats["checked"] = len(rows)
@@ -206,7 +206,8 @@ class ShipDocService:
                     continue
                 conn.execute(
                     "UPDATE fm_orders SET domestic_tracking_no = ?, updated_at = ? "
-                    "WHERE id = ? AND IFNULL(domestic_tracking_no, '') = ''",
+                    "WHERE id = ? AND (IFNULL(domestic_tracking_no, '') = '' "
+                    "OR domestic_tracking_no = '待补录')",
                     ("、".join(nos), now_str, int(r["id"])))
                 stats["updated"] += 1
                 if limit and stats["updated"] >= int(limit):

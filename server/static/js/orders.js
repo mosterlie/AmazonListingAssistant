@@ -2333,7 +2333,7 @@ async function openOrderSupplement(orderId) {
   const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   document.getElementById("supPurchaseDate").value = todayStr;
   document.getElementById("supPackageCount").value = 1;
-  document.getElementById("supTrackingNo").value = "";
+  document.getElementById("supTrackingNo").value = "";   // 空着提交 → 后端按「待补录」记录
   modal.style.display = "flex";
   try {
     const body = FM_VARIANT
@@ -2369,7 +2369,8 @@ function collectOrderSupplement() {
   };
   if (!payload.purchase_date) { showToast("请选择采购日期", "error"); return null; }
   if (!(payload.domestic_package_count > 0)) { showToast("请填写国内包裹数量", "error"); return null; }
-  if (!payload.domestic_tracking_no) { showToast("请填写国内单号", "error"); return null; }
+  // 国内单号可不填: 不填按「待补录」记录 (后续发货文档回补会自动替换), 不再阻断提交
+  if (!payload.domestic_tracking_no) payload.domestic_tracking_no = "待补录";
   return payload;
 }
 
@@ -2440,6 +2441,48 @@ const TRACK_MAX_PER_RUN = 1000;   // 单次批量更新轨迹上限
 let syncRunning = false;          // 批量更新进行中 (此时禁止关闭弹窗)
 let syncDone = false;             // 本轮已完成: 按钮变「完成」, 点击只关弹窗
 
+/* 时间范围: 胶囊单选 (替代下拉); 0 = 不限时间 */
+const SYNC_DAY_OPTIONS = [
+  { value: 1, label: "最近 1 天" },
+  { value: 3, label: "最近 3 天" },
+  { value: 7, label: "最近 7 天" },
+  { value: 15, label: "最近 15 天" },
+  { value: 30, label: "最近 30 天" },
+  { value: 90, label: "最近 90 天" },
+  { value: 0, label: "不限时间（全量）" },
+];
+
+function renderSyncDayChips(defaultValue = 1) {
+  const box = document.getElementById("syncDayChips");
+  if (!box) return;
+  box.innerHTML = SYNC_DAY_OPTIONS.map(o => `
+    <label class="sync-day-chip" style="display:inline-flex; align-items:center; gap:5px;
+      padding:5px 12px; border-radius:9999px; border:1px solid #cbd5e1; background:#fff;
+      font-size:0.8rem; color:#334155; cursor:pointer; user-select:none;">
+      <input type="radio" name="syncDayRadio" value="${o.value}"
+        ${o.value === defaultValue ? "checked" : ""} style="width:13px; height:13px; cursor:pointer;">
+      ${escapeHtml(o.label)}
+    </label>`).join("");
+  const paint = () => {
+    box.querySelectorAll("label.sync-day-chip").forEach(lab => {
+      const inp = lab.querySelector("input");
+      const on = !!(inp && inp.checked);
+      lab.style.background = on ? "#eff6ff" : "#fff";
+      lab.style.borderColor = on ? "#93c5fd" : "#cbd5e1";
+      lab.style.color = on ? "#1d4ed8" : "#334155";
+      lab.style.fontWeight = on ? "700" : "400";
+    });
+  };
+  box.querySelectorAll("input").forEach(inp => inp.addEventListener("change", paint));
+  paint();
+}
+
+/* 读取已选范围 (单选): 未选返回 null */
+function readSyncDays() {
+  const el = document.querySelector("#syncDayChips input:checked");
+  return el ? Number(el.value) : null;
+}
+
 function openSyncModal() {
   const box = document.getElementById("syncStatusChecks");
   if (!orderStatusOptions.length) {
@@ -2454,6 +2497,7 @@ function openSyncModal() {
     <label style="display:inline-flex; align-items:center; gap:5px; font-size:0.8rem; color:#334155; cursor:pointer;">
       <input type="checkbox" value="${s.value}" checked style="width:14px; height:14px;"> ${escapeHtml(s.label)}
     </label>`).join("");
+  renderSyncDayChips(1);
   document.getElementById("syncProgress").style.display = "none";
   document.getElementById("syncProgress").innerHTML = "";
   document.getElementById("syncStartBtn").disabled = false;
@@ -2623,7 +2667,8 @@ async function startOrderSync() {
   if (syncDone) { closeSyncModal(); return; }
   const statuses = [...document.querySelectorAll("#syncStatusChecks input:checked")].map(x => x.value);
   if (!statuses.length) { showToast("请至少选择一个订单状态", "error"); return; }
-  const days = Number(document.getElementById("syncDays").value || 0);
+  const days = readSyncDays();
+  if (days === null) { showToast("请至少选择一个时间范围", "error"); return; }
   const withTrack = !!(document.getElementById("syncWithTrack") || {}).checked;
   const withDomestic = !!(document.getElementById("syncWithDomestic") || {}).checked;
   const btn = document.getElementById("syncStartBtn");

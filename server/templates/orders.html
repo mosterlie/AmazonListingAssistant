@@ -295,12 +295,13 @@
           style="margin-top:4px; padding:6px 9px; font-size:0.82rem;" placeholder="1">
       </label>
       <label style="font-size:0.8rem; color:#334155;">
-        国内单号 <span style="color:#dc2626;">*</span>
+        国内单号
         <input type="text" id="supTrackingNo" class="form-input"
-          style="margin-top:4px; padding:6px 9px; font-size:0.82rem;" placeholder="多个单号用英文逗号分隔">
+          style="margin-top:4px; padding:6px 9px; font-size:0.82rem;"
+          placeholder="待补录（不填则默认记为待补录）">
       </label>
       <div style="font-size:0.72rem; color:#94a3b8; line-height:1.6;">
-        💡 三项均为必填；补录信息仅作记录，妙手同步不会覆盖；国内单号支持多个，用英文逗号分隔。
+        💡 采购日期与包裹数量必填；国内单号不填默认记为「待补录」，发货文档回补时会自动替换；
       </div>
     </div>
     <div class="custom-modal-footer">
@@ -467,14 +468,9 @@
     <div class="custom-modal-body" style="padding:16px 20px;">
       <div style="font-size:0.82rem; font-weight:700; color:#334155; margin-bottom:8px;">订单状态</div>
       <div id="syncStatusChecks" style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px;"></div>
-      <div style="font-size:0.82rem; font-weight:700; color:#334155; margin-bottom:8px;">时间范围（按妙手创建时间）</div>
-      <select id="syncDays" class="form-select" style="padding:7px 10px; font-size:0.84rem;">
-        <option value="7">最近 7 天</option>
-        <option value="15" selected>最近 15 天</option>
-        <option value="30">最近 30 天</option>
-        <option value="90">最近 90 天</option>
-        <option value="0">不限时间（全量，较慢）</option>
-      </select>
+      <div style="font-size:0.82rem; font-weight:700; color:#334155; margin-bottom:8px;">
+        时间范围（按妙手创建时间，单选）</div>
+      <div id="syncDayChips" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:4px;"></div>
       <label style="display:flex; align-items:center; gap:6px; margin-top:14px; font-size:0.82rem; color:#334155; cursor:pointer;">
         <input type="checkbox" id="syncWithTrack" checked style="width:15px; height:15px;">
         同时更新运单轨迹（每单约 1 秒，数量多时较慢）
@@ -503,5 +499,5 @@
   const USER_PERMS = {{ user_perms | tojson }};
   function hasPerm(key) { return IS_ADMIN || USER_PERMS.includes(key); }
 </script>
-<script src="/static/js/orders.js?v=20261127_orders168"></script>
+<script src="/static/js/orders.js?v=20261128_orders173"></script>
 {% endblock %}
